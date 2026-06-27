@@ -184,7 +184,7 @@ OLLAMA_MODEL=llama3.2:3b docker compose up
 
 > **Tiny/fastest option:** on a very limited machine, `llama3.2:1b` is the lightest of all (lowest quality, but it runs almost anywhere).
 >
-> The model you choose **must match** the chat-model name you enter in the app's Local-provider setup. The first run downloads the model (small models are ~1–2 GB; large ones can be 20–40 GB), so allow time and disk space. If a model is slow or your computer runs out of memory, drop to the next smaller one. See the [developer run-modes guide](./developer/run-modes-and-deployment.md#local-model-sizing) for full per-model memory figures.
+> The model you choose **must match the pulled tag exactly, including the version suffix** — type the full name into the app's Local-provider setup (e.g. `deepseek-r1:8b`, **not** `deepseek-r1`). If it doesn't match, the app shows a `model '…' not found` error, because Ollama treats the bare name as `:latest`, which wasn't downloaded. The first run downloads the model (small models are ~1–2 GB; large ones can be 20–40 GB), so allow time and disk space. If a model is slow or your computer runs out of memory, drop to the next smaller one. See the [developer run-modes guide](./developer/run-modes-and-deployment.md#local-model-sizing) for full per-model memory figures.
 
 ### What about DeepSeek?
 

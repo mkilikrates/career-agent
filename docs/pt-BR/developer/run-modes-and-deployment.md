@@ -154,6 +154,7 @@ Dicas de dimensionamento:
 - **Estime qualquer modelo:** `FP16 ≈ params(B) × 2 GB`; `Q4_K_M ≈ FP16 × ~0.3`; memória mínima ≈ tamanho Q4_K_M + ~1 GB.
 - **Contextos longos custam memória.** A assistência de IA do Agente de Carreira envia corpora em pedaços; se você atingir falta de memória em um modelo que "deveria caber", reduza o contexto (`num_ctx`) ou defina `OLLAMA_KV_CACHE_TYPE=q8_0` para reduzir aproximadamente pela metade o cache KV.
 - **Na dúvida, diminua.** Um modelo menor com um contexto confortável vence um maior que transborda constantemente para a CPU.
+- **O nome do modelo configurado no app deve coincidir exatamente com a tag baixada, incluindo o sufixo `:tag`.** Se você baixar `deepseek-r1:8b`, defina o modelo de chat do provedor Local do app como `deepseek-r1:8b` — não `deepseek-r1` (o nome sem sufixo resolve para `:latest`, que você não baixou, então a chamada de chat retorna 404 com `model '…' not found`).
 - Sempre verifique a tag exata e o tamanho atual na [biblioteca oficial do Ollama](https://ollama.com/library) antes de baixar — a lista e os tamanhos de quantização mudam com frequência.
 
 > Os números de pegada acima são valores Q4_K_M aproximados, compilados a partir da [biblioteca do Ollama](https://ollama.com/library) e de referências públicas de hardware (por exemplo, a [tabela de RAM/VRAM do Ollama](https://localaimaster.com/blog/ollama-model-ram-vram-table) do Local AI Master, 2026); eles foram reescritos e reformatados para este guia e vão variar conforme os modelos são atualizados.

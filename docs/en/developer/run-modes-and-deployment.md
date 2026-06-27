@@ -154,6 +154,7 @@ Sizing tips:
 - **Estimate any model:** `FP16 ≈ params(B) × 2 GB`; `Q4_K_M ≈ FP16 × ~0.3`; min memory ≈ Q4_K_M size + ~1 GB.
 - **Long contexts cost memory.** Career Agent's AI-assist sends chunked corpora; if you hit out-of-memory on a model that "should fit," lower the context (`num_ctx`) or set `OLLAMA_KV_CACHE_TYPE=q8_0` to roughly halve the KV cache.
 - **When in doubt, size down.** A smaller model at a comfortable context beats a larger one that constantly spills to CPU.
+- **The app's configured model name must match the pulled tag exactly, including the `:tag` suffix.** If you pull `deepseek-r1:8b`, set the app's Local-provider chat model to `deepseek-r1:8b` — not `deepseek-r1` (the bare name resolves to `:latest`, which you didn't pull, so the chat call 404s with `model '…' not found`).
 - Always verify the exact tag and current size against the [official Ollama library](https://ollama.com/library) before pulling — the lineup and quant sizes change frequently.
 
 > Footprint figures above are approximate Q4_K_M values compiled from the [Ollama library](https://ollama.com/library) and public hardware references (e.g. Local AI Master's [Ollama RAM/VRAM table](https://localaimaster.com/blog/ollama-model-ram-vram-table), 2026); they were rephrased and reformatted for this guide and will drift as models are updated.
