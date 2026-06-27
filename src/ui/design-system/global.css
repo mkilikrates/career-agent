@@ -1,0 +1,134 @@
+/*
+ * Global design-system stylesheet (@ui/design-system) — task 29 (R58).
+ *
+ * Loaded once by the shell (main.tsx) so the cross-cutting visual rules apply
+ * uniformly to every phase screen:
+ *   - base typography / colour from the design tokens (R58.1);
+ *   - a single 768px responsive breakpoint with NO horizontal scrolling of page
+ *     content on mobile (R58.3, R58.9);
+ *   - a visible :focus-visible indicator on every focusable control (R58.10);
+ *   - keyboard operability is structural (native controls + logical order).
+ *
+ * The concrete per-element typography/colour/spacing is applied by the shared
+ * components from tokens.ts; this file owns the document-level base, the
+ * responsive container, and the pseudo-class (focus) behaviour that cannot be
+ * expressed as an inline style.
+ */
+
+:root {
+  --ca-font-base: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --ca-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --ca-colour-bg: #ffffff;
+  --ca-colour-surface: #f3f5f7;
+  --ca-colour-text: #1a1d21;
+  --ca-colour-muted: #4a5159;
+  --ca-colour-accent: #0b5cad;
+  --ca-colour-focus: #0b5cad;
+  --ca-space-md: 1rem;
+}
+
+html {
+  /* Never allow page content to scroll horizontally (R58.9). */
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
+
+body {
+  margin: 0;
+  font-family: var(--ca-font-base);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--ca-colour-text);
+  background: var(--ca-colour-bg);
+}
+
+/*
+ * The responsive container primitive. Constrains content to the viewport width
+ * and wraps/stacks so there is no horizontal overflow at any width (R58.9).
+ */
+.ca-container {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: var(--ca-space-md);
+}
+
+/* Media must never force horizontal scrolling on mobile (R58.9). */
+.ca-container img,
+.ca-container pre,
+.ca-container table,
+.ca-container textarea {
+  max-width: 100%;
+}
+
+.ca-container pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/*
+ * A row that becomes a vertical stack below the breakpoint, so controls wrap
+ * instead of overflowing horizontally (R58.9). Desktop keeps them in a row
+ * (R58.3).
+ */
+.ca-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+@media (max-width: 767px) {
+  .ca-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Desktop layout at or above the breakpoint (R58.3). */
+@media (min-width: 768px) {
+  .ca-container {
+    padding: 1.5rem;
+  }
+}
+
+/*
+ * Visible focus indicator on every focusable control (R58.10). :focus-visible
+ * keeps the ring for keyboard users without showing it on mouse click.
+ */
+:focus-visible {
+  outline: 3px solid var(--ca-colour-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Fallback for engines without :focus-visible — still show a focus ring. */
+a:focus,
+button:focus,
+input:focus,
+select:focus,
+textarea:focus,
+[tabindex]:focus {
+  outline: 3px solid var(--ca-colour-focus);
+  outline-offset: 2px;
+}
+
+/* The visually-hidden utility for screen-reader-only text labels (R58.4). */
+.ca-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -1,0 +1,149 @@
+# Career Agent — Docker Compose Full Local Stack Run Mode (Requirements 53, 54, 55)
+#
+# Brings up the static web app alongside fully local model servers so the whole
+# stack runs on the user's own machine. The host browser is OUTSIDE the Compose
+# network, so it reaches each model server only through its HOST-PUBLISHED port
+# (a localhost address) — never via a Compose internal service name (R54.1/54.2).
+#
+# Served web origin: http://localhost:8080. Each model server is configured to
+# allow that exact origin (scheme + host + port) so browser requests succeed
+# (R54.3/54.4).
+#
+# Memory Store ownership: the Memory Store is ALWAYS written by the user's own
+# browser (File System Access tier, or the Fallback tier). NO container or server
+# in this stack ever stores the user's career data. There is deliberately NO
+# Memory Store volume and NO host bind mount anywhere below (R55.2/55.3/55.4).
+#
+# Note: the modern Compose specification omits the obsolete top-level `version:`
+# key, so it is intentionally not declared here.
+
+services:
+  # --- web: static bundle served by unprivileged nginx (R53.1) ---------------
+  # Built from the existing repo-root multi-stage Dockerfile (Vite build stage +
+  # nginx-unprivileged runtime serving only dist/ on 8080). Started by default.
+  web:
+    build: .
+    ports:
+      # Host browser reaches the app at http://localhost:8080 (the served origin).
+      - "8080:8080"
+    # Deliberately NO volumes here: the Web Container never stores user data. The
+    # Memory Store is browser-owned (R55.2/55.4) — no Memory Store volume, no host
+    # bind mount is defined for this service.
+
+  # --- ollama: chat-inference Local Model Server (R53.1) ---------------------
+  # Keyless, OpenAI-compatible chat server. Started by default with the stack.
+  ollama:
+    image: ollama/ollama:0.30.8
+    ports:
+      # Host-published so the browser reaches chat at http://localhost:11434 (R54.1).
+      - "11434:11434"
+    environment:
+      # Allow the exact served web origin so host-browser requests are accepted
+      # by Ollama's allowed-origins check (R54.3).
+      - OLLAMA_ORIGINS=http://localhost:8080
+    volumes:
+      # Named volume holds downloaded model files ONLY — never the user's Memory
+      # Store. Persists models across container restarts (R53.4/R55.3).
+      - ollama_models:/root/.ollama
+    # Mark healthy once the server answers, so the model-puller below waits for
+    # readiness before pulling.
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # --- ollama-pull: one-shot chat-model downloader ---------------------------
+  # The base ollama image ships NO models, so a fresh stack has nothing to chat
+  # with. This short-lived helper waits for the ollama server to be healthy and
+  # pulls the chat model the app is configured to use, then exits. `ollama pull`
+  # is idempotent, so it is a fast no-op on subsequent `up`s once the model is
+  # cached in the ollama_models volume.
+  #
+  # Change the model by setting OLLAMA_MODEL (default `llama3`, matching the
+  # app's default Local-provider chat model), e.g.:
+  #   OLLAMA_MODEL=llama3.2:3b docker compose up
+  # or by editing the default in the `${OLLAMA_MODEL:-llama3}` line below.
+  # Whatever you pull here must match the chat-model name entered in the app's
+  # Local-provider setup.
+  ollama-pull:
+    image: ollama/ollama:0.30.8
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # Talk to the ollama server over the Compose network (container-to-container
+      # is fine here; only the host BROWSER is restricted to host-published ports).
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull ${OLLAMA_MODEL:-llama3}"]
+    restart: "no"
+
+  # --- localai: speech-to-text (whisper) Local Model Server (R53.2/53.3) ------
+  # Optional STT server. Behind the "stt" profile, so it starts ONLY with
+  #   docker compose --profile stt up
+  # and is NOT started by a plain `docker compose up` (R53.3).
+  localai:
+    # Pinned LocalAI tag; bump this as newer releases are validated.
+    image: localai/localai:v3.0.0
+    profiles: ["stt"]
+    depends_on:
+      # Wait for the whisper model to finish downloading before the STT server
+      # starts serving, so the first transcription request succeeds.
+      localai-pull:
+        condition: service_completed_successfully
+    ports:
+      # Host 8081 -> container 8080, so the browser reaches STT at
+      # http://localhost:8081 (matches the host-published STT default, R54.1).
+      - "8081:8080"
+    environment:
+      # Allow the exact served web origin for cross-origin browser requests (R54.4).
+      - CORS=true
+      - CORS_ALLOW_ORIGINS=http://localhost:8080
+      # Pin the models directory explicitly so the named-volume mount below is
+      # independent of the image's internal default path (which changed between
+      # LocalAI v2.x `/build/models` and the v3.x `BASEPATH/models` layout).
+      - LOCALAI_MODELS_PATH=/models
+    volumes:
+      # Named volume holds downloaded model files ONLY — never the user's Memory
+      # Store. Persists models across container restarts (R53.4/R55.3).
+      - localai_models:/models
+
+  # --- localai-pull: one-shot speech-to-text model downloader -----------------
+  # The base localai image ships NO models. This short-lived helper installs the
+  # Whisper STT model from LocalAI's built-in gallery into the shared
+  # localai_models volume, then exits. `local-ai models install` is idempotent,
+  # so it is a fast no-op on subsequent `up`s once the model is cached.
+  #
+  # Also behind the "stt" profile, so it only runs with `--profile stt`.
+  #
+  # Change the model by setting LOCALAI_STT_MODEL (default `whisper-1`, matching
+  # the app's default Local-provider STT model), e.g.:
+  #   LOCALAI_STT_MODEL=whisper-base docker compose --profile stt up
+  # or by editing the default in the `${LOCALAI_STT_MODEL:-whisper-1}` line below.
+  # Whatever you install here must match the STT-model name entered in the app's
+  # Local-provider setup.
+  localai-pull:
+    image: localai/localai:v3.0.0
+    profiles: ["stt"]
+    environment:
+      # Install into the same models directory the localai server reads from.
+      - MODELS_PATH=/models
+    # Do NOT override the entrypoint: the image's /build/entrypoint.sh runs
+    # `exec ./local-ai "$@"`, so these args become `local-ai models install <model>`.
+    # (The binary lives at /build/local-ai and is not on PATH, so a shell wrapper
+    # would fail with exit 127.)
+    command: ["models", "install", "${LOCALAI_STT_MODEL:-whisper-1}"]
+    restart: "no"
+    volumes:
+      # Same named volume as the localai server (model files only, never the
+      # Memory Store) so the installed model is visible to the server.
+      - localai_models:/models
+
+# Named volumes persist ONLY each Local Model Server's downloaded model files
+# (R53.4/R55.3). There is deliberately NO Memory Store volume and NO host folder
+# mount declared anywhere: the Memory Store stays in the browser, owned and
+# written by the user's own browser in every Run Mode (R55.2/55.4).
+volumes:
+  ollama_models:
+  localai_models:

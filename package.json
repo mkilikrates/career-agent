@@ -1,0 +1,46 @@
+{
+  "name": "career-agent",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local-first browser Career Agent (static bundle, no backend).",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:no-fabrication": "vitest run src/core/no-fabrication"
+  },
+  "dependencies": {
+    "@myriaddreamin/typst-ts-web-compiler": "0.5.4",
+    "@myriaddreamin/typst.ts": "0.5.4",
+    "buffer": "6.0.3",
+    "docx": "9.7.1",
+    "gray-matter": "4.0.3",
+    "i18next": "23.16.8",
+    "idb": "8.0.0",
+    "jszip": "3.10.1",
+    "papaparse": "5.5.3",
+    "pdfjs-dist": "4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remark": "15.0.1",
+    "unist-util-visit": "5.0.0",
+    "xstate": "5.19.2"
+  },
+  "devDependencies": {
+    "@types/mdast": "4.0.4",
+    "@types/node": "^22.10.2",
+    "@types/papaparse": "5.5.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "6.0.2",
+    "fast-check": "^3.23.1",
+    "typescript": "^5.6.3",
+    "vite": "8.0.16",
+    "vitest": "4.1.8"
+  }
+}

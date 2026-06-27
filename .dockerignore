@@ -1,0 +1,44 @@
+# Keep the build context minimal and ensure no source, dependencies, local
+# artefacts or tooling leak into image layers. The build stage reinstalls deps
+# with `npm ci` (needs package.json + package-lock.json) and the runtime image
+# only ever receives the built dist/ from the build stage.
+
+# Dependencies (reinstalled inside the build stage via `npm ci`)
+node_modules
+
+# Build output (regenerated inside the build stage via `npm run build`)
+dist
+dist-ssr
+.vite
+
+# Test coverage / reports
+coverage
+
+# VCS
+.git
+.gitignore
+
+# Kiro specs / steering / local agent files
+.kiro
+
+# Tests and test setup (not needed to build the static bundle)
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.setup.ts
+
+# Project specs / docs
+spec
+README.md
+
+# Editor / OS / local artefacts
+.vscode
+.idea
+.DS_Store
+*.local
+
+# Docker files themselves don't belong in the context payload
+Dockerfile
+.dockerignore
+docker-compose*.yml

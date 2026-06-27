@@ -1,0 +1,59 @@
+name: Clean up old container images
+
+# Reclaims GitHub Container Registry storage (free-tier friendly) by deleting
+# stale image versions. Multi-arch children of retained tags are protected
+# automatically by the action (v3.1.0+), and this workflow never deletes a
+# release (`X.Y.Z`) or `latest` tag.
+
+on:
+  schedule:
+    - cron: '0 3 * * 0'   # weekly — Sundays at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (list what would be deleted, delete nothing)'
+        type: boolean
+        default: true
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    name: Delete stale GHCR images
+    runs-on: ubuntu-latest
+    env:
+      CLEANUP_PAT: ${{ secrets.GHCR_CLEANUP_TOKEN }}
+    steps:
+      # Always-safe, no setup required: delete UNTAGGED manifests older than the
+      # cut-off. This never touches a tagged version (latest / sha-* / semver),
+      # and multi-arch children of kept tags are auto-protected. Uses the
+      # built-in GITHUB_TOKEN (which cannot filter by tag — hence untagged-only).
+      - name: Delete untagged images (older than 1 week)
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          account: user
+          token: ${{ secrets.GITHUB_TOKEN }}
+          image-names: ${{ github.event.repository.name }}
+          tag-selection: untagged
+          cut-off: 1w
+          dry-run: ${{ inputs.dry_run || false }}
+
+      # OPTIONAL: also cap the rolling `sha-<commit>` tags, keeping the 10 newest
+      # that are older than the cut-off. The built-in token can't filter by tag,
+      # so this step only runs if you add a classic Personal Access Token with
+      # the `packages:delete` scope as the `GHCR_CLEANUP_TOKEN` repository secret.
+      # It targets ONLY `sha-*` tags, so `latest` and every `X.Y.Z` release tag
+      # are left untouched.
+      - name: Prune old sha- tags (keep newest 10)
+        if: env.CLEANUP_PAT != ''
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          account: user
+          token: ${{ secrets.GHCR_CLEANUP_TOKEN }}
+          image-names: ${{ github.event.repository.name }}
+          tag-selection: tagged
+          image-tags: 'sha-*'
+          cut-off: 2w
+          keep-n-most-recent: 10
+          dry-run: ${{ inputs.dry_run || false }}

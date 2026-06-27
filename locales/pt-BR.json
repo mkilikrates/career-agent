@@ -1,0 +1,483 @@
+{
+  "app": {
+    "title": "Agente de Carreira",
+    "tagline": "Assistente de carreira local. Seus arquivos permanecem no seu dispositivo. Este é um pacote estático, sem servidor de backend.",
+    "privacyNotice": "Seus arquivos permanecem no seu dispositivo. O Agente de Carreira não é totalmente offline: quando você pede para usar um provedor de IA, apenas uma carga mínima e redigida é enviada a esse provedor — nunca os arquivos do seu Repositório de Memória."
+  },
+  "privacy": {
+    "statement": {
+      "heading": "Sua privacidade",
+      "filesOnDevice": "Seus arquivos permanecem no seu dispositivo. O Agente de Carreira lê, grava e armazena o seu Repositório de Memória localmente; ele nunca envia seus arquivos para um servidor de backend.",
+      "notFullyOffline": "O Agente de Carreira não é totalmente offline. Quando você pede para usar um provedor de IA ou de transcrição de voz, apenas uma carga mínima e redigida é enviada ao provedor que você escolheu — nunca os arquivos do seu Repositório de Memória, e nunca para qualquer outro destino.",
+      "fullyOffline": "O Agente de Carreira é totalmente offline. Todos os provedores que você selecionou são Provedores Locais executados no seu próprio dispositivo, portanto nenhuma carga redigida sai do dispositivo — seus arquivos e seus dados permanecem inteiramente na sua máquina.",
+      "trainingExclusion": "Seus dados são excluídos de qualquer uso para treinamento ou aprimoramento de modelos, a menos que você dê consentimento explícito e informado. O consentimento está desativado por padrão e você pode retirá-lo a qualquer momento."
+    },
+    "consent": {
+      "heading": "Treinamento e aprimoramento de modelos",
+      "description": "Permitir que seus dados sejam usados para treinamento ou aprimoramento de modelos. Isso está desativado por padrão; nada é usado para treinamento sem o seu consentimento explícito.",
+      "grant": "Eu consinto com o uso para treinamento/aprimoramento",
+      "revoke": "Retirar consentimento",
+      "statusGranted": "Você consentiu com o uso para treinamento/aprimoramento. Você pode retirar o consentimento a qualquer momento.",
+      "statusExcluded": "Seus dados estão excluídos do uso para treinamento/aprimoramento."
+    },
+    "networkLabel": {
+      "heading": "Operações de rede de terceiros",
+      "none": "Nenhuma operação de rede de terceiros foi executada ainda.",
+      "thirdParty": "Chamada de rede de terceiros",
+      "localOnDevice": "Chamada local no dispositivo"
+    },
+    "clarification": {
+      "incomplete": "Não encontramos um valor para \"{{field}}\" nos seus documentos. Por favor, forneça-o em vez de deixar que façamos suposições.",
+      "ambiguous": "\"{{field}}\" tem valores conflitantes entre os seus documentos. Por favor, escolha o correto em vez de deixar que façamos suposições."
+    }
+  },
+  "language": {
+    "settingsHeading": "Idioma",
+    "detectedPrompt": "Detectamos seu idioma preferido como {{language}}. Está correto?",
+    "choosePrompt": "Escolha o idioma que o Agente de Carreira deve usar para este perfil.",
+    "confirm": "Confirmar",
+    "change": "Alterar idioma",
+    "applied": "Idioma da sessão definido como {{language}}.",
+    "names": {
+      "en": "English",
+      "pt-BR": "Português (Brasil)"
+    }
+  },
+  "provider": {
+    "heading": "Conectar um provedor de IA (sua própria chave)",
+    "intro": "O Agente de Carreira usa a chave do seu próprio provedor de nuvem. O agente não inclui nenhuma chave compartilhada. Sua chave é validada com uma chamada de teste, criptografada e armazenada apenas neste navegador — ela nunca é gravada nos seus arquivos de carreira.",
+    "selectLabel": "Provedor",
+    "errorRecovery": "Verifique os dados e tente novamente. Sua configuração armazenada permanece inalterada.",
+    "keyLabel": "Chave de API",
+    "validateAndSave": "Validar e salvar chave",
+    "remove": "Remover chave armazenada",
+    "stored": "Há uma chave armazenada para este provedor. Você pode substituí-la inserindo uma nova ou removê-la.",
+    "notStored": "Ainda não há chave armazenada para este provedor.",
+    "status": {
+      "validating": "Validando sua chave com uma chamada de teste…",
+      "saved": "Chave validada e armazenada criptografada neste navegador.",
+      "removed": "Chave armazenada removida deste navegador.",
+      "invalid": "Essa chave foi rejeitada: {{reason}}. Verifique-a e tente novamente.",
+      "error": "Algo deu errado: {{reason}}."
+    },
+    "local": {
+      "baseUrlLabel": "URL base",
+      "chatModelLabel": "Modelo de chat",
+      "sttModelLabel": "Modelo de fala para texto",
+      "testConnection": "Testar conexão",
+      "configured": "Este provedor local está configurado e pronto.",
+      "notConfigured": "Este provedor local ainda não foi testado.",
+      "status": {
+        "testing": "Testando a conexão com o seu servidor local…",
+        "tested": "Conexão bem-sucedida — seu provedor local está pronto.",
+        "failed": "Não foi possível acessar o servidor local: {{reason}}. Verifique a URL base e se o seu servidor está em execução."
+      }
+    },
+    "selection": {
+      "heading": "Escolha os provedores por funcionalidade",
+      "intro": "Escolha o provedor de IA/chat e o de fala para texto de forma independente. Por exemplo, use um modelo de chat local e um serviço de transcrição na nuvem, ou o contrário. Apenas os provedores que você conectou acima aparecem aqui.",
+      "chatLabel": "Provedor de IA / chat",
+      "sttLabel": "Provedor de fala para texto",
+      "noneChat": "Conecte um provedor acima para escolher um provedor de IA/chat.",
+      "noneStt": "Conecte um provedor com suporte a fala para texto acima (OpenAI ou um provedor local) para escolher um para transcrição."
+    }
+  },
+  "ingest": {
+    "heading": "Adicione seus documentos de carreira",
+    "intro": "Envie seu currículo, certificados ou exportação do LinkedIn, ou cole texto. Tudo é processado no seu dispositivo — nada é enviado. Cada item recebe um nível de confiança e é rastreado até sua origem.",
+    "checklistHeading": "Documentos recomendados",
+    "assistHeading": "Como devemos montar suas competências?",
+    "assistIntro": "Escolha uma vez, no início, antes de salvar — isso vale para todo o fluxo (competências, vagas, treinamento, saída). Você pode mudar depois em qualquer tela.",
+    "recommended": "recomendado",
+    "fileLabel": "Enviar um arquivo (PDF, Markdown, texto ou ZIP de exportação do LinkedIn)",
+    "addFirst": "➕ Adicionar documentos",
+    "addAnother": "➕ Adicionar outro documento",
+    "multiHint": "Você pode selecionar vários arquivos de uma vez — por exemplo, o ZIP de exportação do LinkedIn, vários currículos e certificados. Adicione mais quando quiser.",
+    "pasteToggle": "Colar texto",
+    "pasteLabel": "…ou cole o texto",
+    "pastePlaceholder": "Cole um currículo ou qualquer texto de carreira aqui.",
+    "pasteButton": "Extrair do texto colado",
+    "processing": "Extraindo…",
+    "rejected": "Esse arquivo não foi aceito: {{message}}",
+    "batchSummary": "{{added}} documento(s) adicionado(s).",
+    "batchRejected": "Não aceitos — {{items}}",
+    "batchErrors": "Erros — {{items}}",
+    "documentCount": "{{count}} documento(s) processado(s).",
+    "removeDocument": "Remover documento",
+    "error": "Algo deu errado: {{reason}}.",
+    "errorRecovery": "Se o arquivo estiver aberto em outro programa (como um editor), feche-o ou salve uma cópia e tente adicioná-lo novamente. Seus itens já extraídos são mantidos.",
+    "saved": "Suas extrações revisadas foram salvas no Repositório de Memória.",
+    "empty": "Nenhuma extração ainda. Envie um documento ou cole texto para começar.",
+    "resultsHeading": "Revise o que extraímos",
+    "aiDocsHeading": "Seus documentos (a IA vai lê-los)",
+    "aiDocsNote": "No modo Somente IA, a IA lê seus documentos decodificados diretamente e detecta suas competências na etapa de Mapa de Competências — não há extração por script para revisar aqui.",
+    "lowConfidence": "{{count}} região(ões) de PDF com baixa confiança foram sinalizadas e excluídas da extração.",
+    "gapsHeading": "Lacunas de emprego detectadas",
+    "gap": "Uma lacuna de cerca de {{months}} mês(es) entre {{after}} ({{start}}) e {{before}} ({{end}}). Lacunas são normais; você pode adicionar contexto depois.",
+    "save": "Salvar extrações no Repositório de Memória",
+    "conversionPreview": {
+      "toggle": "Ver texto convertido",
+      "intro": "Este é o texto completo que convertemos do seu documento, exibido apenas para inspeção. Ele não pode ser editado aqui.",
+      "label": "Texto convertido de {{doc}}",
+      "lowConfidence": "{{count}} região(ões) ficaram incertas durante a extração do PDF e foram deixadas de fora deste texto. Verifique se algo importante está faltando.",
+      "discardHint": "Se a conversão parecer errada, remova este documento acima e cole o texto equivalente.",
+      "none": "Não há texto convertido para pré-visualizar neste documento (por exemplo, um ZIP de exportação do LinkedIn não tem um corpo de texto único)."
+    },
+    "sendControl": {
+      "sectionHeading": "Escolha o que enviar para cada arquivo",
+      "sectionIntro": "Antes que qualquer conteúdo de arquivo possa ser enviado a um provedor de IA, decida por arquivo se envia o arquivo inteiro ou se permite ou oculta cada detecção sensível. Nada é enviado até você confirmar uma escolha.",
+      "heading": "Controle de envio — {{doc}}",
+      "cloudNotice": "Este destino é um provedor em nuvem (terceiro), portanto cada detecção sensível é ocultada por padrão. Permita uma detecção apenas se quiser enviá-la.",
+      "localNotice": "Este destino é um provedor local no seu dispositivo, então nada sai do seu aparelho. Você pode enviar o arquivo inteiro, incluindo valores sensíveis.",
+      "modeLegend": "O que enviar",
+      "wholeFile": "Enviar o arquivo inteiro",
+      "perDetection": "Escolher por detecção",
+      "noDetections": "Nenhuma detecção sensível foi encontrada neste arquivo. Você ainda pode enviar o arquivo inteiro.",
+      "allowed": "Permitido (enviado)",
+      "redacted": "Ocultado (removido)",
+      "confirm": "Confirmar escolha de envio",
+      "confirmed": "Escolha de envio confirmada ✓",
+      "category": {
+        "ssn": "Número de Seguro Social",
+        "nino": "Número de Seguro Nacional",
+        "credit_card": "Número de cartão de crédito",
+        "api_key_or_token": "Chave de API ou token"
+      }
+    },
+    "item": {
+      "confirm": "Confirmar",
+      "confirmed": "confirmado",
+      "delete": "Excluir",
+      "makePrivate": "Marcar como privado",
+      "makePublic": "Desmarcar privado",
+      "privateFlag": "privado"
+    }
+  },
+  "skillMap": {
+    "heading": "Seu mapa de competências",
+    "intro": "Construa um mapa de competências baseado em evidências a partir do que extraímos. Cada competência se liga às evidências que a comprovam.",
+    "needExtractions": "Adicione alguns documentos na fase de Ingestão primeiro e depois volte para gerar seu mapa de competências.",
+    "generate": "Gerar mapa de competências",
+    "generated": "Geradas {{count}} competência(s) a partir das suas evidências.",
+    "evidenceCount": "{{count}} item(ns) de evidência",
+    "manual": {
+      "label": "Adicione suas próprias competências (uma por linha ou separadas por vírgula)",
+      "placeholder": "ex.: Kubernetes, Resposta a Incidentes\nGestão de Stakeholders",
+      "add": "Adicionar minhas competências",
+      "added": "Adicionada(s) {{count}} competência(s) que você inseriu."
+    },
+    "save": "Salvar mapa de competências",
+    "saved": "Mapa de competências salvo no Repositório de Memória.",
+    "ai": {
+      "optIn": "Usar IA para sugerir mais competências (opcional)",
+      "note": "Opcional: apenas itens não privados são enviados, PII é verificada antes, e seus dados não são usados para treinamento a menos que você consinta. As sugestões precisam da sua confirmação para valer.",
+      "noteCloud": "Provedor na nuvem: apenas itens não privados são enviados, PII é verificada antes, e seus dados não são usados para treinamento a menos que você consinta. As sugestões precisam da sua confirmação para valer.",
+      "noteLocal": "Provedor local no dispositivo: o modelo executando na sua própria máquina lê seus documentos completos — incluindo itens privados — para encontrar competências que o extrator estruturado não captou. Nada sai do seu dispositivo. As sugestões ainda precisam da sua confirmação para valer.",
+      "suggest": "✨ Sugerir competências com IA",
+      "working": "Consultando a IA…",
+      "progress": "Consultando a IA… ({{current}}/{{total}})",
+      "suggestionsHeading": "Competências sugeridas pela IA (confirme para adicionar)",
+      "add": "Adicionar competências selecionadas",
+      "added": "{{count}} competência(s) confirmada(s) adicionada(s). Gere o mapa novamente para incluí-las.",
+      "none": "A IA não sugeriu novas competências."
+    }
+  },
+  "roles": {
+    "heading": "Descobrir vagas",
+    "intro": "Sugerimos vagas em regime empregado, freelance e de portfólio, pontuadas em relação às suas competências, com competências correspondentes e lacunas. As pontuações são estimativas.",
+    "needSkillMap": "Gere seu mapa de competências primeiro e depois volte para descobrir vagas compatíveis.",
+    "suggest": "Sugerir vagas",
+    "suggested": "{{count}} vaga(s) sugerida(s).",
+    "manual": {
+      "label": "Adicione suas próprias vagas-alvo (uma por linha ou separadas por vírgula)",
+      "placeholder": "ex.: Staff Engineer, Gerente de Engenharia\nLíder de Plataforma",
+      "add": "Adicionar minhas vagas",
+      "added": "Adicionada(s) {{count}} vaga(s) que você inseriu.",
+      "none": "Essas vagas já estão na sua lista."
+    },
+    "tagLabel": "Etiqueta de interesse para {{title}}",
+    "confirm": "Confirmar vagas selecionadas",
+    "saved": "{{count}} preferência(s) de vaga salva(s) no Repositório de Memória.",
+    "confirmedList": "Suas vagas: {{roles}}",
+    "tag": {
+      "actively_applying": "Candidatando ativamente",
+      "exploring": "Explorando",
+      "practice_only": "Apenas prática"
+    },
+    "ai": {
+      "optIn": "Usar IA para recomendar vagas (opcional)",
+      "note": "Opcional: apenas os nomes das suas competências são enviados, PII é verificada antes, e seus dados não são usados para treinamento a menos que você consinta. As vagas da IA são consultivas até você adicioná-las.",
+      "recommend": "✨ Recomendar vagas com IA",
+      "working": "Consultando a IA…",
+      "recommendationsHeading": "Vagas recomendadas pela IA",
+      "add": "Adicionar como vaga",
+      "added": "\"{{title}}\" adicionada às suas vagas.",
+      "duplicate": "\"{{title}}\" já está nas suas vagas.",
+      "advisory": "Estas são sugestões da IA. As vagas adicionadas são pontuadas em relação às suas competências reais; nada é inventado nas suas saídas.",
+      "none": "A IA não recomendou nenhuma vaga."
+    }
+  },
+  "coaching": {
+    "heading": "Treino de entrevista",
+    "intro": "Pratique respostas STAR baseadas na sua vaga-alvo, um elemento por vez. Transformamos suas próprias palavras em um ponto de fala refinado — nunca inventamos fatos. Seu progresso é salvo automaticamente.",
+    "needRoles": "Confirme pelo menos uma vaga-alvo (e um mapa de competências) primeiro e depois volte para praticar.",
+    "roleLabel": "Vaga",
+    "star": {
+      "situation": "Situação",
+      "task": "Tarefa",
+      "action": "Ação",
+      "result": "Resultado"
+    },
+    "submit": "Enviar resposta",
+    "softClose": "Encerrar parcialmente (sinalizar o que falta)",
+    "pass": "Pular esta pergunta",
+    "answerComplete": "Os quatro elementos STAR foram capturados. Refine e confirme seu ponto de fala abaixo.",
+    "sessionDone": "Você chegou ao fim das perguntas desta vaga.",
+    "refine": "Refinar em um ponto de fala",
+    "draftHeading": "Ponto de fala refinado",
+    "polished": "Refinado",
+    "noContent": "Adicione conteúdo de resposta acima e depois refine.",
+    "extraSkills": "Competências que este ponto demonstra (separadas por vírgula, opcional)",
+    "confirm": "Confirmar ponto de fala",
+    "confirmed": "Ponto de fala {{id}} confirmado.",
+    "confirmedHeading": "Pontos de fala confirmados",
+    "ai": {
+      "suggest": "✨ Sugerir perguntas de prática com IA",
+      "working": "Perguntando à IA…",
+      "heading": "Perguntas de prática da IA (complementam as perguntas do script)",
+      "advisory": "Estas são apenas perguntas de prática da IA. Elas complementam — nunca substituem — as perguntas baseadas no cargo, e não são adicionadas à sua base de conhecimento.",
+      "explainerHeading": "Prática STAR com coaching de IA",
+      "explainer": "Escolha uma pergunta e responda com suas próprias palavras, digitando ou gravando áudio. A IA verifica se você cobriu a Situação, a Tarefa, a Ação e o Resultado, e faz perguntas de acompanhamento focadas até sua resposta ficar completa. Usamos apenas as suas próprias palavras — nunca inventamos fatos.",
+      "practise": "Praticar esta pergunta"
+    },
+    "loop": {
+      "heading": "Coaching STAR",
+      "working": "Verificando sua resposta…",
+      "followUp": "Acompanhamento",
+      "firstAnswer": "Responda com suas próprias palavras — descreva o contexto, sua tarefa, o que você fez e como terminou.",
+      "progress": "Acompanhamento {{count}} de até {{max}}.",
+      "answerLabel": "Sua resposta",
+      "submit": "Enviar resposta",
+      "stop": "Parar aqui",
+      "capReached": "Você atingiu o limite de {{max}} acompanhamentos. Você pode se aprofundar com mais um acompanhamento ou parar aqui.",
+      "digDeeper": "Aprofundar",
+      "failed": "A assistência de IA ficou indisponível: {{reason}}. Sua resposta foi mantida — tente enviar novamente.",
+      "summaryFailed": "Não foi possível gerar o resumo: {{reason}}. Você ainda pode confirmar um ponto de fala abaixo.",
+      "summaryHeading": "Resumo da resposta",
+      "competency": "Competência",
+      "summaryLabel": "Resumo",
+      "starLabel": "Cobertura STAR",
+      "skillsLabel": "Competências evidenciadas",
+      "tipsLabel": "Dicas para melhorar",
+      "done": "Concluído — voltar às perguntas",
+      "reason": {
+        "enough": "Sua resposta cobre todo o modelo STAR. Bom trabalho.",
+        "no-follow-up": "Sem mais acompanhamentos — aqui está seu resumo.",
+        "cap-reached": "Parou no limite de acompanhamentos. Aqui está seu resumo.",
+        "user-stop": "Parou a seu pedido. Aqui está seu resumo até agora."
+      }
+    },
+    "audio": {
+      "heading": "Responder por áudio (envio de MP3/WAV)",
+      "noProvider": "Conecte uma chave da OpenAI na configuração de provedor para transcrever respostas em áudio.",
+      "transcribing": "Transcrevendo seu áudio pelo seu provedor…",
+      "confirm": "Revise e corrija a transcrição antes de usá-la:",
+      "use": "Usar esta transcrição",
+      "translate": "Traduzir a resposta para o inglês",
+      "failed": "Falha na transcrição: {{reason}}",
+      "record": {
+        "intro": "Grave sua resposta com o microfone. Pedimos permissão de microfone primeiro e nunca capturamos vídeo.",
+        "start": "Iniciar gravação",
+        "recording": "Gravando… diga sua resposta e depois pare.",
+        "stop": "Parar e transcrever",
+        "discard": "Descartar gravação",
+        "reRecord": "Regravar",
+        "transcribe": "Transcrever gravação",
+        "denied": "A permissão de microfone não foi concedida, então a gravação está indisponível. Você pode enviar um arquivo de áudio ou digitar sua resposta.",
+        "rejected": "Não foi possível usar a gravação: {{reason}}",
+        "fallback": "A gravação está indisponível — alternamos para o envio de áudio. Você também pode digitar sua resposta."
+      }
+    },
+    "answerMode": {
+      "label": "Como você quer responder?",
+      "text": "Digitar sua resposta",
+      "upload": "Enviar um arquivo de áudio",
+      "record": "Gravar áudio no navegador"
+    },
+    "sync": {
+      "heading": "Atualizar mapa de competências com esta sessão",
+      "detect": "Detectar competências reveladas nesta sessão",
+      "intro": "Estas competências apareceram nas suas respostas confirmadas, mas ainda não estão no mapa. Confirme as que deseja adicionar — cada uma precisa de uma vaga/projeto e tempo aproximado.",
+      "roleOrProject": "Vaga ou projeto",
+      "skillNameLabel": "Nome da competência",
+      "when": "Quando (ex.: 2023)",
+      "apply": "Adicionar competências confirmadas ao mapa",
+      "added": "{{count}} competência(s) adicionada(s) ao seu mapa.",
+      "none": "Nenhuma competência nova foi revelada nesta sessão."
+    }
+  },
+  "output": {
+    "heading": "Gerar seu currículo",
+    "intro": "Construa um currículo adaptado a uma vaga-alvo a partir das suas evidências confirmadas, além de um relatório consultivo do LinkedIn. Cada linha é rastreável às suas evidências.",
+    "needRoles": "Confirme uma vaga-alvo e um mapa de competências primeiro e depois volte para gerar as saídas.",
+    "roleLabel": "Vaga-alvo",
+    "generate": "Gerar currículo e relatório do LinkedIn",
+    "cvHeading": "Currículo (Markdown)",
+    "downloadMd": "Baixar Markdown (.md)",
+    "downloadDocx": "Baixar Word (.docx)",
+    "downloadPdf": "Baixar PDF (.pdf)",
+    "pdfNote": "O PDF é diagramado localmente no seu dispositivo (Typst via WebAssembly) — coluna única, compatível com ATS, com camada de texto selecionável. O primeiro PDF pode levar alguns segundos para carregar o diagramador.",
+    "pdfGenerating": "Diagramando PDF…",
+    "pdfReady": "PDF pronto — o download deve começar.",
+    "pdfFailed": "Falha ao diagramar o PDF: {{reason}}. Seus arquivos Markdown e Word não são afetados.",
+    "linkedInHeading": "Relatório de melhoria do LinkedIn (consultivo)",
+    "save": "Salvar saídas no Repositório de Memória",
+    "saved": "Seu currículo e relatório do LinkedIn foram salvos no Repositório de Memória.",
+    "scriptOnlyUsed": "A geração foi feita apenas por script — seu currículo foi montado de forma determinística a partir das suas evidências confirmadas, sem chamada de IA.",
+    "aiTailoredUsed": "A personalização assistida por IA foi usada. Seu currículo continua sendo montado apenas a partir das suas evidências confirmadas; as notas da IA abaixo são orientativas.",
+    "opportunity": {
+      "legend": "Vaga-alvo (opcional)",
+      "question": "Você tem uma Vaga-alvo (um anúncio de vaga específico) para adaptar este currículo?",
+      "none": "Sem Vaga-alvo — gerar a partir das minhas evidências",
+      "paste": "Colar o anúncio da vaga",
+      "upload": "Enviar o anúncio da vaga",
+      "pasteLabel": "Detalhes do anúncio da vaga",
+      "pastePlaceholder": "Cole o texto do anúncio da vaga aqui…",
+      "note": "O anúncio é apenas um alvo de personalização — nunca uma fonte de fatos. Ele passa pela triagem de PII no Portão de Saída e, para um provedor em nuvem, itens privados são excluídos. Nada do anúncio é adicionado ao seu currículo."
+    },
+    "sections": {
+      "summary": "Resumo",
+      "experience": "Experiência",
+      "education": "Formação",
+      "skills": "Competências",
+      "certifications": "Certificações",
+      "languages": "Idiomas",
+      "projects": "Projetos"
+    },
+    "ai": {
+      "tailor": "✨ Sugerir personalização do currículo com IA",
+      "working": "Perguntando à IA…",
+      "heading": "Sugestões de personalização da IA (orientativas)",
+      "advisory": "Estas são sugestões orientativas da IA. Seu currículo é montado apenas a partir das evidências confirmadas; nada aqui o altera, a menos que você aplique."
+    }
+  },
+  "memory": {
+    "heading": "Memória e manutenção",
+    "intro": "Seu Repositório de Memória fica no seu dispositivo. Exporte-o para backup ou importe um snapshot anterior.",
+    "export": "Exportar Repositório de Memória (JSON)",
+    "import": "Importar um snapshot",
+    "exported": "Repositório de Memória exportado.",
+    "imported": "{{count}} arquivo(s) importado(s) para o seu Repositório de Memória.",
+    "filesHeading": "Arquivos armazenados",
+    "noFiles": "Nenhum arquivo armazenado ainda.",
+    "logHeading": "Registro da sessão",
+    "noLog": "Nenhuma atividade de sessão registrada ainda.",
+    "error": "Não foi possível importar esse snapshot: {{reason}}.",
+    "errorRecovery": "Verifique se o arquivo é um snapshot válido do Agente de Carreira e tente importar novamente. Seu Repositório de Memória atual permanece inalterado."
+  },
+  "assist": {
+    "modeLegend": "Assistência de IA para esta etapa",
+    "scriptOnly": "Somente script (sem IA)",
+    "aiAssisted": "Script + assistência de IA",
+    "aiOnly": "Somente IA",
+    "scriptOnlyHint": "Executa inteiramente no seu dispositivo, sem chamadas ao provedor.",
+    "unavailable": "Conecte um provedor de IA acima para habilitar a assistência de IA.",
+    "networkLocal": "Chamada local no dispositivo para {{provider}} — sem envio a terceiros; a carga minimizada e filtrada de PII permanece no seu dispositivo. As sugestões precisam da sua confirmação antes de valer.",
+    "networkThirdParty": "Chamada de rede a terceiros para {{provider}} — apenas uma carga minimizada e filtrada de PII é enviada. As sugestões precisam da sua confirmação antes de valer.",
+    "fallback": "A assistência de IA ficou indisponível ({{reason}}). Mostrando o resultado somente-script para você continuar.",
+    "languageDirective": "Escreva toda a sua resposta em português do Brasil (pt-BR). Mantenha termos técnicos, nomes de ferramentas e nomes próprios inalterados."
+  },
+  "payloadPreview": {
+    "heading": "Revise o que será enviado",
+    "intro": "Antes que este texto seja enviado para {{provider}}, revise-o abaixo. Você pode editar ou remover qualquer conteúdo que não queira transmitir. Apenas o texto que você aprovar será enviado — e ele ainda passa pela filtragem de PII antes de sair do seu dispositivo.",
+    "textareaLabel": "Texto a ser enviado",
+    "approve": "Aprovar e enviar",
+    "cancel": "Cancelar — não enviar nada"
+  },
+  "messages": {
+    "saved": "Salvo.",
+    "loading": "Carregando…",
+    "confirmToContinue": "Confirme para continuar.",
+    "noNetworkExceptProvider": "Nenhuma requisição de rede é feita, exceto através do Portão de Saída para o provedor escolhido."
+  },
+  "prompts": {
+    "ingestion": {
+      "checklistIntro": "Antes de começar, reúna estes documentos para obter os melhores resultados.",
+      "uploadPrompt": "Envie um documento para extrair sua experiência.",
+      "reviewIntro": "Revise o que extraímos. Confirme, edite ou remova cada item."
+    },
+    "coaching": {
+      "situation": "Descreva a situação. Qual era o contexto?",
+      "task": "Qual era a sua tarefa ou responsabilidade?",
+      "action": "Quais ações você tomou?",
+      "result": "Qual foi o resultado?",
+      "openFollowUp": "Conte-me mais sobre isso.",
+      "softClose": "Podemos pausar aqui e voltar a isso mais tarde.",
+      "pass": "Podemos pular esta pergunta por enquanto."
+    }
+  },
+  "review": {
+    "steps": {
+      "extraction": "Revise as informações extraídas",
+      "skillMap": "Revise seu mapa de competências",
+      "roles": "Revise as funções sugeridas",
+      "coaching": "Treinamento para entrevista",
+      "output": "Revise seu currículo"
+    },
+    "actions": {
+      "confirm": "Confirmar",
+      "edit": "Editar",
+      "delete": "Excluir",
+      "add": "Adicionar",
+      "markPrivate": "Marcar como privado"
+    }
+  },
+  "wizard": {
+    "heading": "Seu pipeline de seis fases",
+    "intro": "Avance por cada fase ou salte diretamente para qualquer fase. O Agente de Carreira salva seu progresso após cada etapa confirmada.",
+    "navLabel": "Fases do pipeline",
+    "previousPhase": "Fase anterior",
+    "nextPhase": "Próxima fase",
+    "goToPrevious": "Ir para a fase anterior: {{phase}}",
+    "goToNext": "Ir para a próxima fase: {{phase}}",
+    "currentPhase": "Fase atual: {{phase}}",
+    "confirmAndContinue": "Confirmar e continuar",
+    "confirmed": "Fase \"{{phase}}\" confirmada e salva.",
+    "lastPhaseFinal": "Esta é a fase final do pipeline.",
+    "phase": {
+      "ingest": "Ingestão",
+      "skill-map": "Mapa de Competências",
+      "role-discovery": "Descoberta de Funções",
+      "interview-coaching": "Treinamento para Entrevista",
+      "output": "Geração de Saída",
+      "memory": "Memória e Manutenção"
+    },
+    "status": {
+      "pending": "Não iniciada",
+      "in-progress": "Em andamento",
+      "complete": "Concluída"
+    },
+    "outstanding": {
+      "heading": "Itens pendentes",
+      "none": "Nada pendente. Você está em dia.",
+      "unanswered-question": "Pergunta não respondida",
+      "flagged-talking-point": "Ponto de discussão sinalizado",
+      "unreviewed-skill": "Competência não revisada",
+      "unresolved-conflict": "Conflito não resolvido"
+    }
+  },
+  "inspector": {
+    "heading": "Inspetor de rastreamento de origem",
+    "intro": "Inspecione qualquer afirmação para ver exatamente de onde ela veio. Informe uma referência de afirmação (por exemplo BULLET-01, STAR-01 ou um id de competência) para ver seu rastreamento de origem.",
+    "refLabel": "Referência da afirmação",
+    "inspect": "Inspecionar",
+    "empty": "Informe uma referência de afirmação para inspecionar seu rastreamento de origem.",
+    "unresolved": "Nenhum rastreamento de origem encontrado para \"{{ref}}\". Esta afirmação não corresponde a nenhuma proveniência registrada.",
+    "resolvedHeading": "Rastreamento de origem de {{ref}}",
+    "citation": {
+      "sourceLine": "Documento de origem {{doc}}, linha {{line}}: \"{{quote}}\"",
+      "userConfirmation": "Você confirmou isto em {{at}}: {{note}}",
+      "interviewAnswer": "Da sua resposta de entrevista confirmada {{star}}"
+    }
+  }
+}

@@ -1,0 +1,483 @@
+{
+  "app": {
+    "title": "Career Agent",
+    "tagline": "Local-first career assistant. Your files stay on your device. This is a static bundle with no backend server.",
+    "privacyNotice": "Your files stay on your device. Career Agent is not fully offline: when you ask it to use an AI provider, only a minimised, redacted payload is sent to that provider — never your Memory Store files."
+  },
+  "privacy": {
+    "statement": {
+      "heading": "Your privacy",
+      "filesOnDevice": "Your files stay on your device. Career Agent reads, writes, and stores your Memory Store locally; it never uploads your files to a backend server.",
+      "notFullyOffline": "Career Agent is not fully offline. When you ask it to use an AI or speech-to-text provider, only a minimised, redacted payload is sent to the provider you chose — never your Memory Store files, and never any other destination.",
+      "fullyOffline": "Career Agent is fully offline. Every provider you selected is a Local Provider running on your own device, so no redacted payload leaves the device — your files and your data stay entirely on your machine.",
+      "trainingExclusion": "Your data is excluded from any model training or improvement use unless you give explicit, informed consent. Consent is off by default and you can withdraw it at any time."
+    },
+    "consent": {
+      "heading": "Model training and improvement",
+      "description": "Allow your data to be used for model training or improvement. This is off by default; nothing is used for training without your explicit consent.",
+      "grant": "I consent to training/improvement use",
+      "revoke": "Withdraw consent",
+      "statusGranted": "You have consented to training/improvement use. You can withdraw consent at any time.",
+      "statusExcluded": "Your data is excluded from training/improvement use."
+    },
+    "networkLabel": {
+      "heading": "Third-party network operations",
+      "none": "No third-party network operation has run yet.",
+      "thirdParty": "Third-party network call",
+      "localOnDevice": "Local on-device call"
+    },
+    "clarification": {
+      "incomplete": "We could not find a value for \"{{field}}\" in your documents. Please provide it rather than letting us assume.",
+      "ambiguous": "\"{{field}}\" has conflicting values across your documents. Please choose the correct one rather than letting us assume."
+    }
+  },
+  "language": {
+    "settingsHeading": "Language",
+    "detectedPrompt": "We detected your preferred language as {{language}}. Is that correct?",
+    "choosePrompt": "Choose the language Career Agent should use for this profile.",
+    "confirm": "Confirm",
+    "change": "Change language",
+    "applied": "Session language set to {{language}}.",
+    "names": {
+      "en": "English",
+      "pt-BR": "Português (Brasil)"
+    }
+  },
+  "provider": {
+    "heading": "Connect an AI provider (your own key)",
+    "intro": "Career Agent uses your own cloud provider key. The agent ships no shared key. Your key is validated with a test call, encrypted, and stored only in this browser — it is never written into your career files.",
+    "selectLabel": "Provider",
+    "errorRecovery": "Check the details and try again. Your stored configuration is unchanged.",
+    "keyLabel": "API key",
+    "validateAndSave": "Validate and save key",
+    "remove": "Remove stored key",
+    "stored": "A key is stored for this provider. You can replace it by entering a new one, or remove it.",
+    "notStored": "No key is stored for this provider yet.",
+    "status": {
+      "validating": "Validating your key with a test call…",
+      "saved": "Key validated and stored encrypted in this browser.",
+      "removed": "Stored key removed from this browser.",
+      "invalid": "That key was rejected: {{reason}}. Please check it and try again.",
+      "error": "Something went wrong: {{reason}}."
+    },
+    "local": {
+      "baseUrlLabel": "Base URL",
+      "chatModelLabel": "Chat model",
+      "sttModelLabel": "Speech-to-text model",
+      "testConnection": "Test connection",
+      "configured": "This local provider is configured and ready.",
+      "notConfigured": "This local provider has not been tested yet.",
+      "status": {
+        "testing": "Testing the connection to your local server…",
+        "tested": "Connection successful — your local provider is ready.",
+        "failed": "Could not reach the local server: {{reason}}. Check the base URL and that your server is running."
+      }
+    },
+    "selection": {
+      "heading": "Choose providers per capability",
+      "intro": "Pick the provider for AI/chat and the one for speech-to-text independently. For example, use a local chat model and a cloud transcription service, or the reverse. Only providers you have connected above appear here.",
+      "chatLabel": "AI / chat provider",
+      "sttLabel": "Speech-to-text provider",
+      "noneChat": "Connect a provider above to choose an AI/chat provider.",
+      "noneStt": "Connect a speech-to-text capable provider above (OpenAI or a local provider) to choose one for transcription."
+    }
+  },
+  "ingest": {
+    "heading": "Add your career documents",
+    "intro": "Upload your CV, certificates, or LinkedIn export, or paste text. Everything is parsed on your device — nothing is uploaded. Each item is rated by confidence and traced to its source.",
+    "checklistHeading": "Recommended documents",
+    "assistHeading": "How should we build your skills?",
+    "assistIntro": "Choose once, up front, before saving — this applies across the whole pipeline (skills, roles, coaching, output). You can change it later on any screen.",
+    "recommended": "recommended",
+    "fileLabel": "Upload a file (PDF, Markdown, text, or LinkedIn export ZIP)",
+    "addFirst": "➕ Add documents",
+    "addAnother": "➕ Add another document",
+    "multiHint": "You can select several files at once — e.g. your LinkedIn export ZIP, multiple CVs, and certificates. Add more any time.",
+    "pasteToggle": "Paste text instead",
+    "pasteLabel": "…or paste text instead",
+    "pastePlaceholder": "Paste a CV or any career text here.",
+    "pasteButton": "Extract from pasted text",
+    "processing": "Extracting…",
+    "rejected": "That file was not accepted: {{message}}",
+    "batchSummary": "Added {{added}} document(s).",
+    "batchRejected": "Not accepted — {{items}}",
+    "batchErrors": "Errors — {{items}}",
+    "documentCount": "{{count}} document(s) ingested.",
+    "removeDocument": "Remove document",
+    "error": "Something went wrong: {{reason}}.",
+    "errorRecovery": "If the file is open in another program (like an editor), close it or save a copy, then add it again. Your already-extracted items are kept.",
+    "saved": "Saved your reviewed extractions to the Memory Store.",
+    "empty": "No extractions yet. Upload a document or paste text to begin.",
+    "resultsHeading": "Review what we extracted",
+    "aiDocsHeading": "Your documents (the AI will read these)",
+    "aiDocsNote": "In AI-only mode the AI reads your decoded documents directly and detects your skills in the Skill Map step — there is no script extraction to review here.",
+    "lowConfidence": "{{count}} low-confidence PDF region(s) were flagged and excluded from extraction.",
+    "gapsHeading": "Detected employment gaps",
+    "gap": "A gap of about {{months}} month(s) between {{after}} ({{start}}) and {{before}} ({{end}}). Gaps are normal; you can add context later.",
+    "save": "Save extractions to Memory Store",
+    "conversionPreview": {
+      "toggle": "View converted text",
+      "intro": "This is the full text we converted from your document, shown for inspection only. It cannot be edited here.",
+      "label": "Converted text for {{doc}}",
+      "lowConfidence": "{{count}} region(s) were uncertain during PDF extraction and were left out of this text. Check whether anything important is missing.",
+      "discardHint": "If the conversion looks wrong, remove this document above and paste the equivalent text instead.",
+      "none": "There is no converted text to preview for this document (for example, a LinkedIn export ZIP has no single text body)."
+    },
+    "sendControl": {
+      "sectionHeading": "Choose what to send for each file",
+      "sectionIntro": "Before any file content could be sent to an AI provider, decide per file whether to send the whole file or to allow or redact each sensitive detection. Nothing is sent until you confirm a choice.",
+      "heading": "Send control — {{doc}}",
+      "cloudNotice": "This destination is a cloud (third-party) provider, so every sensitive detection is redacted by default. Allow a detection only if you want it sent.",
+      "localNotice": "This destination is a local on-device provider, so nothing leaves your device. You can send the whole file, including sensitive values.",
+      "modeLegend": "What to send",
+      "wholeFile": "Send the whole file",
+      "perDetection": "Choose per detection",
+      "noDetections": "No sensitive detections were found in this file. You can still send the whole file.",
+      "allowed": "Allowed (sent)",
+      "redacted": "Redacted (removed)",
+      "confirm": "Confirm send choice",
+      "confirmed": "Send choice confirmed ✓",
+      "category": {
+        "ssn": "Social Security Number",
+        "nino": "National Insurance Number",
+        "credit_card": "Credit card number",
+        "api_key_or_token": "API key or token"
+      }
+    },
+    "item": {
+      "confirm": "Confirm",
+      "confirmed": "confirmed",
+      "delete": "Delete",
+      "makePrivate": "Mark private",
+      "makePublic": "Unmark private",
+      "privateFlag": "private"
+    }
+  },
+  "skillMap": {
+    "heading": "Your skill map",
+    "intro": "Build an evidence-backed map of your skills from what we extracted. Each skill links to its supporting evidence.",
+    "needExtractions": "Add some documents in the Ingest phase first, then come back to generate your skill map.",
+    "generate": "Generate skill map",
+    "generated": "Generated {{count}} skill(s) from your evidence.",
+    "evidenceCount": "{{count}} evidence item(s)",
+    "manual": {
+      "label": "Add your own skills (one per line or comma-separated)",
+      "placeholder": "e.g. Kubernetes, Incident Response\nStakeholder Management",
+      "add": "Add my skills",
+      "added": "Added {{count}} skill(s) you entered."
+    },
+    "save": "Save skill map",
+    "saved": "Skill map saved to the Memory Store.",
+    "ai": {
+      "optIn": "Use AI to suggest more skills (opt-in)",
+      "note": "Opt-in: only non-private items are sent, PII is screened first, and your data is not used for training unless you consent. Suggestions need your confirmation before they count.",
+      "noteCloud": "Cloud provider: only non-private items are sent, PII is screened first, and your data is not used for training unless you consent. Suggestions need your confirmation before they count.",
+      "noteLocal": "Local on-device provider: the model running on your own machine reads your full documents — including private items — to find skills the structured extractor missed. Nothing leaves your device. Suggestions still need your confirmation before they count.",
+      "suggest": "✨ Suggest skills with AI",
+      "working": "Asking the AI…",
+      "progress": "Asking the AI… ({{current}}/{{total}})",
+      "suggestionsHeading": "AI-suggested skills (confirm to add)",
+      "add": "Add selected skills",
+      "added": "Added {{count}} confirmed skill(s). Regenerate the map to include them.",
+      "none": "The AI did not suggest any new skills."
+    }
+  },
+  "roles": {
+    "heading": "Discover roles",
+    "intro": "We suggest employed, freelance, and portfolio roles scored against your skills, with matched skills and gaps. Scores are estimates.",
+    "needSkillMap": "Generate your skill map first, then come back to discover matching roles.",
+    "suggest": "Suggest roles",
+    "suggested": "Suggested {{count}} role(s).",
+    "manual": {
+      "label": "Add your own target roles (one per line or comma-separated)",
+      "placeholder": "e.g. Staff Engineer, Engineering Manager\nPlatform Lead",
+      "add": "Add my roles",
+      "added": "Added {{count}} role(s) you entered.",
+      "none": "Those roles are already in your list."
+    },
+    "tagLabel": "Interest tag for {{title}}",
+    "confirm": "Confirm selected roles",
+    "saved": "Saved {{count}} role preference(s) to the Memory Store.",
+    "confirmedList": "Your roles: {{roles}}",
+    "tag": {
+      "actively_applying": "Actively applying",
+      "exploring": "Exploring",
+      "practice_only": "Practice only"
+    },
+    "ai": {
+      "optIn": "Use AI to recommend roles (opt-in)",
+      "note": "Opt-in: only your skill names are sent, PII is screened first, and your data is not used for training unless you consent. AI roles are advisory until you add them.",
+      "recommend": "✨ Recommend roles with AI",
+      "working": "Asking the AI…",
+      "recommendationsHeading": "AI-recommended roles",
+      "add": "Add as role",
+      "added": "Added \"{{title}}\" to your roles.",
+      "duplicate": "\"{{title}}\" is already in your roles.",
+      "advisory": "These are AI suggestions. Added roles are scored against your real skills; nothing is fabricated into your outputs.",
+      "none": "The AI did not recommend any roles."
+    }
+  },
+  "coaching": {
+    "heading": "Interview coaching",
+    "intro": "Practise STAR answers grounded in your target role, one element at a time. We turn your own words into a polished talking point — we never invent facts. Your progress saves automatically.",
+    "needRoles": "Confirm at least one target role (and a skill map) first, then come back to practise.",
+    "roleLabel": "Role",
+    "star": {
+      "situation": "Situation",
+      "task": "Task",
+      "action": "Action",
+      "result": "Result"
+    },
+    "submit": "Submit answer",
+    "softClose": "Soft-close (flag what's missing)",
+    "pass": "Pass this question",
+    "answerComplete": "All four STAR elements captured. Refine and confirm your talking point below.",
+    "sessionDone": "You've reached the end of this role's questions.",
+    "refine": "Refine into a talking point",
+    "draftHeading": "Refined talking point",
+    "polished": "Polished",
+    "noContent": "Add some answer content above, then refine.",
+    "extraSkills": "Skills this point demonstrates (comma-separated, optional)",
+    "confirm": "Confirm talking point",
+    "confirmed": "Confirmed talking point {{id}}.",
+    "confirmedHeading": "Confirmed talking points",
+    "ai": {
+      "suggest": "✨ Suggest practice questions with AI",
+      "working": "Asking the AI…",
+      "heading": "AI practice questions (supplement the script questions)",
+      "advisory": "These are AI practice prompts only. They supplement — never replace — the role-grounded script questions, and are not added to your knowledge base.",
+      "explainerHeading": "STAR practice with AI coaching",
+      "explainer": "Pick a question, then answer in your own words by typing or recording audio. The AI checks whether you covered the Situation, Task, Action, and Result, and asks focused follow-ups until your answer is complete. We only ever use your own words — we never invent facts.",
+      "practise": "Practise this question"
+    },
+    "loop": {
+      "heading": "STAR coaching",
+      "working": "Checking your answer…",
+      "followUp": "Follow-up",
+      "firstAnswer": "Answer in your own words — set the scene, your task, what you did, and how it turned out.",
+      "progress": "Follow-up {{count}} of up to {{max}}.",
+      "answerLabel": "Your answer",
+      "submit": "Submit answer",
+      "stop": "Stop here",
+      "capReached": "You've reached the {{max}}-follow-up limit. You can dig deeper with one more follow-up, or stop here.",
+      "digDeeper": "Dig deeper",
+      "failed": "AI assist was unavailable: {{reason}}. Your answer is kept — try submitting again.",
+      "summaryFailed": "Couldn't generate the summary: {{reason}}. You can still confirm a talking point below.",
+      "summaryHeading": "Answer summary",
+      "competency": "Competency",
+      "summaryLabel": "Summary",
+      "starLabel": "STAR coverage",
+      "skillsLabel": "Skills evidenced",
+      "tipsLabel": "Tips to improve",
+      "done": "Done — back to questions",
+      "reason": {
+        "enough": "Your answer covers the full STAR model. Nice work.",
+        "no-follow-up": "No further follow-ups — here's your summary.",
+        "cap-reached": "Stopped at the follow-up limit. Here's your summary.",
+        "user-stop": "Stopped at your request. Here's your summary so far."
+      }
+    },
+    "audio": {
+      "heading": "Answer by audio instead (MP3/WAV upload)",
+      "noProvider": "Connect an OpenAI key in the provider setup to transcribe audio answers.",
+      "transcribing": "Transcribing your audio via your provider…",
+      "confirm": "Review and correct the transcription before it is used:",
+      "use": "Use this transcription",
+      "translate": "Translate the answer to English",
+      "failed": "Transcription failed: {{reason}}",
+      "record": {
+        "intro": "Record your answer with your microphone. We ask for microphone permission first and never capture video.",
+        "start": "Start recording",
+        "recording": "Recording… speak your answer, then stop.",
+        "stop": "Stop and transcribe",
+        "discard": "Discard recording",
+        "reRecord": "Re-record",
+        "transcribe": "Transcribe recording",
+        "denied": "Microphone permission was not granted, so recording is unavailable. You can upload an audio file or type your answer instead.",
+        "rejected": "Recording could not be used: {{reason}}",
+        "fallback": "Recording is unavailable — switched to audio upload. You can also type your answer."
+      }
+    },
+    "answerMode": {
+      "label": "How would you like to answer?",
+      "text": "Type your answer",
+      "upload": "Upload an audio file",
+      "record": "Record audio in the browser"
+    },
+    "sync": {
+      "heading": "Update skill map from this session",
+      "detect": "Detect skills revealed in this session",
+      "intro": "These skills appeared in your confirmed answers but aren't in your map yet. Confirm the ones to add — each needs a role/project and approximate time.",
+      "roleOrProject": "Role or project",
+      "skillNameLabel": "Skill name",
+      "when": "When (e.g. 2023)",
+      "apply": "Add confirmed skills to the map",
+      "added": "Added {{count}} skill(s) to your map.",
+      "none": "No new skills were revealed in this session."
+    }
+  },
+  "output": {
+    "heading": "Generate your CV",
+    "intro": "Build a CV tailored to a target role from your confirmed evidence, plus an advisory LinkedIn report. Every line traces to your evidence.",
+    "needRoles": "Confirm a target role and a skill map first, then come back to generate outputs.",
+    "roleLabel": "Target role",
+    "generate": "Generate CV and LinkedIn report",
+    "cvHeading": "CV (Markdown)",
+    "downloadMd": "Download Markdown (.md)",
+    "downloadDocx": "Download Word (.docx)",
+    "downloadPdf": "Download PDF (.pdf)",
+    "pdfNote": "PDF is typeset locally on your device (Typst via WebAssembly) — single-column, ATS-safe, with a selectable text layer. The first PDF may take a few seconds to load the typesetter.",
+    "pdfGenerating": "Typesetting PDF…",
+    "pdfReady": "PDF ready — your download should start.",
+    "pdfFailed": "PDF typesetting failed: {{reason}}. Your Markdown and Word files are unaffected.",
+    "linkedInHeading": "LinkedIn improvement report (advisory)",
+    "save": "Save outputs to Memory Store",
+    "saved": "Saved your CV and LinkedIn report to the Memory Store.",
+    "scriptOnlyUsed": "Script-only generation was used — your CV was assembled deterministically from your confirmed evidence with no AI call.",
+    "aiTailoredUsed": "AI-assisted tailoring was used. Your CV is still built only from your confirmed evidence; the AI notes below are advisory.",
+    "opportunity": {
+      "legend": "Target Opportunity (optional)",
+      "question": "Do you have a Target Opportunity (a specific job posting) to tailor this CV toward?",
+      "none": "No Target Opportunity — generate from my evidence",
+      "paste": "Paste the job posting",
+      "upload": "Upload the job posting",
+      "pasteLabel": "Job posting details",
+      "pastePlaceholder": "Paste the job posting text here…",
+      "note": "The posting is a tailoring target only — never a source of facts. It is PII-screened at the Egress Gate, and for a cloud provider any private items are excluded. Nothing in the posting is ever added to your CV."
+    },
+    "sections": {
+      "summary": "Summary",
+      "experience": "Experience",
+      "education": "Education",
+      "skills": "Skills",
+      "certifications": "Certifications",
+      "languages": "Languages",
+      "projects": "Projects"
+    },
+    "ai": {
+      "tailor": "✨ Suggest CV tailoring with AI",
+      "working": "Asking the AI…",
+      "heading": "AI tailoring suggestions (advisory)",
+      "advisory": "These are advisory AI suggestions. Your CV is built only from your confirmed evidence; nothing here changes it unless you apply it."
+    }
+  },
+  "memory": {
+    "heading": "Memory & maintenance",
+    "intro": "Your Memory Store lives on your device. Export it for backup or import a previous snapshot.",
+    "export": "Export Memory Store (JSON)",
+    "import": "Import a snapshot",
+    "exported": "Exported your Memory Store.",
+    "imported": "Imported {{count}} file(s) into your Memory Store.",
+    "filesHeading": "Stored files",
+    "noFiles": "No files stored yet.",
+    "logHeading": "Session log",
+    "noLog": "No session activity recorded yet.",
+    "error": "Could not import that snapshot: {{reason}}.",
+    "errorRecovery": "Check the file is a valid Career Agent snapshot, then try importing again. Your current Memory Store is unchanged."
+  },
+  "assist": {
+    "modeLegend": "AI assistance for this step",
+    "scriptOnly": "Script only (no AI)",
+    "aiAssisted": "Script + AI assist",
+    "aiOnly": "AI only",
+    "scriptOnlyHint": "Runs entirely on your device with no provider call.",
+    "unavailable": "Connect an AI provider above to enable AI assist.",
+    "networkLocal": "Local on-device call to {{provider}} — no third-party egress; the minimised, PII-screened payload stays on your device. Suggestions need your confirmation before they count.",
+    "networkThirdParty": "Third-party network call to {{provider}} — only a minimised, PII-screened payload is sent. Suggestions need your confirmation before they count.",
+    "fallback": "AI assist was unavailable ({{reason}}). Showing the script-only result so you can continue.",
+    "languageDirective": "Write your entire response in English (en). Keep technical terms, tool names, and proper nouns unchanged."
+  },
+  "payloadPreview": {
+    "heading": "Review what will be sent",
+    "intro": "Before this text is sent to {{provider}}, review it below. You can edit or remove anything you do not want transmitted. Only the text you approve is sent — and it is still PII-screened before it leaves your device.",
+    "textareaLabel": "Text to be sent",
+    "approve": "Approve and send",
+    "cancel": "Cancel — send nothing"
+  },
+  "messages": {
+    "saved": "Saved.",
+    "loading": "Loading…",
+    "confirmToContinue": "Confirm to continue.",
+    "noNetworkExceptProvider": "No network request is made except through the Egress Gate to your chosen provider."
+  },
+  "prompts": {
+    "ingestion": {
+      "checklistIntro": "Before we begin, gather these documents for the best results.",
+      "uploadPrompt": "Upload a document to extract your experience.",
+      "reviewIntro": "Review what we extracted. Confirm, edit, or remove each item."
+    },
+    "coaching": {
+      "situation": "Describe the situation. What was the context?",
+      "task": "What was your task or responsibility?",
+      "action": "What actions did you take?",
+      "result": "What was the result?",
+      "openFollowUp": "Tell me more about that.",
+      "softClose": "We can pause here and come back to this later.",
+      "pass": "We can skip this question for now."
+    }
+  },
+  "review": {
+    "steps": {
+      "extraction": "Review extracted information",
+      "skillMap": "Review your skill map",
+      "roles": "Review suggested roles",
+      "coaching": "Interview coaching",
+      "output": "Review your CV"
+    },
+    "actions": {
+      "confirm": "Confirm",
+      "edit": "Edit",
+      "delete": "Delete",
+      "add": "Add",
+      "markPrivate": "Mark private"
+    }
+  },
+  "wizard": {
+    "heading": "Your six-phase pipeline",
+    "intro": "Work through each phase, or jump directly to any phase. Career Agent saves your progress after every confirmed step.",
+    "navLabel": "Pipeline phases",
+    "previousPhase": "Previous phase",
+    "nextPhase": "Next phase",
+    "goToPrevious": "Go to previous phase: {{phase}}",
+    "goToNext": "Go to next phase: {{phase}}",
+    "currentPhase": "Current phase: {{phase}}",
+    "confirmAndContinue": "Confirm and continue",
+    "confirmed": "Phase \"{{phase}}\" confirmed and saved.",
+    "lastPhaseFinal": "This is the final phase of the pipeline.",
+    "phase": {
+      "ingest": "Ingest",
+      "skill-map": "Skill Map",
+      "role-discovery": "Role Discovery",
+      "interview-coaching": "Interview Coaching",
+      "output": "Output Generation",
+      "memory": "Memory & Maintenance"
+    },
+    "status": {
+      "pending": "Not started",
+      "in-progress": "In progress",
+      "complete": "Complete"
+    },
+    "outstanding": {
+      "heading": "Outstanding items",
+      "none": "Nothing outstanding. You are all caught up.",
+      "unanswered-question": "Unanswered question",
+      "flagged-talking-point": "Flagged talking point",
+      "unreviewed-skill": "Unreviewed skill",
+      "unresolved-conflict": "Unresolved conflict"
+    }
+  },
+  "inspector": {
+    "heading": "Source-trace inspector",
+    "intro": "Inspect any claim to see exactly where it came from. Enter a claim reference (for example BULLET-01, STAR-01, or a skill id) to view its source trace.",
+    "refLabel": "Claim reference",
+    "inspect": "Inspect",
+    "empty": "Enter a claim reference to inspect its source trace.",
+    "unresolved": "No source trace found for \"{{ref}}\". This claim does not resolve to any recorded provenance.",
+    "resolvedHeading": "Source trace for {{ref}}",
+    "citation": {
+      "sourceLine": "Source document {{doc}}, line {{line}}: \"{{quote}}\"",
+      "userConfirmation": "You confirmed this on {{at}}: {{note}}",
+      "interviewAnswer": "From your confirmed interview answer {{star}}"
+    }
+  }
+}
