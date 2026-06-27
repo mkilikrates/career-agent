@@ -61,7 +61,7 @@ The CI publishes a fresh image on **every push to `main`** (as `latest`) and a v
 3. The workflow runs typecheck + tests, then builds and pushes the `1.2.3` / `1.2` / `1` image tags. Tests gate the publish — a failing suite blocks the image.
 4. On a version tag, the workflow also **creates a GitHub Release** for `vX.Y.Z` with auto-generated notes (from merged PRs/commits) plus the `docker run` pull command for that version.
 
-> **First publish:** a new ghcr package may default to **private**. After the first successful run, open the package on GitHub → **Package settings** and set visibility to **Public** if you want anyone to pull it. The workflow needs `packages: write` permission, which is granted inline in the workflow.
+> **Package visibility:** published from a **public** repository, the image inherits the repository's visibility and is **public** — it can be pulled anonymously (`docker pull` with no login). To confirm, log out (`docker logout ghcr.io`) and pull. If you ever find the package set to private, change it under the package's **Package settings → Change visibility → Public**. The workflow needs `packages: write` permission, which is granted inline in the workflow.
 
 ### Keeping registry storage in check
 

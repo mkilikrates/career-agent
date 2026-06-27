@@ -1,5 +1,10 @@
 # Career Agent
 
+[![Build & publish](https://github.com/mkilikrates/career-agent/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/mkilikrates/career-agent/actions/workflows/docker-publish.yml)
+[![Latest release](https://img.shields.io/github/v/release/mkilikrates/career-agent)](https://github.com/mkilikrates/career-agent/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/mkilikrates/career-agent)](./LICENSE)
+[![Container image](https://ghcr-badge.egpl.dev/mkilikrates/career-agent/latest_tag?trim=major&label=ghcr.io)](https://github.com/mkilikrates/career-agent/pkgs/container/career-agent)
+
 > Read this in: **English** · [Português (Brasil)](./README.pt-BR.md)
 
 A **local-first browser web app** that builds an evidence-backed professional profile, coaches STAR interview answers, and generates ATS-safe job application materials (Markdown, PDF, DOCX).

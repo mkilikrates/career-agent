@@ -61,7 +61,7 @@ O CI publica uma imagem nova a **cada push para `main`** (como `latest`) e uma i
 3. O workflow roda typecheck + testes, depois compila e envia as tags de imagem `1.2.3` / `1.2` / `1`. Os testes barram a publicação — uma suíte com falha bloqueia a imagem.
 4. Em uma tag de versão, o workflow também **cria um GitHub Release** para `vX.Y.Z` com notas geradas automaticamente (a partir de PRs/commits mesclados) mais o comando `docker run` para baixar aquela versão.
 
-> **Primeira publicação:** um pacote novo no ghcr pode iniciar como **privado**. Após a primeira execução bem-sucedida, abra o pacote no GitHub → **Package settings** e defina a visibilidade como **Public** se quiser que qualquer pessoa possa baixá-lo. O workflow precisa da permissão `packages: write`, concedida diretamente no workflow.
+> **Visibilidade do pacote:** publicada a partir de um repositório **público**, a imagem herda a visibilidade do repositório e é **pública** — pode ser baixada anonimamente (`docker pull` sem login). Para confirmar, faça logout (`docker logout ghcr.io`) e baixe. Se em algum momento o pacote estiver privado, altere em **Package settings → Change visibility → Public** na página do pacote. O workflow precisa da permissão `packages: write`, concedida diretamente no workflow.
 
 ### Mantendo o armazenamento do registro sob controle
 

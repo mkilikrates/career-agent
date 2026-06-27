@@ -1,5 +1,10 @@
 # Agente de Carreira
 
+[![Build & publish](https://github.com/mkilikrates/career-agent/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/mkilikrates/career-agent/actions/workflows/docker-publish.yml)
+[![Versão mais recente](https://img.shields.io/github/v/release/mkilikrates/career-agent)](https://github.com/mkilikrates/career-agent/releases/latest)
+[![Licença: MIT](https://img.shields.io/github/license/mkilikrates/career-agent)](./LICENSE)
+[![Imagem do contêiner](https://ghcr-badge.egpl.dev/mkilikrates/career-agent/latest_tag?trim=major&label=ghcr.io)](https://github.com/mkilikrates/career-agent/pkgs/container/career-agent)
+
 > Leia isto em: [English](./README.md) · **Português (Brasil)**
 
 Um **web app de navegador local-first** que constrói um perfil profissional baseado em evidências, treina respostas de entrevista no formato STAR e gera materiais de candidatura compatíveis com ATS (Markdown, PDF, DOCX).
