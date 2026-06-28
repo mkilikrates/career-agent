@@ -193,7 +193,7 @@ The chat/LLM operation and the speech-to-text transcription are separate calls, 
 | PDF typesetting | `typst.ts` (Typst compiled to Wasm), compiler wasm **bundled locally** via Vite `?url` (no CDN) | Client-side selectable-text ATS PDF (R32.2, R32.6, R42.4); graceful failure never blocks other formats |
 | DOCX generation | `docx` (pure-JS OOXML builder, deterministic) | Simplified structured rich-text DOCX (R32.3) |
 | Cloud provider clients | OpenAI (chat completions + Whisper STT via `/audio/transcriptions` and `/audio/translations`), Anthropic (messages); key validated by cheap `GET /models` probe | Working keyed cloud integrations and pre-use key validation (R45) |
-| Local provider | Generic OpenAI-compatible HTTP client reused with auth header omitted when keyless; config in browser-local storage via `local-config` | Keyless self-hosted endpoint, default Ollama `http://localhost:11434/v1`, editable base URL + models (R43) |
+| Local provider | Generic OpenAI-compatible HTTP client reused with auth header omitted when keyless; config in browser-local storage via `local-config` | Keyless self-hosted endpoint, default Ollama `http://localhost:11434/v1`, editable base URL + models + completion-token limit (R43) |
 | Local storage | File System Access API; `idb` over IndexedDB + OPFS | Two-tier Storage_Adapter (R2, R3) |
 | Key encryption | Web Crypto API (AES-GCM, key from non-extractable derived key) | Encrypted local key storage for keyed cloud providers (R5.1); Local Provider stores no key (R5.5) |
 | Markdown parse/serialise | `remark`/`mdast` + `gray-matter` (frontmatter), `yaml` for config files | Lossless ID round-trip and config resources (R34.2, R16.4, R17.1) |
@@ -510,6 +510,7 @@ interface LocalProviderConfig {
   baseUrl: string;   // OpenAI-compatible base URL; default Ollama http://localhost:11434/v1 (R43.1)
   model: string;     // chat/completions model name as configured on the local server (R43.3, R43.4)
   sttModel: string;  // speech-to-text (e.g. Whisper) model name on the local server
+  maxTokens: number; // max completion tokens for local chat; default 2048 (R43.6)
   configured: boolean;
 }
 getLocalConfig(): LocalProviderConfig;                 // merged over defaults
@@ -517,6 +518,8 @@ setLocalConfig(patch: Partial<LocalProviderConfig>): LocalProviderConfig;
 ```
 
 Because the endpoint is on localhost, using it keeps the app fully offline — no Redacted Payload leaves the device (R1.5, R43.5) — yet requests still pass through the single Egress Gate for consistent labelling and PII screening (R7.5), with the label marking a local on-device call and no third-party egress (R7.6).
+
+The local chat client reads `maxTokens` from `local-config` **at call time** (like `baseUrl`/`model`), so an edit applies on the next request without rebuilding the client. The default is **2048** — deliberately higher than the cloud clients' 512 — because reasoning models (e.g. `deepseek-r1`) emit a chain-of-thought *before* their answer; at 512 the reasoning consumes the whole budget and the answer (`message.content`) comes back empty/truncated, which previously yielded zero parsed questions and a silent no-op in the UI. The cloud (BYOK) clients keep the 512 default to bound per-token cost; only the on-device Local Provider, where tokens are free, defaults higher and is user-editable. `getLocalConfig` coerces a non-positive or non-numeric saved value back to the default, and `setLocalConfig` drops an invalid `maxTokens` patch so a usable saved value is preserved (R43.6).
 
 ### Per-Capability Provider Selection
 
@@ -1285,7 +1288,9 @@ Both the Skill Map and Role Discovery screens provide a free-text input (comma- 
 
 ### Behaviour-first STAR questions with competency tagging (R62)
 
-The `star_questions` prompt no longer frames a recruiter for a specific position. It asks the model to first infer the behaviours/qualities most important for the target role (any field/seniority), then write behaviour-first STAR questions with at most one technical-depth question; skills are background context only. The output format pairs each question with the competency it probes — one line per question as `<competency> :: <question>` — parsed into `{ competency, question }`. The competency is hidden during Q&A and shown in the summary, and is carried into the coaching loop. Malformed/preamble lines (no `::`) are dropped.
+The `star_questions` prompt no longer frames a recruiter for a specific position. It asks the model to first infer the behaviours/qualities most important for the target role (any field/seniority), then write behaviour-first STAR questions with at most one technical-depth question; skills are background context only. The output format is a **structured JSON array** — each element an object `{ "competency", "question" }` — which is self-delimiting, so any model preamble or trailing chatter falls outside the array and is ignored. The competency is hidden during Q&A and shown in the summary, and is carried into the coaching loop.
+
+Parsing is **tolerant and layered** so a local model that ignores the exact format still yields questions (R62.5): `parseQuestionPrompts` first locates and parses the JSON array anywhere in the reply (tolerating code fences and surrounding text); validates each element to `{ competency, question }`, defaulting a **generic competency** for any element that omits one. If no usable JSON is found, it falls back to a **positive-criteria line scan** that keeps every line reading as a question — a `<competency> :: <question>` line (competency preserved), a line ending in `?`, or a line opening with a behavioural lead-in (Tell/Describe/Share/Explain/Walk/Give/How/What/Why/…) — assigning the generic competency when none is present, and dropping everything else (preamble, headers, chatter). The result is empty **only** when the reply contains no usable question text; on an empty result the UI keeps the deterministic script questions (R22.6/R22.8). The generic competency label is supplied by the UI from `locales/` so no user-facing string is hardcoded in `@core`.
 
 ### Adaptive STAR coaching loop (R63)
 

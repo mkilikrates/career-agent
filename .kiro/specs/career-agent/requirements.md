@@ -24,7 +24,7 @@ The product's defining promise is trust: user files never leave the device, and 
 - **File System Access tier**: The storage mode on Chromium desktop browsers where the user selects a real local folder via the File System Access API and the Storage_Adapter reads/writes the actual Markdown Memory Store.
 - **Fallback storage tier**: The documented degraded storage mode on browsers without the File System Access API (Safari, Firefox, mobile), using OPFS or IndexedDB with one-click export/import of the entire Memory Store as a `.zip` archive.
 - **BYOK**: Bring-Your-Own-Key — the model where the user supplies their own cloud provider API key; Career_Agent provides no shared or built-in key.
-- **Local Provider**: A keyless provider that targets an OpenAI-Compatible Endpoint running on the user's own machine (for example Ollama, LocalAI, LM Studio, llama.cpp server, or vLLM), requiring no API key and configured with a user-editable base URL and model name.
+- **Local Provider**: A keyless provider that targets an OpenAI-Compatible Endpoint running on the user's own machine (for example Ollama, LocalAI, LM Studio, llama.cpp server, or vLLM), requiring no API key and configured with a user-editable base URL, model name, and maximum completion-token limit.
 - **OpenAI-Compatible Endpoint**: A network endpoint that implements the OpenAI HTTP API surface (chat completions and audio interfaces) so that multiple local or self-hosted runtimes can be addressed through one client.
 - **Ollama**: A self-hosted local model runtime that exposes an OpenAI-Compatible Endpoint, defaulting to the base URL `http://localhost:11434/v1`, used as the default target of the Local Provider.
 - **Per-capability provider selection**: The user's ability to choose the provider used for chat or LLM operations independently of the provider used for speech-to-text transcription.
@@ -565,6 +565,7 @@ The product's defining promise is trust: user files never leave the device, and 
 3. THE Provider_Manager SHALL allow the user to edit the Local Provider base URL and model name so the Local Provider can target Ollama, LocalAI, LM Studio, llama.cpp server, or vLLM.
 4. WHERE the user runs on lower-capacity hardware, THE Provider_Manager SHALL allow the user to set the Local Provider chat model name to a model sized to the user's hardware capacity.
 5. WHILE every selected provider is a Local Provider on the user's own device, THE Career_Agent SHALL transmit no Redacted Payload off the device.
+6. THE Provider_Manager SHALL allow the user to configure the Local Provider's maximum completion-token limit, SHALL default that limit to a value large enough for reasoning models that emit chain-of-thought before their answer (2048 tokens), and SHALL apply the configured limit to every Local Provider chat completion so that a model which consumes tokens reasoning before answering still has budget to return its full answer.
 
 ### Requirement 44: Per-Capability Provider Selection
 
@@ -798,8 +799,9 @@ The product's defining promise is trust: user files never leave the device, and 
 
 1. WHERE the user opts into AI-generated STAR questions, THE Interview_Coach SHALL instruct the model to first infer the behaviours and qualities most important for succeeding in the target role, whatever the industry or seniority, and then generate questions that probe those qualities.
 2. THE Interview_Coach SHALL request that the AI limit technical-depth questions to at most one per generated set.
-3. THE Interview_Coach SHALL request the AI questions in a parseable format that pairs each question with the competency or quality it probes, and SHALL retain that competency for use in the coaching loop and summary.
+3. THE Interview_Coach SHALL request the AI questions as a structured JSON array in which each element pairs a question with the competency or quality it probes, and SHALL retain that competency for use in the coaching loop and summary.
 4. THE Interview_Coach SHALL pass the candidate's skills to the question generator only as background context, not as the primary driver of the questions.
+5. WHEN the model reply does not conform to the requested JSON format, THE Interview_Coach SHALL still surface every usable practice question contained in the reply — extracting and parsing the structured JSON when it is present anywhere in the reply, and otherwise recovering every question-like line from the reply text — assigning a generic competency to any question whose competency cannot be determined, and SHALL treat the generation as producing no questions only when the reply contains no usable question text, so that a local model that ignores the exact format still yields supplemental practice questions consistent with Requirements 22.6 and 22.8.
 
 ### Requirement 63: AI Adaptive STAR Coaching Loop
 

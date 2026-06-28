@@ -47,7 +47,7 @@ matching section here.
 | 1 | Provider key validation | Provider Setup | none (`GET /models`) | — | — |
 | 2 | Skill discovery | Skill Map → "Suggest skills with AI" | `buildDiscoveryPrompt` (`@core/skills/skill-discovery.ts`) | comma-separated list | `parseDiscoveredSkills` |
 | 3 | Role discovery | Role Discovery → "Recommend roles with AI" | `buildDiscoveryPrompt` (`@core/role-matcher/role-discovery-payload.ts`) | `Title — reason` per line | `parseAiRoles` |
-| 4 | STAR practice questions | Coaching → "Suggest practice questions with AI" | `buildStarQuestionsPrompt` (`@core/interview/coach-assist.ts`) | `<competency> :: <question>` per line | `parseQuestionPrompts` |
+| 4 | STAR practice questions | Coaching → "Suggest practice questions with AI" | `buildStarQuestionsPrompt` (`@core/interview/coach-assist.ts`) | JSON array of `{competency, question}` | `parseQuestionPrompts` (JSON-first, tolerant line fallback) |
 | 5 | Educational STAR summary | Coaching → educational summary | `buildStarSummaryPrompt` (`@core/interview/coach-assist.ts`) | free-text guidance | trimmed text |
 | 5a | Adaptive coaching — adequacy / follow-up | Coaching → submit a STAR answer (per turn) | `buildAdequacyPrompt` (`@core/interview/coach-assist.ts`) | strict `LABEL: value` lines | `parseAdequacyReply` |
 | 5b | Adaptive coaching — per-question summary | Coaching → a question's loop ends | `buildPerQuestionSummaryPrompt` (`@core/interview/coach-assist.ts`) | strict `LABEL: value` lines | `parsePerQuestionSummaryReply` |
@@ -154,9 +154,12 @@ open behavioural STAR-format practice questions that probe those qualities and
 ask the candidate to recount their own Situation, Task, Action, and Result.
 Prioritise behaviours and qualities; include at most one question focused on
 technical depth, since technical topics are easier to prepare for. Do NOT
-suggest facts or outcomes for them to claim. Return one question per line in the
-exact format "<competency> :: <question>", where <competency> is the single
-behaviour or quality that question probes. Use no preamble and no numbering.
+suggest facts or outcomes for them to claim. Return ONLY a JSON array and
+nothing else, where each element is an object with two string fields:
+"competency" (the single behaviour or quality that question probes) and
+"question" (the open behavioural practice question). Example:
+[{"competency": "Leadership", "question": "Tell me about a time you led a team
+through a difficult change."}].
 
 Use the candidate's background only as context: <comma-separated skill names>
 ```
@@ -167,13 +170,30 @@ context only, so the questions stay behaviour-first rather than a tools quiz.
 
 (The `The role: …` sentence is included only when the role has a description.)
 
-- **Reply format**: one question per line as `<competency> :: <question>`.
-- **Parser**: `parseQuestionPrompts` splits each line on the first `::` into
-  `{ competency, question }` (strips list markers, de-dupes by question, drops
-  lines lacking the `::` delimiter — which also discards model preambles — and
-  drops empty/too-short questions). The `question` is shown to the user while the
-  `competency` is retained for the adaptive coaching loop and per-question
-  summary (R62.3, R63.2, R63.6).
+- **Reply format**: a JSON array of `{ "competency", "question" }` objects. JSON
+  is self-delimiting, so any model preamble or trailing chatter falls outside the
+  array and is ignored.
+- **Parser**: `parseQuestionPrompts(reply, { defaultCompetency })` is **tolerant
+  and layered** so a local model that ignores the format still yields questions
+  (R62.5):
+  1. **JSON-first** — locate and parse the JSON array anywhere in the reply
+     (tolerating ```` ```json ```` fences and surrounding prose), accept
+     `{ competency, question }` objects, a `{ questions: [...] }` wrapper, or bare
+     question strings, and default a **generic competency** for any element that
+     omits one;
+  2. **line fallback** — when no usable JSON is found, scan lines and keep only
+     those that read as a question: a `<competency> :: <question>` line
+     (competency preserved), a line ending in `?`, or a line opening with a
+     behavioural lead-in (Tell/Describe/Share/Explain/Walk/Give/How/What/Why/…),
+     dropping all other lines (preamble, headers, chatter).
+
+  The result is empty **only** when the reply contains no usable question text;
+  on an empty result the UI keeps the deterministic script questions (R22.6/22.8).
+  The `question` is shown to the user while the `competency` is retained for the
+  adaptive coaching loop and per-question summary (R62.3, R63.2, R63.6). The
+  generic-competency label is supplied by the UI from `locales/`
+  (`coaching.ai.genericCompetency`), so no user-facing string is hardcoded in
+  `@core`.
 - **Trust**: AI questions are practice prompts, surfaced as unconfirmed
   suggestions; they never enter the knowledge base, so they are not gated by the
   No-Fabrication harness.

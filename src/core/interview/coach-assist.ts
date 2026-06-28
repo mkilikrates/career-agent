@@ -81,35 +81,198 @@ export interface StarQuestionSuggestion {
 /** The delimiter separating a question's competency tag from its text (R62.3). */
 const COMPETENCY_DELIMITER = '::';
 
+/** Minimum length for a string to be accepted as a practice question. */
+const MIN_QUESTION_LENGTH = 8;
+
 /**
- * Parse a model reply into competency-tagged practice questions. The model is
- * asked to return one question per line as `<competency> :: <question>` (R62.3),
- * so parsing:
- *   - strips any leading list marker (`-`, `*`, `1.`);
- *   - splits on the FIRST `::` delimiter into `{ competency, question }`;
- *   - DROPS any line lacking the delimiter — this also discards model preambles
- *     and trailing chatter, which never carry a `::` (R62.3);
- *   - drops lines whose competency or question is empty / too short to be a
- *     question; and
- *   - de-duplicates by question text (case-insensitive).
+ * The generic competency assigned to a question whose competency cannot be
+ * determined from the reply (R62.5). This @core default is a neutral,
+ * non-user-facing fallback for tests and non-UI callers; the UI passes a
+ * localised label from `locales/` so no user-facing string is hardcoded here.
  */
-export function parseQuestionPrompts(reply: string): StarQuestionSuggestion[] {
+export const DEFAULT_GENERIC_COMPETENCY = 'Role-relevant behaviour';
+
+/** Options controlling tolerant question parsing (R62.5). */
+export interface ParseQuestionOptions {
+  /**
+   * Competency assigned to any question whose competency cannot be determined
+   * (R62.5). Defaults to {@link DEFAULT_GENERIC_COMPETENCY}; the UI supplies a
+   * localised label.
+   */
+  readonly defaultCompetency?: string;
+}
+
+/**
+ * Behavioural lead-ins that mark a line as a practice question even when it
+ * carries no `::` competency tag and no trailing `?` (e.g. imperative STAR
+ * prompts like "Describe a time…", "Walk me through…"). Used by the tolerant
+ * line-scan fallback (R62.5).
+ */
+const QUESTION_LEAD_INS =
+  /^(?:tell|describe|share|explain|walk|give|recall|discuss|think|talk|provide|consider|how|what|when|why|where|which|who|can|could|would|do|did|have|has|is|are|was|were)\b/i;
+
+/** Strip leading list markers, blockquote markers, and surrounding emphasis/quotes. */
+const cleanLine = (raw: string): string =>
+  raw
+    .replace(/^\s*(?:[-*>]|\d+[.)])\s*/, '') // list markers / blockquote
+    .replace(/^\s*[*_`"'“”‘’]+|[*_`"'“”‘’]+\s*$/g, '') // wrapping emphasis/quotes
+    .trim();
+
+/** Whether a cleaned line reads as a practice question (positive criteria, R62.5). */
+const looksLikeQuestion = (line: string): boolean =>
+  line.length >= MIN_QUESTION_LENGTH &&
+  !line.endsWith(':') && // intro lines such as "Here are 5 questions:"
+  (line.endsWith('?') || QUESTION_LEAD_INS.test(line));
+
+/** Coerce an arbitrary parsed JSON element into a suggestion, or null when unusable. */
+const suggestionFromJson = (
+  item: unknown,
+  defaultCompetency: string,
+): StarQuestionSuggestion | null => {
+  // Tolerate both `{ competency, question }` objects and bare question strings.
+  if (typeof item === 'string') {
+    const question = item.trim();
+    return question.length >= MIN_QUESTION_LENGTH
+      ? { competency: defaultCompetency, question }
+      : null;
+  }
+  if (item && typeof item === 'object') {
+    const obj = item as Record<string, unknown>;
+    const rawQuestion = obj.question ?? obj.prompt ?? obj.text;
+    if (typeof rawQuestion !== 'string') return null;
+    const question = rawQuestion.trim();
+    if (question.length < MIN_QUESTION_LENGTH) return null;
+    const rawCompetency = obj.competency ?? obj.quality ?? obj.skill;
+    const competency =
+      typeof rawCompetency === 'string' && rawCompetency.trim().length > 0
+        ? rawCompetency.trim()
+        : defaultCompetency;
+    return { competency, question };
+  }
+  return null;
+};
+
+/** Pull an array of question elements out of an arbitrary parsed JSON value. */
+const questionArrayFromJson = (parsed: unknown): unknown[] | null => {
+  if (Array.isArray(parsed)) return parsed;
+  // Tolerate a wrapper object, e.g. `{ "questions": [...] }`.
+  if (parsed && typeof parsed === 'object') {
+    for (const value of Object.values(parsed as Record<string, unknown>)) {
+      if (Array.isArray(value)) return value;
+    }
+  }
+  return null;
+};
+
+/**
+ * Try to extract and parse a JSON array of questions from a model reply,
+ * tolerating code fences and surrounding preamble/chatter (the JSON block is
+ * self-delimiting, R62.3). Returns `null` when no usable JSON array is found so
+ * the caller can fall back to the tolerant line scan (R62.5).
+ */
+const parseQuestionsJson = (
+  reply: string,
+  defaultCompetency: string,
+): StarQuestionSuggestion[] | null => {
+  // Drop code fences so a ```json … ``` block parses cleanly.
+  const unfenced = reply.replace(/```[a-zA-Z]*\n?|```/g, '');
+  // Candidate substrings to attempt, widest-confidence first: the whole reply,
+  // then the first `[`…last `]` slice, then the first `{`…last `}` slice. This
+  // lets a JSON array embedded in prose still be located.
+  const candidates: string[] = [unfenced];
+  const arrStart = unfenced.indexOf('[');
+  const arrEnd = unfenced.lastIndexOf(']');
+  if (arrStart >= 0 && arrEnd > arrStart) candidates.push(unfenced.slice(arrStart, arrEnd + 1));
+  const objStart = unfenced.indexOf('{');
+  const objEnd = unfenced.lastIndexOf('}');
+  if (objStart >= 0 && objEnd > objStart) candidates.push(unfenced.slice(objStart, objEnd + 1));
+
+  for (const candidate of candidates) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    const arr = questionArrayFromJson(parsed);
+    if (!arr) continue;
+    const out: StarQuestionSuggestion[] = [];
+    const seen = new Set<string>();
+    for (const element of arr) {
+      const suggestion = suggestionFromJson(element, defaultCompetency);
+      if (!suggestion) continue;
+      const key = suggestion.question.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(suggestion);
+    }
+    if (out.length > 0) return out;
+  }
+  return null;
+};
+
+/**
+ * Tolerant line-scan fallback (R62.5). Keeps every line that reads as a question
+ * and discards the rest (preamble, headers, chatter) regardless of the model's
+ * formatting: a `<competency> :: <question>` line keeps its competency; any other
+ * line that ends in `?` or opens with a behavioural lead-in becomes a question
+ * with the generic competency. De-duplicates by question text.
+ */
+const parseQuestionsLines = (
+  reply: string,
+  defaultCompetency: string,
+): StarQuestionSuggestion[] => {
   const out: StarQuestionSuggestion[] = [];
   const seen = new Set<string>();
   for (const raw of reply.split('\n')) {
-    const line = raw.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim();
+    const line = cleanLine(raw);
+    if (line.length === 0) continue;
+
+    let competency = defaultCompetency;
+    let question = line;
     const delimiter = line.indexOf(COMPETENCY_DELIMITER);
-    // Drop lines without the delimiter (also removes preambles/chatter).
-    if (delimiter < 0) continue;
-    const competency = line.slice(0, delimiter).trim();
-    const question = line.slice(delimiter + COMPETENCY_DELIMITER.length).trim();
-    if (competency.length === 0 || question.length < 8) continue;
+    if (delimiter >= 0) {
+      const tag = line.slice(0, delimiter).trim();
+      const text = line.slice(delimiter + COMPETENCY_DELIMITER.length).trim();
+      if (tag.length > 0) competency = tag;
+      question = text;
+    } else if (!looksLikeQuestion(line)) {
+      // No competency tag and does not read as a question → preamble/chatter.
+      continue;
+    }
+
+    if (question.length < MIN_QUESTION_LENGTH) continue;
     const key = question.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ competency, question });
   }
   return out;
+};
+
+/**
+ * Parse a model reply into competency-tagged practice questions (R62.3, R62.5).
+ * The request asks for a self-delimiting JSON array, so parsing is layered and
+ * tolerant so that ANY model — including a local one that ignores the format —
+ * still yields every usable question:
+ *   1. locate and parse the JSON array anywhere in the reply (tolerating code
+ *      fences and surrounding preamble), defaulting a generic competency for any
+ *      element that omits one;
+ *   2. otherwise fall back to a positive-criteria line scan that keeps
+ *      `<competency> :: <question>` lines, `?`-terminated lines, and lines opening
+ *      with a behavioural lead-in, dropping all other lines.
+ * The result is empty ONLY when the reply contains no usable question text; on an
+ * empty result the caller keeps the deterministic script questions (R22.6/22.8).
+ */
+export function parseQuestionPrompts(
+  reply: string,
+  options: ParseQuestionOptions = {},
+): StarQuestionSuggestion[] {
+  const defaultCompetency = options.defaultCompetency?.trim() || DEFAULT_GENERIC_COMPETENCY;
+  return (
+    parseQuestionsJson(reply, defaultCompetency) ??
+    parseQuestionsLines(reply, defaultCompetency)
+  );
 }
 
 /**
@@ -170,9 +333,11 @@ export function buildStarQuestionsPrompt(
     'Action, and Result. Prioritise behaviours and qualities; include at most ' +
     'one question focused on technical depth, since technical topics are easier ' +
     'to prepare for. Do NOT suggest facts or outcomes for them to claim. Return ' +
-    'one question per line in the exact format "<competency> :: <question>", ' +
-    'where <competency> is the single behaviour or quality that question probes. ' +
-    'Use no preamble and no numbering.\n\n' +
+    'ONLY a JSON array and nothing else, where each element is an object with ' +
+    'two string fields: "competency" (the single behaviour or quality that ' +
+    'question probes) and "question" (the open behavioural practice question). ' +
+    'Example: [{"competency": "Leadership", "question": "Tell me about a time ' +
+    'you led a team through a difficult change."}].\n\n' +
     `Use the candidate's background only as context: ${skills}`
   );
 }
@@ -192,7 +357,11 @@ export class StarQuestionsOperation extends BaseAssistableOperation<
   Question[],
   StarQuestionSuggestion
 > {
-  constructor(private readonly transport: AssistTransport) {
+  constructor(
+    private readonly transport: AssistTransport,
+    /** Localised generic competency for questions the model leaves untagged (R62.5). */
+    private readonly defaultCompetency?: string,
+  ) {
     super();
   }
 
@@ -206,8 +375,10 @@ export class StarQuestionsOperation extends BaseAssistableOperation<
    * behaviours/qualities that matter most for the target role and then writes
    * behaviour-first STAR questions (technical depth capped at one) (R22.6),
    * excluding private skills for a keyed cloud (third-party) destination
-   * (R22.7). Returns unconfirmed practice-prompt
-   * suggestions only — never factual claims (R22.9).
+   * (R22.7). The reply is parsed tolerantly (JSON-first with a line fallback) so
+   * a local model that ignores the format still yields questions (R62.5).
+   * Returns unconfirmed practice-prompt suggestions only — never factual claims
+   * (R22.9).
    */
   protected async fetchSuggestions(
     input: StarQuestionsInput,
@@ -217,15 +388,21 @@ export class StarQuestionsOperation extends BaseAssistableOperation<
       buildStarQuestionsPrompt(input.role, input.map, dest),
       dest,
     );
-    return parseQuestionPrompts(reply);
+    return parseQuestionPrompts(reply, { defaultCompetency: this.defaultCompetency });
   }
 }
 
-/** Construct a {@link StarQuestionsOperation} bound to a gate-routed transport. */
+/**
+ * Construct a {@link StarQuestionsOperation} bound to a gate-routed transport.
+ * The optional `defaultCompetency` is the localised label assigned to any
+ * question the model returns without a competency tag (R62.5); the UI supplies
+ * it from `locales/` so no user-facing string is hardcoded in `@core`.
+ */
 export function createStarQuestionsOperation(
   transport: AssistTransport,
+  defaultCompetency?: string,
 ): StarQuestionsOperation {
-  return new StarQuestionsOperation(transport);
+  return new StarQuestionsOperation(transport, defaultCompetency);
 }
 
 // --- Educational STAR summary (`star_summary`, R28.5–R28.8) ----------------

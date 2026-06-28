@@ -2,6 +2,7 @@
 // `star_questions` and `star_summary`.
 
 import { describe, it, expect, vi } from 'vitest';
+import fc from 'fast-check';
 import {
   asRoleSlug,
   asSkillId,
@@ -29,6 +30,7 @@ import {
   educationalSummary,
   buildTeachingSummary,
   parseQuestionPrompts,
+  DEFAULT_GENERIC_COMPETENCY,
   buildAdequacyPrompt,
   parseAdequacyReply,
   assessAdequacy,
@@ -117,6 +119,99 @@ describe('parseQuestionPrompts', () => {
       { competency: 'Collaboration', question: 'How did you work with the team?' },
     ]);
   });
+
+  // --- JSON-first parsing (R62.3) ------------------------------------------
+
+  it('parses a clean JSON array of {competency, question} (R62.3)', () => {
+    const qs = parseQuestionPrompts(
+      '[{"competency":"Adaptability","question":"Tell me about a tricky deploy."},' +
+        '{"competency":"Mentorship","question":"Describe a mentoring moment."}]',
+    );
+    expect(qs).toEqual([
+      { competency: 'Adaptability', question: 'Tell me about a tricky deploy.' },
+      { competency: 'Mentorship', question: 'Describe a mentoring moment.' },
+    ]);
+  });
+
+  it('extracts a JSON array embedded in a ```json fence and surrounding preamble (R62.5)', () => {
+    const reply =
+      'Sure! Here are some questions:\n```json\n' +
+      '[{"competency":"Ownership","question":"Tell me about a time you owned an outage."}]\n' +
+      '```\nHope these help!';
+    expect(parseQuestionPrompts(reply)).toEqual([
+      { competency: 'Ownership', question: 'Tell me about a time you owned an outage.' },
+    ]);
+  });
+
+  it('tolerates a {questions:[...]} wrapper and an array of bare strings (R62.5)', () => {
+    expect(
+      parseQuestionPrompts('{"questions":[{"question":"How do you handle conflict?"}]}', {
+        defaultCompetency: 'General',
+      }),
+    ).toEqual([{ competency: 'General', question: 'How do you handle conflict?' }]);
+
+    expect(
+      parseQuestionPrompts('["Tell me about a hard decision you made."]', {
+        defaultCompetency: 'General',
+      }),
+    ).toEqual([{ competency: 'General', question: 'Tell me about a hard decision you made.' }]);
+  });
+
+  it('defaults a generic competency for JSON elements that omit one (R62.5)', () => {
+    const qs = parseQuestionPrompts('[{"question":"Why do you want this role?"}]');
+    expect(qs).toEqual([
+      { competency: DEFAULT_GENERIC_COMPETENCY, question: 'Why do you want this role?' },
+    ]);
+  });
+
+  // --- Tolerant line fallback for non-JSON replies (R62.5) -----------------
+
+  it('recovers numbered/bulleted question lines a local model returns without "::" (R62.5)', () => {
+    const reply =
+      'Here are 3 practice questions:\n' +
+      '1. Tell me about a time you resolved a conflict.\n' +
+      '2. How did you handle a tight deadline?\n' +
+      '- Describe a project you are proud of.\n' +
+      'Good luck!';
+    expect(parseQuestionPrompts(reply, { defaultCompetency: 'General' })).toEqual([
+      { competency: 'General', question: 'Tell me about a time you resolved a conflict.' },
+      { competency: 'General', question: 'How did you handle a tight deadline?' },
+      { competency: 'General', question: 'Describe a project you are proud of.' },
+    ]);
+  });
+
+  it('returns empty only when the reply contains no usable question text (R62.5)', () => {
+    expect(parseQuestionPrompts('I could not generate any questions right now.')).toEqual([]);
+    expect(parseQuestionPrompts('')).toEqual([]);
+  });
+
+  // --- Property: any reply with a question-like line yields a result (R62.5) -
+
+  it('Feature: career-agent, Property: any reply containing a question-like line is non-empty (R62.5)', () => {
+    const questionLine = fc
+      .tuple(
+        fc.constantFrom('Tell me about', 'Describe', 'How did you', 'What', 'Why', 'Walk me through'),
+        fc.string({ minLength: 6, maxLength: 40 }).filter((s) => /[a-zA-Z]/.test(s)),
+      )
+      .map(([lead, body]) => `${lead} ${body.replace(/[\n\r:]/g, ' ').trim()}?`);
+    const noise = fc.constantFrom(
+      'Here are some questions:',
+      'Sure, happy to help!',
+      'Hope these help.',
+      '',
+      '---',
+    );
+    fc.assert(
+      fc.property(questionLine, fc.array(noise, { maxLength: 4 }), (q, noiseLines) => {
+        // Interleave the genuine question among arbitrary preamble/chatter.
+        const reply = [...noiseLines, q, ...noiseLines].join('\n');
+        const out = parseQuestionPrompts(reply, { defaultCompetency: 'General' });
+        expect(out.length).toBeGreaterThanOrEqual(1);
+        expect(out.every((s) => s.question.length >= 8)).toBe(true);
+      }),
+      { numRuns: 200 },
+    );
+  });
 });
 
 describe('StarQuestionsOperation — scriptOnly (R22.5)', () => {
@@ -136,7 +231,8 @@ describe('StarQuestionsOperation — aiAssisted supplements, never replaces (R22
   it('returns the full script question set as baseline plus confirmable AI questions', async () => {
     const transport = vi.fn<AssistTransport>(
       async () =>
-        'Adaptability :: Tell me about a tricky deploy\nMentorship :: Describe a mentoring moment',
+        '[{"competency":"Adaptability","question":"Tell me about a tricky deploy"},' +
+        '{"competency":"Mentorship","question":"Describe a mentoring moment"}]',
     );
     const op = new StarQuestionsOperation(transport);
 
@@ -166,6 +262,10 @@ describe('buildStarQuestionsPrompt — behaviour-first for the given role (R22.6
     expect(prompt).toMatch(/at most\s+one question focused on technical depth/i);
     // Practice prompts only — never suggest facts for the candidate to claim (R22.9).
     expect(prompt).toMatch(/Do NOT suggest facts or outcomes/i);
+    // Requests a self-delimiting JSON array of {competency, question} (R62.3).
+    expect(prompt).toMatch(/ONLY a JSON array/i);
+    expect(prompt).toContain('"competency"');
+    expect(prompt).toContain('"question"');
   });
 });
 

@@ -180,8 +180,12 @@ export function CoachingScreen({
   const [aiQuestions, setAiQuestions] = useState<StarQuestionSuggestion[]>([]);
   const [aiError, setAiError] = useState<string>('');
   const questionsOperation = useMemo(
-    () => createStarQuestionsOperation((prompt) => (aiAssist ? aiAssist(prompt) : Promise.resolve(''))),
-    [aiAssist],
+    () =>
+      createStarQuestionsOperation(
+        (prompt) => (aiAssist ? aiAssist(prompt) : Promise.resolve('')),
+        t('coaching.ai.genericCompetency'),
+      ),
+    [aiAssist, t],
   );
 
   // Audio (R26).

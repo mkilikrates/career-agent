@@ -265,6 +265,7 @@ describe('local-config round-trip — persisted in browser-local storage only', 
       baseUrl: 'http://localhost:1234/v1',
       model: 'mistral',
       sttModel: 'whisper-large',
+      maxTokens: DEFAULT_LOCAL_CONFIG.maxTokens,
       configured: true,
     });
   });

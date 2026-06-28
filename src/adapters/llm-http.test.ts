@@ -213,7 +213,27 @@ describe('Local (self-hosted) LLM client (R43)', () => {
     const body = JSON.parse(String((init as RequestInit).body));
     expect(body.model).toBe(DEFAULT_LOCAL_CONFIG.model);
     expect(body.messages).toEqual([{ role: 'user', content: 'Hello local model.' }]);
+    // Defaults to the local token limit (2048), not the cloud 512 (R43.6).
+    expect(body.max_tokens).toBe(DEFAULT_LOCAL_CONFIG.maxTokens);
     expect(readChatResponseText(resp)).toBe('Local reply.');
+  });
+
+  it('sends the user-configured max_tokens on every call (R43.6)', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }),
+    ) as unknown as typeof fetch;
+    const client = createLocalLlmProvider({ fetchImpl });
+
+    setLocalConfig({ baseUrl: 'http://localhost:11434/v1', model: 'llama3', maxTokens: 4096 });
+    await client.chat(prompt('first'), '');
+
+    // An invalid edit is dropped, so the previous 4096 limit is preserved.
+    setLocalConfig({ maxTokens: 0 });
+    await client.chat(prompt('second'), '');
+
+    const calls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(JSON.parse(String((calls[0][1] as RequestInit).body)).max_tokens).toBe(4096);
+    expect(JSON.parse(String((calls[1][1] as RequestInit).body)).max_tokens).toBe(4096);
   });
 
   it('reads base URL and model from local-config on every call (edits apply immediately)', async () => {

@@ -380,6 +380,15 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 22.10 Write integration tests for keyless local provider and per-capability routing
     - Keyless validate/send/transcribe (auth header omitted), `local-config` round-trip, per-capability routing (chat → provider A, STT → provider B), no-payload-leaves-device when all-local, and the Whisper translate path
     - _Requirements: 43, 44, 26.5, 46_
+  - [x] 22.11 User-configurable Local Provider completion-token limit (R43.6)
+    - Add a `maxTokens` field to `LocalProviderConfig` (`adapters/local-config.ts`), default **2048** in `DEFAULT_LOCAL_CONFIG`; coerce a non-positive/non-numeric saved value back to the default in `getLocalConfig`, and drop an invalid `maxTokens` patch in `setLocalConfig` so a usable saved value is preserved
+    - Make the keyless Local LLM client read `maxTokens` from `getLocalConfig()` per call (alongside base URL/model) so an edit applies on the next request; leave the cloud (OpenAI/Anthropic) `max_tokens` default at 512 to bound BYOK cost
+    - Add an editable "max completion tokens" number field to the keyless Local Provider section of `ProviderSetup`, persisted via `updateLocalField` and included in the pre-validation save; add the label/help strings to `locales/en.json` and `locales/pt-BR.json`
+    - Fixes reasoning models (e.g. `deepseek-r1`) returning empty `content` when their chain-of-thought consumed the old 512-token budget
+    - _Requirements: 43.6_
+  - [x]* 22.12 Tests for the configurable token limit
+    - `local-config` round-trips `maxTokens`, defaults it to 2048, coerces invalid values, and preserves a saved value when an invalid patch is supplied; the local LLM client sends the configured `max_tokens`; the cloud clients still send 512
+    - _Requirements: 43.6_
 
 - [x] 23. Deployment and packaging (Run Modes)
   - [x] 23.1 Multi-stage Dockerfile for the static-only unprivileged Web Container
@@ -632,6 +641,15 @@ These tasks were added after the original plan. Section 30 records work already 
   - [ ]* 31.7 Tests for the coaching loop
     - Competency parsing; adequacy-reply parsing and loop termination at `ENOUGH=yes`, at the 3-follow-up cap, on user stop, and on user dig-deeper; summary-reply parsing; end-of-session detected-skills excludes in-map skills and requires confirmation; failure paths preserve coaching state
     - _Requirements: 63.2, 63.3, 63.4, 63.5, 63.6, 63.8_
+  - [x] 31.8 Robust JSON-first, tolerant question parsing (R62.5 conformance fix)
+    - Update `buildStarQuestionsPrompt` to request a self-delimiting JSON array of `{ competency, question }` objects (drop the `<competency> :: <question>` line format and the "no preamble/numbering" instruction)
+    - Rewrite `parseQuestionPrompts` to be layered and tolerant: (a) locate and parse the JSON array anywhere in the reply (tolerating code fences and surrounding preamble/chatter), validating each element and defaulting a caller-supplied generic competency when absent; (b) when no usable JSON is found, fall back to a positive-criteria line scan that keeps `<competency> :: <question>` lines, lines ending in `?`, and lines opening with a behavioural lead-in, dropping all other lines; (c) return empty only when no usable question text exists
+    - Thread a localised generic-competency label from `CoachingScreen` into `createStarQuestionsOperation`/`parseQuestionPrompts`; add the string to `locales/en.json` and `locales/pt-BR.json` (no hardcoded `@core` user-facing string)
+    - Fixes the local-model bug where a non-`::` reply produced zero suggestions and the UI silently returned to the same prompt
+    - _Requirements: 62.3, 62.5, 22.6, 22.8_
+  - [x]* 31.9 Tests for robust question parsing
+    - JSON array parse (clean, fenced, and embedded-in-preamble); JSON object wrapper / array-of-strings tolerance; line fallback for `?`-terminated and lead-in prompts; generic competency default; empty result only when no usable question; a property test asserting any reply containing at least one question-like line yields a non-empty result
+    - _Requirements: 62.3, 62.5_
 - [ ] 32. Conversion Preview and Outbound Payload Preview (R64, R65)
   - [x] 32.1 Implement the read-only Ingestion Conversion Preview in IngestScreen
     - Add a per-document, READ-ONLY Conversion Preview that shows the full converted text for each ingested document, sourced from the data the shell already holds (rawDocs / `IngestionResult.rawText`, persisted at `profile/raw_documents.md`); inspection only — no in-place editing of the converted text

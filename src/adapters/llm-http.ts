@@ -458,12 +458,16 @@ const withLocalReachability = async <T>(baseUrl: string, op: () => Promise<T>): 
  * immediately. The auth header is omitted for the keyless server.
  */
 export function createLocalLlmProvider(options: LocalLlmOptions = {}): LlmProvider {
-  const maxTokens = options.maxTokens ?? 512;
+  const fallbackMaxTokens = options.maxTokens ?? 512;
   return {
     id: LOCAL_PROVIDER_ID,
     async chat(req, key): Promise<ChatResponse> {
       const doFetch = resolveFetch(options.fetchImpl);
-      const { baseUrl, model } = getLocalConfig();
+      const { baseUrl, model, maxTokens: configuredMaxTokens } = getLocalConfig();
+      // The completion-token limit is read from local-config per call (R43.6) so
+      // a user edit applies on the next request; it defaults high enough for a
+      // reasoning model to finish thinking and still return its answer.
+      const maxTokens = configuredMaxTokens ?? fallbackMaxTokens;
       // A real chat operation that fails to connect / gets no response surfaces
       // as an operation-scoped "unreachable" error (R53.6). The no-prompt
       // validation probe is deliberately left to surface the raw failure reason

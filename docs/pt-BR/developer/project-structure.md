@@ -67,7 +67,7 @@ Os testes ficam **co-localizados** com o código que cobrem, como arquivos `*.te
 | `provider.ts` | Interfaces de provedor (`ProviderManager`, `LlmProvider`, `SttProvider`, `RedactedPayload`, `AudioBlob`, …). |
 | `provider-manager.ts` | O `DefaultProviderManager` plugável + os plugins de provedor padrão (OpenAI, Anthropic, Local sem chave). |
 | `llm-http.ts` | Os clientes HTTP compatíveis com OpenAI (nuvem + local), incl. transcrição/tradução do Whisper. |
-| `local-config.ts` | URL base / modelo de chat / modelo de STT editáveis para o provedor local sem chave, no armazenamento local do navegador. |
+| `local-config.ts` | URL base / modelo de chat / modelo de STT / máximo de tokens de resposta editáveis para o provedor local sem chave, no armazenamento local do navegador. |
 | `vault.ts` | O cofre de chaves Web Crypto (AES-GCM) para chaves BYOK criptografadas em repouso. |
 | `pii.ts` | O `PII_Scanner` (regex + JS leve) e `redact()`. |
 | `send-control-store.ts` | Persistência local no navegador das decisões de controle de envio por arquivo/por detecção (apenas escolhas, nunca conteúdo). |

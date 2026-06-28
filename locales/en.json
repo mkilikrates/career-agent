@@ -64,6 +64,7 @@
       "baseUrlLabel": "Base URL",
       "chatModelLabel": "Chat model",
       "sttModelLabel": "Speech-to-text model",
+      "maxTokensLabel": "Max completion tokens",
       "testConnection": "Test connection",
       "configured": "This local provider is configured and ready.",
       "notConfigured": "This local provider has not been tested yet.",
@@ -248,7 +249,8 @@
       "advisory": "These are AI practice prompts only. They supplement — never replace — the role-grounded script questions, and are not added to your knowledge base.",
       "explainerHeading": "STAR practice with AI coaching",
       "explainer": "Pick a question, then answer in your own words by typing or recording audio. The AI checks whether you covered the Situation, Task, Action, and Result, and asks focused follow-ups until your answer is complete. We only ever use your own words — we never invent facts.",
-      "practise": "Practise this question"
+      "practise": "Practise this question",
+      "genericCompetency": "Role-relevant behaviour"
     },
     "loop": {
       "heading": "STAR coaching",

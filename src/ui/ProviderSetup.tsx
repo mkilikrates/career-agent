@@ -198,6 +198,7 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
         baseUrl: localCfg.baseUrl,
         model: localCfg.model,
         sttModel: localCfg.sttModel,
+        maxTokens: localCfg.maxTokens,
       });
       const result = await providerManager.validateKey(selected, '');
       if (!result.valid) {
@@ -282,6 +283,23 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
               autoComplete="off"
               value={localCfg.sttModel}
               onChange={(e) => updateLocalField({ sttModel: e.target.value })}
+              disabled={busy}
+            />
+            <TextField
+              label={t('provider.local.maxTokensLabel')}
+              type="number"
+              inputMode="numeric"
+              min={1}
+              autoComplete="off"
+              value={String(localCfg.maxTokens)}
+              onChange={(e) => {
+                const next = Number.parseInt(e.target.value, 10);
+                // Show what the user types; persistence drops a non-positive value
+                // so a usable saved limit is preserved (R43.6).
+                updateLocalField({
+                  maxTokens: Number.isFinite(next) ? next : localCfg.maxTokens,
+                });
+              }}
               disabled={busy}
             />
             <Button

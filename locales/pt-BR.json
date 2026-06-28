@@ -64,6 +64,7 @@
       "baseUrlLabel": "URL base",
       "chatModelLabel": "Modelo de chat",
       "sttModelLabel": "Modelo de fala para texto",
+      "maxTokensLabel": "Máximo de tokens de resposta",
       "testConnection": "Testar conexão",
       "configured": "Este provedor local está configurado e pronto.",
       "notConfigured": "Este provedor local ainda não foi testado.",
@@ -248,7 +249,8 @@
       "advisory": "Estas são apenas perguntas de prática da IA. Elas complementam — nunca substituem — as perguntas baseadas no cargo, e não são adicionadas à sua base de conhecimento.",
       "explainerHeading": "Prática STAR com coaching de IA",
       "explainer": "Escolha uma pergunta e responda com suas próprias palavras, digitando ou gravando áudio. A IA verifica se você cobriu a Situação, a Tarefa, a Ação e o Resultado, e faz perguntas de acompanhamento focadas até sua resposta ficar completa. Usamos apenas as suas próprias palavras — nunca inventamos fatos.",
-      "practise": "Praticar esta pergunta"
+      "practise": "Praticar esta pergunta",
+      "genericCompetency": "Comportamento relevante para o cargo"
     },
     "loop": {
       "heading": "Coaching STAR",

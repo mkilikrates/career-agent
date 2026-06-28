@@ -159,6 +159,7 @@ This runs the AI on your own computer, so **nothing leaves your device**. It dow
    - **Chat base URL:** `http://localhost:11434`
    - **Speech-to-text base URL** (only if you enabled it in step 2): `http://localhost:8081`
    - **Model names:** use the defaults shown unless you changed them.
+   - **Max completion tokens:** leave at the default (2048). This is how many tokens the local model may use for its reply. Raise it if you use a *reasoning* model that "thinks" before answering (see [What about DeepSeek?](#what-about-deepseek)) or if answers look cut off; the default suits most models.
 
    Click **Test connection**. A green "ready" message means you're set.
 
@@ -191,7 +192,7 @@ OLLAMA_MODEL=llama3.2:3b docker compose up
 You can use DeepSeek locally too — the **DeepSeek-R1** models (for example `deepseek-r1:8b`, which needs about the same memory as `llama3`). Two things worth knowing:
 
 - **It stays on your computer.** Running it through the local stack means the model runs on your own machine — nothing is sent to DeepSeek's servers.
-- **It "thinks out loud."** DeepSeek-R1 is a *reasoning* model: it shows its step-by-step thinking before answering. That's interesting to watch, but it can make some of Career Agent's guided steps (like the STAR coaching follow-ups) behave unpredictably, because they expect short, tidy answers. If a step acts up, just switch back to `llama3` or `qwen2.5` for those parts. Treat DeepSeek as fun to experiment with rather than the reliable default.
+- **It "thinks out loud."** DeepSeek-R1 is a *reasoning* model: it works through its thinking step by step before giving an answer. Because that thinking consumes part of the reply budget, give it room: keep the **Max completion tokens** setting at the default 2048 or higher. If it's set too low, the model can use up the whole budget thinking and return an empty answer — so if a reasoning model produces nothing, raise that number. Reasoning models are also slower (you may wait a while for each reply, especially without a GPU). With enough budget it works fine; if you prefer faster, tidier responses, `llama3` or `qwen2.5` are good non-reasoning alternatives.
 
 To try it: `OLLAMA_MODEL=deepseek-r1:8b docker compose up` (and set the same name in the app's Local-provider setup).
 

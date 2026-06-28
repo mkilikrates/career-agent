@@ -67,7 +67,7 @@ Tests are **co-located** with the code they cover as `*.test.ts(x)` files.
 | `provider.ts` | Provider interfaces (`ProviderManager`, `LlmProvider`, `SttProvider`, `RedactedPayload`, `AudioBlob`, …). |
 | `provider-manager.ts` | The pluggable `DefaultProviderManager` + default provider plugins (OpenAI, Anthropic, keyless Local). |
 | `llm-http.ts` | The OpenAI-compatible HTTP clients (cloud + local), incl. Whisper transcription/translation. |
-| `local-config.ts` | Editable base URL / chat model / STT model for the keyless local provider, in browser-local storage. |
+| `local-config.ts` | Editable base URL / chat model / STT model / max completion tokens for the keyless local provider, in browser-local storage. |
 | `vault.ts` | The Web Crypto (AES-GCM) key vault for encrypted-at-rest BYOK keys. |
 | `pii.ts` | The `PII_Scanner` (regex + lightweight JS) and `redact()`. |
 | `send-control-store.ts` | Browser-local persistence of per-file/per-detection send-control decisions (choices only, never content). |

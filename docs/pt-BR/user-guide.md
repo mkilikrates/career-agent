@@ -159,6 +159,7 @@ Isso roda a IA no seu próprio computador, de modo que **nada sai do seu disposi
    - **URL base do chat:** `http://localhost:11434`
    - **URL base de fala para texto** (somente se você o habilitou no passo 2): `http://localhost:8081`
    - **Nomes dos modelos:** use os padrões exibidos, a menos que você os tenha alterado.
+   - **Máximo de tokens de resposta:** mantenha o padrão (2048). É quantos tokens o modelo local pode usar na resposta. Aumente se você usar um modelo de *raciocínio* que "pensa" antes de responder (veja [E quanto ao DeepSeek?](#e-quanto-ao-deepseek)) ou se as respostas aparecerem cortadas; o padrão atende à maioria dos modelos.
 
    Clique em **Test connection**. Uma mensagem verde de "pronto" significa que está tudo certo.
 
@@ -191,7 +192,7 @@ OLLAMA_MODEL=llama3.2:3b docker compose up
 Você também pode usar o DeepSeek localmente — os modelos **DeepSeek-R1** (por exemplo `deepseek-r1:8b`, que precisa de aproximadamente a mesma memória que o `llama3`). Duas coisas que vale saber:
 
 - **Ele permanece no seu computador.** Rodá-lo pela stack local significa que o modelo executa na sua própria máquina — nada é enviado aos servidores da DeepSeek.
-- **Ele "pensa em voz alta".** O DeepSeek-R1 é um modelo de *raciocínio*: ele mostra seu pensamento passo a passo antes de responder. Isso é interessante de observar, mas pode fazer com que alguns passos guiados do Agente de Carreira (como os acompanhamentos do treino STAR) se comportem de forma imprevisível, porque eles esperam respostas curtas e organizadas. Se um passo der problema, basta voltar para `llama3` ou `qwen2.5` nessas partes. Trate o DeepSeek como algo divertido para experimentar, não como o padrão confiável.
+- **Ele "pensa em voz alta".** O DeepSeek-R1 é um modelo de *raciocínio*: ele trabalha o pensamento passo a passo antes de dar uma resposta. Como esse pensamento consome parte do orçamento da resposta, dê espaço a ele: mantenha a configuração **Máximo de tokens de resposta** no padrão de 2048 ou mais. Se o valor for baixo demais, o modelo pode gastar todo o orçamento pensando e retornar uma resposta vazia — então, se um modelo de raciocínio não produzir nada, aumente esse número. Modelos de raciocínio também são mais lentos (você pode esperar um tempo por cada resposta, especialmente sem GPU). Com orçamento suficiente ele funciona bem; se preferir respostas mais rápidas e organizadas, `llama3` ou `qwen2.5` são boas alternativas sem raciocínio.
 
 Para testá-lo: `OLLAMA_MODEL=deepseek-r1:8b docker compose up` (e defina o mesmo nome na configuração do provedor Local do app).
 

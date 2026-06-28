@@ -19,9 +19,40 @@ export interface LocalProviderConfig {
   readonly model: string;
   /** Speech-to-text model name (e.g. a Whisper model) on the local server. */
   readonly sttModel: string;
+  /**
+   * Maximum completion tokens for a local chat request (R43.6). Defaults to
+   * {@link DEFAULT_LOCAL_MAX_TOKENS} — higher than the cloud clients' 512 —
+   * because reasoning models emit a chain-of-thought before their answer and
+   * need budget for both. User-editable; tokens are free on a local server.
+   */
+  readonly maxTokens: number;
   /** Whether the user has validated/saved a working local configuration. */
   readonly configured: boolean;
 }
+
+/**
+ * Default maximum completion tokens for the Local Provider (R43.6). Set well
+ * above the cloud clients' 512 so a reasoning model (e.g. `deepseek-r1`) has
+ * room to finish thinking AND still emit its full answer; at 512 the reasoning
+ * alone exhausts the budget and `message.content` comes back empty.
+ */
+export const DEFAULT_LOCAL_MAX_TOKENS = 2048;
+
+/**
+ * Coerce an arbitrary persisted value into a usable positive-integer token
+ * limit, falling back to {@link DEFAULT_LOCAL_MAX_TOKENS} for anything that is
+ * not a finite positive number (R43.6). Fractional values are floored.
+ */
+const normaliseMaxTokens = (value: unknown): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+    return DEFAULT_LOCAL_MAX_TOKENS;
+  }
+  return Math.floor(value);
+};
+
+/** Whether a candidate `maxTokens` value is a usable positive integer (R43.6). */
+export const isValidMaxTokens = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 1;
 
 // Host-published localhost defaults (R54.1). In the Docker Compose Stack the
 // browser runs on the HOST and is outside the Compose network, so it can only
@@ -50,6 +81,7 @@ export const DEFAULT_LOCAL_CONFIG: LocalProviderConfig = {
   baseUrl: 'http://localhost:11434/v1',
   model: 'llama3',
   sttModel: 'whisper-1',
+  maxTokens: DEFAULT_LOCAL_MAX_TOKENS,
   configured: false,
 };
 
@@ -74,6 +106,7 @@ export const getLocalConfig = (): LocalProviderConfig => {
       baseUrl: typeof parsed.baseUrl === 'string' && parsed.baseUrl.trim() ? parsed.baseUrl : DEFAULT_LOCAL_CONFIG.baseUrl,
       model: typeof parsed.model === 'string' && parsed.model.trim() ? parsed.model : DEFAULT_LOCAL_CONFIG.model,
       sttModel: typeof parsed.sttModel === 'string' && parsed.sttModel.trim() ? parsed.sttModel : DEFAULT_LOCAL_CONFIG.sttModel,
+      maxTokens: normaliseMaxTokens(parsed.maxTokens),
       configured: parsed.configured === true,
     };
   } catch {
@@ -257,6 +290,12 @@ export const setLocalConfig = (patch: Partial<LocalProviderConfig>): LocalProvid
     // Never overwrite a usable saved base URL with an unreachable one. Omit the
     // key (rather than `delete`, which is invalid on the readonly property).
     const { baseUrl: _rejected, ...rest } = sanitized;
+    sanitized = rest;
+  }
+  // Never overwrite a usable saved token limit with a non-positive/invalid one
+  // (R43.6); drop the key so the existing saved value is preserved.
+  if ('maxTokens' in sanitized && !isValidMaxTokens(sanitized.maxTokens)) {
+    const { maxTokens: _rejectedTokens, ...rest } = sanitized;
     sanitized = rest;
   }
   const next = { ...getLocalConfig(), ...sanitized };
