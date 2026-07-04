@@ -31,7 +31,7 @@ const skill = (
   category: 'Technical',
   proficiencySignal: 'Evidence-based.',
   evidence: [],
-  recency: asISODate('2024-01-01'),
+  since: asISODate('2024-01-01'),
   ...opts,
 });
 
@@ -40,33 +40,66 @@ const mapOf = (entries: SkillMapEntry[]): SkillMap => ({
   graph: buildReferenceGraph({ skills: entries }),
 });
 
-describe('approxDurationMonths (R20.6)', () => {
-  it('spans earliest evidence to latest observed date, rounded to months', () => {
+describe('approxDurationMonths (R20.6, R70.7)', () => {
+  const NOW = new Date('2025-01-01');
+
+  it('computes duration as (now - since) when since is available', () => {
     const entry = skill('SKILL-a', 'JavaScript', {
       evidence: [
         { ref: asBulletId('BULLET-01'), when: asISODate('2021-01-01'), note: '' },
         { ref: asBulletId('BULLET-02'), when: asISODate('2022-01-01'), note: '' },
       ],
-      recency: asISODate('2023-01-01'),
+      since: asISODate('2023-01-01'),
     });
-    // 2021-01-01 → 2023-01-01 ≈ 24 months.
-    expect(approxDurationMonths(entry)).toBe(24);
+    // 2023-01-01 → 2025-01-01 ≈ 24 months.
+    expect(approxDurationMonths(entry, NOW)).toBe(24);
   });
 
-  it('returns a minimum of one month when there is a single/zero dated point', () => {
-    const single = skill('SKILL-b', 'SQL', {
-      evidence: [{ ref: asBulletId('BULLET-03'), when: asISODate('2024-01-01'), note: '' }],
-      recency: asISODate('2024-01-01'),
+  it('falls back to (now - earliestEvidence) when since is absent', () => {
+    const entry = skill('SKILL-a', 'JavaScript', {
+      evidence: [
+        { ref: asBulletId('BULLET-01'), when: asISODate('2022-01-01'), note: '' },
+        { ref: asBulletId('BULLET-02'), when: asISODate('2024-01-01'), note: '' },
+      ],
+      since: undefined,
     });
-    expect(approxDurationMonths(single)).toBe(1);
+    // earliest evidence 2022-01-01 → now 2025-01-01 ≈ 36 months.
+    expect(approxDurationMonths(entry, NOW)).toBe(36);
+  });
+
+  it('returns a minimum of one month when since equals now', () => {
+    const single = skill('SKILL-b', 'SQL', {
+      evidence: [{ ref: asBulletId('BULLET-03'), when: asISODate('2025-01-01'), note: '' }],
+      since: asISODate('2025-01-01'),
+    });
+    expect(approxDurationMonths(single, NOW)).toBe(1);
+  });
+
+  it('returns a minimum of one month when no dates are available', () => {
+    const noDate = skill('SKILL-d', 'Rust', {
+      evidence: [],
+      since: undefined,
+    });
+    expect(approxDurationMonths(noDate, NOW)).toBe(1);
   });
 
   it('is never negative regardless of date ordering', () => {
     const entry = skill('SKILL-c', 'Go', {
       evidence: [{ ref: asBulletId('BULLET-04'), when: asISODate('2025-06-01'), note: '' }],
-      recency: asISODate('2020-01-01'),
+      since: asISODate('2020-01-01'),
     });
-    expect(approxDurationMonths(entry)).toBeGreaterThanOrEqual(1);
+    expect(approxDurationMonths(entry, NOW)).toBeGreaterThanOrEqual(1);
+  });
+
+  it('ignores evidence dates when since is present (uses only since)', () => {
+    const entry = skill('SKILL-e', 'Python', {
+      evidence: [
+        { ref: asBulletId('BULLET-05'), when: asISODate('2015-01-01'), note: '' },
+      ],
+      since: asISODate('2024-01-01'),
+    });
+    // since is 2024-01-01 → now 2025-01-01 ≈ 12 months (ignores earlier evidence)
+    expect(approxDurationMonths(entry, NOW)).toBe(12);
   });
 });
 

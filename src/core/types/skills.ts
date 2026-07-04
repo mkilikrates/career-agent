@@ -36,7 +36,7 @@ export interface SkillMapEntry {
   proficiencySignal: string; // evidence-based, not self-score (R14.3)
   selfAssessment?: string; // separate from evidence signal (R19.4)
   evidence: SkillEvidence[]; // R14.1, R18.2
-  recency: ISODate; // R14.1
+  since?: ISODate; // R70.1 — earliest date the skill was used
   mergeRecord?: MergeRecord; // reversible (R15.2, R19.3)
   brokenReference?: boolean; // R36.2
   /**
@@ -48,6 +48,18 @@ export interface SkillMapEntry {
    */
   private?: boolean;
 }
+
+/**
+ * Compute approximate years of experience from a `since` date (R70.4).
+ * Returns `undefined` when `since` is absent or unparseable.
+ */
+export const experienceYears = (since?: ISODate): number | undefined => {
+  if (since === undefined) return undefined;
+  const ms = Date.parse(since as unknown as string);
+  if (Number.isNaN(ms)) return undefined;
+  const years = Math.round((Date.now() - ms) / (365.25 * 24 * 60 * 60 * 1000));
+  return Math.max(0, years);
+};
 
 /** A CV accomplishment bullet with a stable, never-reused id (R18.1). */
 export interface Accomplishment {

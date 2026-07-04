@@ -32,7 +32,15 @@ If code and spec disagree, reconcile them — never let them silently drift.
 
 `npm run typecheck` + `npm test` (incl. `npm run test:no-fabrication`) pass · tests added ·
 trust invariants intact · spec + prompts + docs updated in every available language ·
-versions bumped · no real personal data committed.
+versions bumped · `CHANGELOG.md` updated · no real personal data committed.
+
+## Changelog
+
+Every change that affects behavior, fixes a bug, or adds a feature **must** have a
+corresponding entry in [`CHANGELOG.md`](../../CHANGELOG.md) at the repo root. Follow the
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format with
+Added / Changed / Fixed / Removed sections under the current unreleased version heading.
+If the version was bumped, use the new version number as the heading.
 
 ## Hooks & automation
 

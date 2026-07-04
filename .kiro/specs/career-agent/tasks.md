@@ -297,7 +297,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
     - Static bundle loads from `file://`, the privacy notice renders, and no network call occurs except via the Egress Gate
     - _Requirements: 1.1, 1.3, 1.4_
 
-- [ ] 20. Final checkpoint
+- [~] 20. Final checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 21. Completed since original plan (UI shell + provider integrations)
@@ -380,15 +380,23 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 22.10 Write integration tests for keyless local provider and per-capability routing
     - Keyless validate/send/transcribe (auth header omitted), `local-config` round-trip, per-capability routing (chat → provider A, STT → provider B), no-payload-leaves-device when all-local, and the Whisper translate path
     - _Requirements: 43, 44, 26.5, 46_
-  - [x] 22.11 User-configurable Local Provider completion-token limit (R43.6)
-    - Add a `maxTokens` field to `LocalProviderConfig` (`adapters/local-config.ts`), default **2048** in `DEFAULT_LOCAL_CONFIG`; coerce a non-positive/non-numeric saved value back to the default in `getLocalConfig`, and drop an invalid `maxTokens` patch in `setLocalConfig` so a usable saved value is preserved
-    - Make the keyless Local LLM client read `maxTokens` from `getLocalConfig()` per call (alongside base URL/model) so an edit applies on the next request; leave the cloud (OpenAI/Anthropic) `max_tokens` default at 512 to bound BYOK cost
-    - Add an editable "max completion tokens" number field to the keyless Local Provider section of `ProviderSetup`, persisted via `updateLocalField` and included in the pre-validation save; add the label/help strings to `locales/en.json` and `locales/pt-BR.json`
-    - Fixes reasoning models (e.g. `deepseek-r1`) returning empty `content` when their chain-of-thought consumed the old 512-token budget
+  - [x] 22.11 User-configurable completion-token limit for all providers (R43.6)
+    - Add a `maxTokens` field to `LocalProviderConfig` (`adapters/local-config.ts`), default **2048** in `DEFAULT_LOCAL_CONFIG`; coerce a negative/non-numeric saved value back to the default in `getLocalConfig`, and drop an invalid `maxTokens` patch in `setLocalConfig` so a usable saved value is preserved; treat **0 as "no cap"** (omit `max_tokens` from the request / use provider default)
+    - Make **all three** LLM clients (OpenAI, Anthropic, Local) read `maxTokens` from `getLocalConfig()` per call so one setting applies universally; for 0 ("no cap") OpenAI-compatible clients omit `max_tokens` entirely, and Anthropic (which requires the field) uses a generous 4096 fallback
+    - Add an editable "max completion tokens" number field to the Local Provider section of `ProviderSetup`; accept 0 and label it "(0 = no limit)"; add the label/help strings to `locales/en.json` and `locales/pt-BR.json`
+    - Fixes reasoning models (e.g. `deepseek-r1`) returning empty `content` when the old 512 budget was consumed by chain-of-thought, and allows cloud users to remove the cap if desired
     - _Requirements: 43.6_
   - [x]* 22.12 Tests for the configurable token limit
-    - `local-config` round-trips `maxTokens`, defaults it to 2048, coerces invalid values, and preserves a saved value when an invalid patch is supplied; the local LLM client sends the configured `max_tokens`; the cloud clients still send 512
+    - `local-config` round-trips `maxTokens`, defaults it to 2048, coerces invalid values (negative → dropped, preserves last valid), accepts 0 as "no cap"; the local LLM client sends the configured `max_tokens` and omits it when 0; the cloud clients also read the shared setting
     - _Requirements: 43.6_
+  - [x] 22.13 Model discovery from validation probe and per-provider model selection (R43.7, R43.8)
+    - Extend `ValidationResult` to carry an optional `models: string[]` field; the LLM clients extract and filter chat-capable model IDs from the `GET /models` response on a successful probe and return them; the Provider_Manager passes them through
+    - Add `extractChatModels` and `isChatModel` helpers in `llm-http.ts` that filter to chat-capable patterns and fall back to the full list when no pattern matches (so custom/local model names are never blocked)
+    - Add a per-provider preferences store (`provider-prefs` in browser-local storage): `setProviderModel(id, model)` / `getProviderModel(id)`; the OpenAI and Anthropic clients read the user's model choice per call (replacing the hardcoded defaults)
+    - In `ProviderSetup`, on successful validation/test: populate a model dropdown from the returned list, default-select the user's prior choice or the first model, persist on change; show a "chat models only" hint
+    - Move `maxTokens` out of the Local-only section into a shared area visible for ALL providers
+    - Add locale strings (`modelLabel`, `modelHint`) to en and pt-BR
+    - _Requirements: 43.7, 43.8_
 
 - [x] 23. Deployment and packaging (Run Modes)
   - [x] 23.1 Multi-stage Dockerfile for the static-only unprivileged Web Container
@@ -470,7 +478,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
     - **Property 22: For any skill map, the role-discovery AI-assist payload contains no employer or company name and includes an approximate experience duration for every skill it carries; and for a keyed cloud (third-party) destination it excludes every item marked private.**
     - **Validates: Requirements 20.6, 47.2, 47.4**
 
-- [-] 27. Interview_Coach: AI STAR questions, in-browser recording, and educational summary
+- [ ] 27. Interview_Coach: AI STAR questions, in-browser recording, and educational summary
   - [x] 27.1 Implement opt-in AI STAR question generation
     - Implement `generateQuestionsAi(role, map, dest)` using a prompt that frames the chosen model as a recruiter for the specific target position, routed through the Egress Gate; AI questions supplement and never replace the script questions (the returned set is always a superset); exclude every private item for a keyed cloud (third-party) destination; on provider failure surface a non-blocking error and preserve pending coaching state so the script questions remain available; AI-generated questions are practice prompts and are not gated by the No-Fabrication harness
     - _Requirements: 22.4, 22.6, 22.7, 22.8, 22.9_
@@ -673,3 +681,101 @@ These tasks were added after the original plan. Section 30 records work already 
   - [ ]* 32.5 Write example tests for the Conversion Preview
     - Read-only rendering of converted text per document; low-confidence indication; discard + paste path; no-converted-text notice for a LinkedIn ZIP
     - _Requirements: 64.1, 64.2, 64.3, 64.5_
+
+
+- [x] 33. UI Redesign: Card-Based Navigation, Welcome Page, Save Status, and Session Resume (R66–R69)
+  - [x] 33.1 App-level view management (`AppView` state machine)
+    - Add an `AppView` discriminated union type (`language | welcome | resume | settings | pipeline:{phase}`) to `App.tsx`; drive top-level rendering from this state; replace the current single-page vertical layout with conditional rendering based on `appView`
+    - Implement view transition logic: language → (welcome OR resume based on persisted session) → settings/pipeline; sidebar nav changes view; settings "Back" returns to pipeline
+    - _Requirements: 66.1, 66.7, 67.1, 69.4_
+  - [x] 33.2 App shell layout (`AppShell.tsx`, `NavSidebar.tsx`)
+    - Create `AppShell` component with a two-area layout: persistent header (app title + save-status indicator + Save & Exit shortcut) + sidebar + main content area
+    - Create `NavSidebar` with the phase stepper, a Settings link, and a Save & Exit button; make the sidebar collapsible to a hamburger on narrow viewports (reuse the existing responsive tokens)
+    - The shell wraps all views except `language` (which renders standalone)
+    - _Requirements: 67.2, 67.4, 68.1, 68.3_
+  - [x] 33.3 Phase stepper component (`PhaseStepper.tsx`)
+    - Create a vertical/horizontal stepper showing each phase with: localised name, status badge (not started / in progress / done), highlight on current, and a subtle "→ recommended" indicator on the next incomplete phase
+    - Drive data from the existing `PhaseWizardController.phases()` output; clicking a step changes `appView` to `pipeline: thatPhase`
+    - _Requirements: 67.2, 67.3_
+  - [x] 33.4 Welcome Page (`WelcomePage.tsx`)
+    - Create a first-run-only page: heading, tagline, 5-step pipeline visual with one-line descriptions, privacy callout card, and a single "Get started" button that transitions to `settings` view
+    - All strings from `locales/en.json` and `locales/pt-BR.json`; page shown only when no persisted session exists
+    - _Requirements: 66.1, 66.2, 66.3, 66.4, 66.5, 66.6, 66.7, 66.8_
+  - [x] 33.5 Resume Screen (`ResumeScreen.tsx`)
+    - Create a return-visit page: "Welcome back" heading, last-active phase/role summary, outstanding-items list (from existing `SessionSummary.outstanding`), and actions: "Continue" (primary), "Go to Settings", "Start fresh" (danger, with confirm → clears store)
+    - All strings from locales; shown only when persisted session exists
+    - _Requirements: 69.1, 69.2, 69.3, 69.4, 69.5_
+  - [x] 33.6 Settings Page (`SettingsPage.tsx`)
+    - Move provider setup, provider selection, model dropdown, max-tokens, language selector, and privacy/consent into a single dedicated Settings view with sectioned layout
+    - Add a note in the STT section explaining cross-provider mixing ("You can use a different provider for chat and speech-to-text")
+    - Add a "Back to pipeline" button; accessible from the sidebar nav at all times
+    - _Requirements: 67.4_
+  - [x] 33.7 Save-status context and indicator (`SaveStatusProvider.tsx`, `SaveStatusIndicator.tsx`)
+    - Create a React context providing `{ status: 'saved' | 'saving' | 'temporary', notifySaved: () => void }`
+    - Detect temporary-session mode at startup (incognito/fallback-tier heuristic: attempt a small IndexedDB write; if it fails or `sessionStorage`-only → temporary)
+    - Render the status in the header: "✓ Progress saved" (green) / "⚠ Temporary session — export before closing" (amber)
+    - Flash "✓ Saved just now" for 2 seconds after each `notifySaved()` call
+    - Wire `notifySaved()` into existing persist call sites (`saveSkillMap`, `saveInterview`, `saveRolePreferences`, `store.logConfirmation`, etc.)
+    - _Requirements: 68.1, 68.2, 68.4, 68.5_
+  - [x] 33.8 Save & Exit action
+    - Surface a "Save & Exit" button in the sidebar nav (and as a compact icon in the header for mobile)
+    - On click: trigger the existing Memory Store zip export (same as the Memory screen's export action); do NOT close the window (browser won't allow it), just download the zip
+    - _Requirements: 68.3_
+  - [x] 33.9 Progressive disclosure in phase cards
+    - Refactor each phase screen to track an internal `step` state that gates which sections render (sections below the current step are not in the DOM)
+    - Coaching: role selector → questions → answer interface → follow-up loop → result/talking point → session summary
+    - Ingest: upload/paste area → document list → extraction review → phase completion action
+    - Skill Map: generate button → map review → AI discovery (optional)
+    - Role Discovery: generate → role list → accept/reject/rank
+    - Output: role/format selector → generation → preview/download
+    - Memory: full access (no gating needed)
+    - _Requirements: 67.5_
+  - [x] 33.10 Phase-specific completion actions
+    - Replace the generic "Confirm and continue" button with phase-specific labels that name the destination: "Save and generate skill map" / "Save and discover roles" / "Save and start coaching" / "Save and generate CV" / "Save to memory"
+    - Each action persists + transitions `appView` to the next phase
+    - _Requirements: 67.6_
+  - [x] 33.11 Locale strings for all new components
+    - Add all new user-facing strings for Welcome Page, Resume Screen, Settings Page, phase stepper, save-status, Save & Exit, and phase-specific actions to `locales/en.json` and `locales/pt-BR.json`
+    - _Requirements: 66.8, 67.7, 69.5_
+  - [x] 33.12 Update docs (both languages) for the new UI flow
+    - Update `docs/en/user-guide.md` and `docs/pt-BR/user-guide.md` to describe the card-based navigation, welcome page, settings page, save status, and resume screen
+    - Update `docs/en/developer/project-structure.md` and `docs/pt-BR/developer/project-structure.md` for the new components
+    - _Requirements: 66, 67, 68, 69_
+  - [ ]* 33.13 Tests for the UI redesign
+    - View transitions: language → welcome (no session) / resume (session exists); welcome → settings → pipeline; resume → pipeline; sidebar nav switches views; Settings "Back" returns
+    - Save-status: temporary-mode detection, notifySaved flash, indicator text
+    - Progressive disclosure: coaching card renders only current step's controls; ingest card reveals extraction review only after upload
+    - Phase-specific actions navigate to the correct next phase
+    - _Requirements: 66, 67, 68, 69_
+
+
+- [x] 34. Experience Duration Replaces Recency (R70)
+  - [x] 34.1 Data model: replace `recency` with `since` in `SkillMapEntry`
+    - Remove `recency: ISODate` from `SkillMapEntry` in `@core/types/skills.ts`; add `since?: ISODate`
+    - Add an `experienceYears(since)` helper that computes approximate years from the `since` date
+    - Update all TypeScript references to `recency` across `@core` and `@ui` to use `since` or the computed duration
+    - _Requirements: 70.1, 70.4_
+  - [x] 34.2 Skill-map generation: derive `since` from earliest evidence
+    - In `@core/skills/skill-map.ts` `generate()`, set `since` to the earliest `evidence[].when` date for each skill (instead of the latest)
+    - In `@core/skills/review.ts` `addUserSkill`, accept a `since` field from the user input (required alongside role/project + when)
+    - _Requirements: 70.2, 70.3_
+  - [x] 34.3 Skill-map serialization: persist and parse `since`, migrate `recency`
+    - In `@core/skills/skill-map-document.ts`, serialize `since` instead of `recency`; on parse, migrate entries with `recency` but no `since` (use earliest evidence date or recency as fallback); drop the `recency` key on next save
+    - _Requirements: 70.4, 70.5_
+  - [x] 34.4 Role-discovery payload: use `since` for duration
+    - In `@core/role-matcher/role-discovery-payload.ts`, compute `approxDurationMonths` from `(now - since)` instead of `(recency - earliestEvidence)`
+    - _Requirements: 70.7_
+  - [x] 34.5 Coaching prompt: show experience years from `since`
+    - In `@core/interview/coach-assist.ts` `buildCandidateProfile`, display "~N years experience" computed from `since` instead of "last used <recency>"
+    - _Requirements: 70.6_
+  - [x] 34.6 UI: editable "Since" field in skill-map review
+    - In `SkillMapScreen.tsx`, add a "Since" year/month input per skill that the user can edit; persist via the existing `updateLocalField` / save path; show computed "~N years" alongside
+    - Add locale strings (`skillMap.since`, `skillMap.experienceYears`) to `locales/en.json` and `locales/pt-BR.json`
+    - _Requirements: 70.3_
+  - [x] 34.7 Update all tests referencing `recency`
+    - Update test fixtures across `@core/skills`, `@core/role-matcher`, `@core/interview`, `@core/orchestrator`, `@core/output`, `@core/no-fabrication`, and `@adapters` to use `since` instead of `recency`; verify migration logic in the skill-map-document parser
+    - _Requirements: 70.4, 70.5_
+  - [x] 34.8 Update docs and prompts.md
+    - Update `docs/prompts.md` candidate-profile section to show "~N years experience" format
+    - Update `docs/en/developer/project-structure.md` and `docs/pt-BR/developer/project-structure.md` if the skill-map structure is documented
+    - _Requirements: 70_

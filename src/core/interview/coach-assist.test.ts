@@ -39,6 +39,7 @@ import {
   parsePerQuestionSummaryReply,
   perQuestionSummary,
   type PerQuestionSummaryInput,
+  buildCandidateProfile,
 } from './coach-assist';
 
 const DEST: EgressDestination = { provider: 'openai', kind: 'keyed-cloud' };
@@ -69,7 +70,7 @@ const entry = (
   category: 'Technical',
   proficiencySignal: 'Evidence-based.',
   evidence: [],
-  recency: asISODate('2024-01-01'),
+  since: asISODate('2024-01-01'),
   ...opts,
 });
 
@@ -274,12 +275,18 @@ describe('StarQuestionsOperation — private-skill exclusion by destination (R22
     entry('SKILL-a', 'JavaScript'),
     entry('SKILL-b', 'Secret Skill', { private: true }),
   ]);
+  // Role with matched skills referencing both entries (one private).
+  const mixedRole: RolePreference = {
+    ...ROLE,
+    matchedSkills: [asSkillId('SKILL-a'), asSkillId('SKILL-b')],
+    gapSkills: [],
+  };
 
   it('EXCLUDES private skills from the request for a keyed cloud destination (R22.7, R46.4)', async () => {
     const transport = vi.fn<AssistTransport>(async () => '');
     const op = new StarQuestionsOperation(transport);
 
-    await op.aiAssisted({ role: ROLE, map: mixedMap }, DEST);
+    await op.aiAssisted({ role: mixedRole, map: mixedMap }, DEST);
 
     const prompt = transport.mock.calls[0][0];
     expect(prompt).toContain('JavaScript');
@@ -290,7 +297,7 @@ describe('StarQuestionsOperation — private-skill exclusion by destination (R22
     const transport = vi.fn<AssistTransport>(async () => '');
     const op = new StarQuestionsOperation(transport);
 
-    await op.aiAssisted({ role: ROLE, map: mixedMap }, LOCAL);
+    await op.aiAssisted({ role: mixedRole, map: mixedMap }, LOCAL);
 
     const prompt = transport.mock.calls[0][0];
     expect(prompt).toContain('JavaScript');
@@ -298,7 +305,7 @@ describe('StarQuestionsOperation — private-skill exclusion by destination (R22
   });
 
   it('treats an absent destination kind as third-party (excludes private)', () => {
-    const prompt = buildStarQuestionsPrompt(ROLE, mixedMap, { provider: 'openai' });
+    const prompt = buildStarQuestionsPrompt(mixedRole, mixedMap, { provider: 'openai' });
     expect(prompt).not.toContain('Secret Skill');
   });
 });
@@ -602,5 +609,62 @@ describe('perQuestionSummary — gate-routed stateless operation (R63.6, R63.7)'
     expect(summary.star).toBe('All covered.');
     expect(summary.skills).toEqual(['Reliability']);
     expect(summary.tips).toEqual(['Add a metric.']);
+  });
+});
+
+
+describe('buildCandidateProfile — experience years from since (R70.6)', () => {
+  it('shows "~N years experience" computed from the since date', () => {
+    // Use a date far enough in the past to guarantee a stable year count.
+    const fiveYearsAgo = new Date();
+    fiveYearsAgo.setFullYear(fiveYearsAgo.getFullYear() - 5);
+    const sinceDate = fiveYearsAgo.toISOString().slice(0, 10);
+
+    const skillMap = mapOf([
+      entry('SKILL-ts', 'TypeScript', { since: asISODate(sinceDate) }),
+    ]);
+    const role: RolePreference = {
+      ...ROLE,
+      matchedSkills: [asSkillId('SKILL-ts')],
+      gapSkills: [],
+    };
+
+    const profile = buildCandidateProfile(role, skillMap, DEST);
+    expect(profile).toContain('~5 years experience');
+    expect(profile).not.toContain('since');
+  });
+
+  it('shows "< 1 year experience" when since is less than a year ago', () => {
+    // Use a date 2 months ago.
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    const sinceDate = twoMonthsAgo.toISOString().slice(0, 10);
+
+    const skillMap = mapOf([
+      entry('SKILL-new', 'NewTech', { since: asISODate(sinceDate) }),
+    ]);
+    const role: RolePreference = {
+      ...ROLE,
+      matchedSkills: [asSkillId('SKILL-new')],
+      gapSkills: [],
+    };
+
+    const profile = buildCandidateProfile(role, skillMap, DEST);
+    expect(profile).toContain('< 1 year experience');
+  });
+
+  it('omits experience info when since is absent', () => {
+    const skillMap = mapOf([
+      entry('SKILL-x', 'NoSince', { since: undefined }),
+    ]);
+    const role: RolePreference = {
+      ...ROLE,
+      matchedSkills: [asSkillId('SKILL-x')],
+      gapSkills: [],
+    };
+
+    const profile = buildCandidateProfile(role, skillMap, DEST);
+    expect(profile).not.toContain('experience');
+    expect(profile).not.toContain('since');
   });
 });

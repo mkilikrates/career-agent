@@ -4,6 +4,28 @@
     "tagline": "Local-first career assistant. Your files stay on your device. This is a static bundle with no backend server.",
     "privacyNotice": "Your files stay on your device. Career Agent is not fully offline: when you ask it to use an AI provider, only a minimised, redacted payload is sent to that provider — never your Memory Store files."
   },
+  "shell": {
+    "title": "Career Agent",
+    "nav": {
+      "settings": "Settings",
+      "saveExit": "Save & Exit",
+      "openMenu": "Open navigation menu",
+      "closeMenu": "Close navigation menu"
+    }
+  },
+  "stepper": {
+    "label": "Pipeline phases",
+    "recommended": "Recommended next",
+    "status": {
+      "notStarted": "Not started",
+      "inProgress": "In progress",
+      "done": "Complete"
+    }
+  },
+  "saveExit": {
+    "button": "Save & Exit",
+    "buttonShort": "Save"
+  },
   "privacy": {
     "statement": {
       "heading": "Your privacy",
@@ -47,6 +69,8 @@
     "heading": "Connect an AI provider (your own key)",
     "intro": "Career Agent uses your own cloud provider key. The agent ships no shared key. Your key is validated with a test call, encrypted, and stored only in this browser — it is never written into your career files.",
     "selectLabel": "Provider",
+    "modelLabel": "Chat model",
+    "modelHint": "Showing chat-capable models only. Select the model to use for AI operations.",
     "errorRecovery": "Check the details and try again. Your stored configuration is unchanged.",
     "keyLabel": "API key",
     "validateAndSave": "Validate and save key",
@@ -64,7 +88,7 @@
       "baseUrlLabel": "Base URL",
       "chatModelLabel": "Chat model",
       "sttModelLabel": "Speech-to-text model",
-      "maxTokensLabel": "Max completion tokens",
+      "maxTokensLabel": "Max completion tokens (0 = no limit)",
       "testConnection": "Test connection",
       "configured": "This local provider is configured and ready.",
       "notConfigured": "This local provider has not been tested yet.",
@@ -167,6 +191,9 @@
       "add": "Add my skills",
       "added": "Added {{count}} skill(s) you entered."
     },
+    "since": "Experience since:",
+    "sinceHint": "Set when you first used this skill — it's used to calibrate interview question depth.",
+    "experienceYears": "~{{years}} years",
     "save": "Save skill map",
     "saved": "Skill map saved to the Memory Store.",
     "ai": {
@@ -468,6 +495,47 @@
       "unresolved-conflict": "Unresolved conflict"
     }
   },
+  "views": {
+    "welcome": {
+      "intro": "Build your professional profile, practise interviews, and generate tailored CVs — all on your device.",
+      "getStarted": "Get started",
+      "heading": "Career Agent",
+      "tagline": "Your career, your data, your device.",
+      "privacyCallout": "Everything runs locally. Your files never leave your device.",
+      "step1": "Add your career documents",
+      "step2": "Build your skill map",
+      "step3": "Discover matching roles",
+      "step4": "Practise STAR interviews",
+      "step5": "Generate tailored CVs"
+    },
+    "resume": {
+      "heading": "Welcome back",
+      "intro": "You have an existing session. Pick up where you left off or adjust your settings.",
+      "continue": "Continue",
+      "goToSettings": "Go to Settings",
+      "lastActive": "Last active: {{phase}}",
+      "outstandingHeading": "Outstanding items",
+      "startFresh": "Start fresh",
+      "startFreshConfirm": "This will clear your Memory Store. This cannot be undone. Are you sure?"
+    },
+    "settings": {
+      "backToPipeline": "Back to pipeline",
+      "continueToIngest": "Continue — upload your documents →",
+      "heading": "Settings",
+      "sttNote": "You can use a different provider for chat and speech-to-text.",
+      "languageSection": "Language",
+      "providerSection": "Providers",
+      "privacySection": "Privacy & consent"
+    },
+    "pipeline": {
+      "goToSettings": "Settings",
+      "saveAndSkillMap": "Save and generate skill map",
+      "saveAndRoles": "Save and discover roles",
+      "saveAndCoaching": "Save and start coaching",
+      "saveAndOutput": "Save and generate CV",
+      "saveToMemory": "Save to memory"
+    }
+  },
   "inspector": {
     "heading": "Source-trace inspector",
     "intro": "Inspect any claim to see exactly where it came from. Enter a claim reference (for example BULLET-01, STAR-01, or a skill id) to view its source trace.",
@@ -480,6 +548,32 @@
       "sourceLine": "Source document {{doc}}, line {{line}}: \"{{quote}}\"",
       "userConfirmation": "You confirmed this on {{at}}: {{note}}",
       "interviewAnswer": "From your confirmed interview answer {{star}}"
+    }
+  },
+  "stepper": {
+    "label": "Pipeline progress",
+    "recommended": "→ recommended",
+    "status": {
+      "notStarted": "Not started",
+      "inProgress": "In progress",
+      "done": "Done"
+    }
+  },
+  "saveStatus": {
+    "saved": "✓ Progress saved",
+    "savedJustNow": "✓ Saved just now",
+    "saving": "Saving…",
+    "temporary": "⚠ Temporary session — export before closing"
+  },
+  "saveExit": {
+    "button": "Save & Exit",
+    "buttonShort": "Save"
+  },
+  "shell": {
+    "title": "Career Agent",
+    "nav": {
+      "settings": "Settings",
+      "saveExit": "Save & Exit"
     }
   }
 }

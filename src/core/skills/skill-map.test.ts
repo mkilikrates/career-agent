@@ -43,7 +43,7 @@ const byName = (entries: ReturnType<typeof generate>['entries'], name: string) =
   entries.find((e) => e.name === name);
 
 describe('skill-map generate', () => {
-  it('R14.1: each entry has name, category, evidence-based signal, dated evidence, recency', () => {
+  it('R14.1: each entry has name, category, evidence-based signal, dated evidence, since', () => {
     const map = generate(
       [
         skill('Python'),
@@ -59,14 +59,16 @@ describe('skill-map generate', () => {
     expect(py.proficiencySignal).toMatch(/evidence-based/i);
     expect(py.evidence).toHaveLength(1);
     expect(py.evidence[0].ref).toBe(DOC);
-    expect(py.evidence[0].when).toBe(AS_OF); // undated skill falls back to asOf
-    expect(py.recency).toBe(AS_OF);
+    expect(py.evidence[0].when).toBe(asISODate('')); // undated standalone skill has no date
+    // Standalone skills with no employment context get `since: undefined` —
+    // the user fills it in or the cross-reference step derives it from employment.
+    expect(py.since).toBeUndefined();
 
     // Employment technologies become dated skills (R14.1 dated evidence trail).
     const docker = byName(map.entries, 'Docker')!;
     expect(docker.category).toBe('Tools');
     expect(docker.evidence[0].when).toBe(asISODate('2023-06'));
-    expect(docker.recency).toBe(asISODate('2023-06'));
+    expect(docker.since).toBe(asISODate('2023-06'));
 
     const spanish = byName(map.entries, 'Spanish')!;
     expect(spanish.category).toBe('Communication');

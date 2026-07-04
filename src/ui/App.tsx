@@ -7,6 +7,11 @@
 // the choice is persisted to the Memory Store (`config/locale.md`) and applied
 // to every string, which is read from the externalised resource files via
 // i18next — there are no hardcoded user-facing strings here (R41.8).
+//
+// View management (R66.1, R66.7, R67.1, R69.4): the app uses state-driven view
+// routing via an `AppView` discriminated union. Only one view renders at a time;
+// `appView` determines which. Transitions: language → (welcome | resume) →
+// settings/pipeline. The phase wizard's `goToPhase` drives `appView` transitions.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MemoryTree, CANONICAL_FILES } from '@core/storage';
@@ -44,10 +49,6 @@ import {
 import { parseRawExtractions, parseRawDocuments } from '@core/ingestion';
 import { parseRolePreferences } from '@core/role-matcher';
 import { parseInterview, interviewFilePath } from '@core/interview';
-import { PrivacyStatement } from './PrivacyStatement';
-import { PhaseWizard } from './PhaseWizard';
-import { ProviderSetup } from './ProviderSetup';
-import { ProviderSelection } from './ProviderSelection';
 import { listAvailableProviders, type AvailableProvider } from './provider-availability';
 import { IngestScreen } from './IngestScreen';
 import { SkillMapScreen } from './SkillMapScreen';
@@ -56,13 +57,32 @@ import { CoachingScreen } from './CoachingScreen';
 import { OutputScreen } from './OutputScreen';
 import { MemoryScreen } from './MemoryScreen';
 import { SourceTraceInspector } from './SourceTraceInspector';
+import { WelcomePage } from './WelcomePage';
+import { ResumeScreen } from './ResumeScreen';
 import { createCareerAgentRuntime, type CareerAgentRuntime } from './runtime';
+import { SESSION_STATE_PATH } from './phase-wizard-controller';
 import { PayloadPreviewModal } from './PayloadPreviewModal';
-import { ResponsiveContainer, PhaseChrome, Button, Select } from './design-system';
+import { SettingsPage } from './SettingsPage';
+import { AppShell } from './AppShell';
+import { ResponsiveContainer, Button, Select } from './design-system';
+
+// ---------------------------------------------------------------------------
+// App-level view management (R66.1, R66.7, R67.1, R69.4).
+// A discriminated union drives top-level rendering: only one view at a time.
+// ---------------------------------------------------------------------------
+export type AppView =
+  | { kind: 'language' }
+  | { kind: 'welcome' }
+  | { kind: 'resume' }
+  | { kind: 'settings'; firstRun?: boolean }
+  | { kind: 'pipeline'; phase: Phase };
 
 export default function App() {
   // The canonical Memory Store this session reads/writes (config/locale.md, …).
   const store = useMemo(() => new MemoryTree(), []);
+
+  // The current top-level view — drives which single card/screen renders.
+  const [appView, setAppView] = useState<AppView>({ kind: 'language' });
 
   const [i18n, setI18n] = useState<I18n | null>(null);
   const [language, setLanguage] = useState<SessionLanguage>('en');
@@ -157,6 +177,20 @@ export default function App() {
   const idRegistry = useMemo(() => new IdRegistry(), []);
   // Bumped to force a re-render after an in-place Memory Store mutation (import).
   const [, forceStoreRender] = useState(0);
+
+  // Save & Exit: export the entire Memory Store as a JSON snapshot download
+  // (R68.3). Same logic as MemoryScreen's export action — triggers a browser
+  // download without closing the window (browser security prevents that).
+  const handleSaveExit = useCallback(() => {
+    const json = JSON.stringify(store.snapshot(), null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'career-agent-memory-store.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [store]);
 
   // Per-capability provider selection (R44): the user chooses the chat/LLM
   // provider and the speech-to-text provider INDEPENDENTLY. Each capability
@@ -323,7 +357,15 @@ export default function App() {
       setPending(initial);
       // A previously persisted profile is already confirmed; a first-use
       // profile must pass through the confirmation step (R41.2).
-      setConfirmed(persisted !== undefined);
+      const isReturning = persisted !== undefined;
+      setConfirmed(isReturning);
+      // Set initial view: if already confirmed (returning session), determine
+      // whether we have persisted pipeline data (→ resume) or not (→ welcome).
+      // If not yet confirmed, stay on the language screen.
+      if (isReturning) {
+        const hasSession = store.has(SESSION_STATE_PATH);
+        setAppView(hasSession ? { kind: 'resume' } : { kind: 'welcome' });
+      }
     });
 
     return () => {
@@ -479,11 +521,15 @@ export default function App() {
   };
 
   // Confirm or change the detected language (R41.2), then persist + apply.
+  // After confirmation, transition the view: first-run → welcome; returning → resume.
   const handleConfirm = async (choice: SessionLanguage) => {
     await saveConfirmedLocaleConfig(store, { sessionLanguage: choice }, true);
     await applyLanguage(i18n, choice);
     setLanguage(choice);
     setConfirmed(true);
+    // After language confirmation, determine next view:
+    const hasSession = store.has(SESSION_STATE_PATH);
+    setAppView(hasSession ? { kind: 'resume' } : { kind: 'welcome' });
   };
 
   // Record + persist an explicit consent decision for training/improvement use
@@ -500,7 +546,7 @@ export default function App() {
     await saveConsentState(store, next);
   };
 
-  if (!confirmed) {
+  if (!confirmed || appView.kind === 'language') {
     const detectedName = t(`language.names.${pending}`);
     return (
       <ResponsiveContainer>
@@ -534,68 +580,177 @@ export default function App() {
     );
   }
 
-  // Main shell — every string is read from the externalised resources (R41.8)
-  // and rendered in the confirmed Session Language (R41.3).
+  // -------------------------------------------------------------------------
+  // View-driven rendering (R66.1): only one view renders at a time.
+  // -------------------------------------------------------------------------
+
+  // Helper: navigate to a pipeline phase (updates both the controller and appView).
+  const goToPipelinePhase = (phase: Phase) => {
+    void runtime.controller.goToPhase(phase);
+    setAppView({ kind: 'pipeline', phase });
+  };
+
+  // Welcome page (first-run only, task 33.4 — R66.1–R66.8).
+  if (appView.kind === 'welcome') {
+    return (
+      <WelcomePage t={t} onGetStarted={() => setAppView({ kind: 'settings', firstRun: true })} />
+    );
+  }
+
+  // Resume screen (task 33.5; R69.1–R69.5).
+  if (appView.kind === 'resume') {
+    return (
+      <ResumeScreen
+        t={t}
+        currentPhase={runtime.controller.currentPhase()}
+        outstanding={runtime.controller.outstanding()}
+        onContinue={() => goToPipelinePhase(runtime.controller.currentPhase())}
+        onGoToSettings={() => setAppView({ kind: 'settings' })}
+        onStartFresh={() => {
+          store.deleteAll();
+          setAppView({ kind: 'welcome' });
+        }}
+      />
+    );
+  }
+
+  // Settings view: dedicated SettingsPage component (task 33.6, R67.4).
+  if (appView.kind === 'settings') {
+    const isFirstRun = appView.firstRun === true;
+    return (
+      <SettingsPage
+        t={t}
+        language={language}
+        onLanguageChange={(lang) => {
+          void (async () => {
+            await applyLanguage(i18n, lang);
+            setLanguage(lang);
+            await saveConfirmedLocaleConfig(store, { sessionLanguage: lang }, true);
+          })();
+        }}
+        providerSetupProps={{
+          providerManager: runtime.providerManager,
+          keyVault: runtime.keyVault,
+          locale: language,
+          onKeysChanged: () => setKeysVersion((v) => v + 1),
+          t,
+        }}
+        providerSelectionProps={{
+          chatProviders,
+          sttProviders,
+          chatProvider,
+          sttProvider,
+          onChatProvider: setChatProvider,
+          onSttProvider: setSttProvider,
+          t,
+        }}
+        privacyProps={{
+          t,
+          consent,
+          onGrantConsent: () => void handleGrantConsent(),
+          onRevokeConsent: () => void handleRevokeConsent(),
+          networkLabels,
+          allLocal,
+        }}
+        onBackToPipeline={() => goToPipelinePhase(isFirstRun ? 'ingest' : runtime.controller.currentPhase())}
+        backLabel={isFirstRun ? t('views.settings.continueToIngest') : undefined}
+        pendingPreview={
+          pendingPreview ? (
+            <PayloadPreviewModal
+              preview={pendingPreview.preview}
+              onApprove={(text) => {
+                pendingPreview.resolve(text);
+                setPendingPreview(null);
+              }}
+              onCancel={() => {
+                pendingPreview.resolve(null);
+                setPendingPreview(null);
+              }}
+              t={t}
+            />
+          ) : undefined
+        }
+      />
+    );
+  }
+
+  // Pipeline view: one phase card at a time inside the AppShell (sidebar + main).
+  const currentPhase = appView.kind === 'pipeline' ? appView.phase : runtime.controller.currentPhase();
+
+  // Phase-specific "next" action label and target (R67.6).
+  const phaseNextLabel: Record<string, string> = {
+    ingest: t('views.pipeline.saveAndSkillMap'),
+    'skill-map': t('views.pipeline.saveAndRoles'),
+    'role-discovery': t('views.pipeline.saveAndCoaching'),
+    'interview-coaching': t('views.pipeline.saveAndOutput'),
+    output: t('views.pipeline.saveToMemory'),
+  };
+
+  const nextPhaseId = (() => {
+    const seq: Phase[] = ['ingest', 'skill-map', 'role-discovery', 'interview-coaching', 'output', 'memory'];
+    const idx = seq.indexOf(currentPhase);
+    return idx >= 0 && idx < seq.length - 1 ? seq[idx + 1] : null;
+  })();
+
   return (
-    <ResponsiveContainer>
-      <main>
-        <h1>{t('app.title')}</h1>
-        <p>{t('app.tagline')}</p>
-        <PrivacyStatement
-          t={t}
-          consent={consent}
-          onGrantConsent={() => void handleGrantConsent()}
-          onRevokeConsent={() => void handleRevokeConsent()}
-          networkLabels={networkLabels}
-          allLocal={allLocal}
-        />
-        {/* Provider Setup is the 7th wizard screen; it carries the same phase
-            chrome (current screen name + next/previous controls) as the six
-            pipeline screens (R58.2). Its "next" moves into the pipeline. */}
-        <PhaseChrome
-          phaseName={t('provider.heading')}
-          previousLabel={t('wizard.previousPhase')}
-          nextLabel={t('wizard.goToNext', { phase: t('wizard.phase.ingest') })}
-          onNext={() => void runtime.controller.goToPhase('ingest')}
-        >
-          <ProviderSetup
-            providerManager={runtime.providerManager}
-            keyVault={runtime.keyVault}
-            locale={language}
-            onKeysChanged={() => setKeysVersion((v) => v + 1)}
-            t={t}
-          />
-          <ProviderSelection
-            chatProviders={chatProviders}
-            sttProviders={sttProviders}
-            chatProvider={chatProvider}
-            sttProvider={sttProvider}
-            onChatProvider={setChatProvider}
-            onSttProvider={setSttProvider}
-            t={t}
-          />
-        </PhaseChrome>
-        <PhaseWizard controller={runtime.controller} t={t} renderPhase={renderPhase} />
-        {/* Source-trace inspector: resolve any claim ref to its provenance (R38.2). */}
+    <AppShell
+      phases={runtime.controller.phases()}
+      currentPhase={currentPhase}
+      onPhaseSelect={goToPipelinePhase}
+      onGoToSettings={() => setAppView({ kind: 'settings' })}
+      onSaveExit={handleSaveExit}
+      saveStatus={t('saveStatus.saved')}
+      t={t}
+    >
+      {renderPhase(currentPhase)}
+
+      {/* Phase-specific "next step" action (R67.6) — shown for all phases except Memory */}
+      {nextPhaseId && (
+        <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid #e2e5e9' }}>
+          <button
+            type="button"
+            onClick={() => {
+              void runtime.controller.confirmStep();
+              goToPipelinePhase(nextPhaseId);
+            }}
+            style={{
+              padding: '0.75rem 1.5rem',
+              fontSize: '1rem',
+              fontWeight: 'bold',
+              background: '#0b5cad',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            {phaseNextLabel[currentPhase] ?? t('wizard.confirmAndContinue')} →
+          </button>
+        </div>
+      )}
+
+      {/* Source-trace inspector: only shown on Output and Memory phases where
+          confirmed claims exist to inspect (R38.2). Hidden during earlier phases
+          where it would confuse users. */}
+      {(currentPhase === 'output' || currentPhase === 'memory') && (
         <SourceTraceInspector lookup={runtime.traceLookup} t={t} />
-        <p>
-          <small>{t('language.applied', { language: t(`language.names.${language}`) })}</small>
-        </p>
-        {pendingPreview && (
-          <PayloadPreviewModal
-            preview={pendingPreview.preview}
-            onApprove={(text) => {
-              pendingPreview.resolve(text);
-              setPendingPreview(null);
-            }}
-            onCancel={() => {
-              pendingPreview.resolve(null);
-              setPendingPreview(null);
-            }}
-            t={t}
-          />
-        )}
-      </main>
-    </ResponsiveContainer>
+      )}
+
+      {pendingPreview && (
+        <PayloadPreviewModal
+          preview={pendingPreview.preview}
+          onApprove={(text) => {
+            pendingPreview.resolve(text);
+            setPendingPreview(null);
+          }}
+          onCancel={() => {
+            pendingPreview.resolve(null);
+            setPendingPreview(null);
+          }}
+          t={t}
+        />
+      )}
+    </AppShell>
   );
 }

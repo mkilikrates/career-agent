@@ -60,8 +60,13 @@ export interface SkillDiscoveryInput {
   readonly maxCharsPerChunk?: number;
 }
 
-/** A single AI-discovered skill name (a proposal requiring confirmation, R47.3). */
-export type SkillDiscoverySuggestion = string;
+/** A single AI-discovered skill (a proposal requiring confirmation, R47.3). */
+export interface SkillDiscoverySuggestion {
+  /** The skill name. */
+  readonly name: string;
+  /** Approximate start year inferred by the model (e.g. "2005"), or undefined. */
+  readonly since?: string;
+}
 
 /**
  * The Skill_Mapper's `skill_discovery` operation. `scriptOnly` is the
@@ -137,9 +142,9 @@ export class SkillDiscoveryOperation extends BaseAssistableOperation<
     for (const chunk of chunks) {
       const prompt = review ? buildReviewPrompt(scriptSkills, chunk) : buildDiscoveryPrompt(chunk);
       const reply = await this.transport(prompt, dest);
-      for (const name of parseDiscoveredSkills(reply, seen)) {
-        seen.add(name.toLowerCase());
-        found.push(name);
+      for (const skill of parseDiscoveredSkills(reply, seen)) {
+        seen.add(skill.name.toLowerCase());
+        found.push(skill);
       }
     }
     return found;

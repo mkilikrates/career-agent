@@ -227,13 +227,18 @@ describe('Local (self-hosted) LLM client (R43)', () => {
     setLocalConfig({ baseUrl: 'http://localhost:11434/v1', model: 'llama3', maxTokens: 4096 });
     await client.chat(prompt('first'), '');
 
-    // An invalid edit is dropped, so the previous 4096 limit is preserved.
+    // 0 = "no cap": max_tokens is omitted from the request body entirely.
     setLocalConfig({ maxTokens: 0 });
     await client.chat(prompt('second'), '');
 
+    // A negative value is rejected; the saved 0 (no cap) is preserved.
+    setLocalConfig({ maxTokens: -1 });
+    await client.chat(prompt('third'), '');
+
     const calls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls;
     expect(JSON.parse(String((calls[0][1] as RequestInit).body)).max_tokens).toBe(4096);
-    expect(JSON.parse(String((calls[1][1] as RequestInit).body)).max_tokens).toBe(4096);
+    expect(JSON.parse(String((calls[1][1] as RequestInit).body)).max_tokens).toBeUndefined();
+    expect(JSON.parse(String((calls[2][1] as RequestInit).body)).max_tokens).toBeUndefined();
   });
 
   it('reads base URL and model from local-config on every call (edits apply immediately)', async () => {

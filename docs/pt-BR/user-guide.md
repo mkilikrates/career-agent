@@ -217,6 +217,33 @@ Modelos de transcrição são bem menores que os de chat e rodam confortavelment
 
 ## Passo 5 — Usando o Agente de Carreira
 
+### Página de boas-vindas e tela de retomada
+
+Na primeira vez que você abrir o Agente de Carreira, verá uma **Página de boas-vindas** — uma visão rápida do pipeline de 5 etapas explicando como o processo funciona, além de um aviso de privacidade lembrando que seus dados ficam no seu dispositivo.
+
+Se você já usou o app antes, verá uma **Tela de retomada**. Ela mostra o estado da sua última sessão, os itens pendentes, e permite **Continuar** de onde parou ou **Começar do zero**.
+
+### Navegando pelo app
+
+O Agente de Carreira usa um **layout baseado em cards** com duas áreas principais:
+
+- **Barra lateral** (esquerda) — contém o **Indicador de Fases**, que mostra seu progresso no pipeline de forma visual. Abaixo do indicador você encontra um link para **Configurações** e um botão **Salvar e Sair**.
+- **Área principal** (direita) — exibe o conteúdo da fase ativa. Cada fase revela suas seções progressivamente conforme você avança (divulgação progressiva), para que você nunca seja sobrecarregado com opções que ainda não alcançou.
+
+No topo da tela, um **indicador de status de salvamento** informa se seu progresso foi salvo ("Progresso salvo") ou se você está em uma sessão temporária ("Sessão temporária" — o que significa que você deve exportar antes de fechar).
+
+Quando você completa uma fase, um botão de ação específico aparece (por exemplo, "Salvar e gerar mapa de competências") para que você sempre saiba como avançar.
+
+### Página de Configurações
+
+Clique em **Configurações** na barra lateral para acessar toda a configuração em um só lugar:
+
+- **Provedores** — alternar entre IA na nuvem/local, gerenciar chaves de API, testar conexões.
+- **Idioma** — escolher Inglês ou Português.
+- **Privacidade e Consentimento** — revisar a declaração de privacidade e gerenciar suas preferências de consentimento.
+
+### As seis fases
+
 O Agente de Carreira conduz você por seis passos (ele salva seu progresso automaticamente, então você pode parar e voltar quando quiser):
 
 1. **Adicione seus documentos** — envie seu currículo, certificados ou exportação do LinkedIn, ou cole texto. Tudo é lido no seu computador. Você pode **pré-visualizar o texto convertido** de cada documento para verificar se ele veio corretamente; se um arquivo parecer corrompido, remova-o e cole o texto.

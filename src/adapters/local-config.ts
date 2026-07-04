@@ -39,20 +39,22 @@ export interface LocalProviderConfig {
 export const DEFAULT_LOCAL_MAX_TOKENS = 2048;
 
 /**
- * Coerce an arbitrary persisted value into a usable positive-integer token
+ * Coerce an arbitrary persisted value into a usable non-negative integer token
  * limit, falling back to {@link DEFAULT_LOCAL_MAX_TOKENS} for anything that is
- * not a finite positive number (R43.6). Fractional values are floored.
+ * not a finite non-negative number (R43.6). A value of `0` means "no cap" — the
+ * `max_tokens` field is omitted from the request entirely, letting the provider
+ * use its own default/context-window limit. Fractional values are floored.
  */
 const normaliseMaxTokens = (value: unknown): number => {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     return DEFAULT_LOCAL_MAX_TOKENS;
   }
   return Math.floor(value);
 };
 
-/** Whether a candidate `maxTokens` value is a usable positive integer (R43.6). */
+/** Whether a candidate `maxTokens` value is a usable non-negative integer (R43.6). 0 = no cap. */
 export const isValidMaxTokens = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value) && value >= 1;
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
 
 // Host-published localhost defaults (R54.1). In the Docker Compose Stack the
 // browser runs on the HOST and is outside the Compose network, so it can only
@@ -305,3 +307,54 @@ export const setLocalConfig = (patch: Partial<LocalProviderConfig>): LocalProvid
 
 /** Whether a usable local configuration has been saved. */
 export const isLocalConfigured = (): boolean => getLocalConfig().configured;
+
+
+// --- Per-provider preferences (model choice, shared maxTokens) ---------------
+//
+// Stores the user's per-provider model selection (populated from the
+// GET /models probe after key validation) in browser-local storage so it
+// survives reload and applies to future calls. The `maxTokens` setting remains
+// in `LocalProviderConfig` as a shared (all-providers) control — both local
+// and cloud clients read it via `getLocalConfig().maxTokens`.
+
+const PREFS_STORAGE_KEY = 'career-agent.provider-prefs';
+
+/** Persisted per-provider preferences. */
+export interface ProviderPrefs {
+  /** The user-selected chat model id per provider. */
+  readonly models: Readonly<Record<string, string>>;
+}
+
+const DEFAULT_PREFS: ProviderPrefs = { models: {} };
+
+/** Read the persisted per-provider preferences (model selections). */
+export const getProviderPrefs = (): ProviderPrefs => {
+  const raw = storage()?.getItem(PREFS_STORAGE_KEY);
+  if (!raw) return DEFAULT_PREFS;
+  try {
+    const parsed = JSON.parse(raw) as Partial<ProviderPrefs>;
+    return {
+      models:
+        parsed.models && typeof parsed.models === 'object' ? parsed.models : DEFAULT_PREFS.models,
+    };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+};
+
+/** Persist the selected model for a specific provider. */
+export const setProviderModel = (providerId: string, model: string): void => {
+  const prefs = getProviderPrefs();
+  const next: ProviderPrefs = {
+    ...prefs,
+    models: { ...prefs.models, [providerId]: model },
+  };
+  storage()?.setItem(PREFS_STORAGE_KEY, JSON.stringify(next));
+};
+
+/** Read the selected model for a specific provider, or undefined if none set. */
+export const getProviderModel = (providerId: string): string | undefined => {
+  const prefs = getProviderPrefs();
+  const model = prefs.models[providerId];
+  return typeof model === 'string' && model.trim().length > 0 ? model : undefined;
+};

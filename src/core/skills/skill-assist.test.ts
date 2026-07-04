@@ -57,7 +57,10 @@ describe('SkillDiscoveryOperation — aiAssisted (R22.6, R47.3)', () => {
 
     expect(outcome.mode).toBe('ai-assisted');
     expect(outcome.baseline.entries.map((e) => e.name)).toContain('TypeScript');
-    expect(outcome.suggestions.map((s) => s.value)).toEqual(['Kubernetes', 'Leadership']);
+    expect(outcome.suggestions.map((s) => s.value)).toEqual([
+      { name: 'Kubernetes', since: undefined },
+      { name: 'Leadership', since: undefined },
+    ]);
     expect(outcome.suggestions.every((s) => s.requiresConfirmation === true)).toBe(true);
   });
 
@@ -91,7 +94,10 @@ describe('SkillDiscoveryOperation — aiAssisted (R22.6, R47.3)', () => {
 
     const outcome = await op.aiAssisted({ extractions: EXTRACTIONS }, CLOUD);
 
-    expect(outcome.suggestions.map((s) => s.value)).toEqual(['TypeScript', 'GraphQL']);
+    expect(outcome.suggestions.map((s) => s.value)).toEqual([
+      { name: 'TypeScript', since: undefined },
+      { name: 'GraphQL', since: undefined },
+    ]);
   });
 
   it('Both mode asks the model to REVIEW/REFINE the parser\'s detected skills', async () => {

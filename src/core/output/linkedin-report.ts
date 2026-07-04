@@ -143,7 +143,9 @@ const dateRange = (start?: string, end?: string): string | undefined => {
  * date strings sort lexicographically, so a plain compare is correct.
  */
 const byEvidenceStrength = (a: SkillMapEntry, b: SkillMapEntry): number => {
-  if (a.recency !== b.recency) return a.recency < b.recency ? 1 : -1; // recent first
+  const aSince = a.since ?? '';
+  const bSince = b.since ?? '';
+  if (aSince !== bSince) return aSince < bSince ? 1 : -1; // recent first
   if (a.evidence.length !== b.evidence.length) return b.evidence.length - a.evidence.length;
   if (a.name !== b.name) return a.name < b.name ? -1 : 1;
   return byIdStr(a.id, b.id);

@@ -120,7 +120,7 @@ const skillMapEntry = (id: string, name: string): SkillMapEntry => ({
   category: 'Technical',
   proficiencySignal: 'Demonstrated across confirmed evidence',
   evidence: [],
-  recency: asISODate('2024-05-01'),
+  since: asISODate('2024-05-01'),
 });
 
 const talkingPoint = (id: string, polished: string, skillIds: string[]): TalkingPoint => ({

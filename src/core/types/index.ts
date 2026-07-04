@@ -67,6 +67,7 @@ export type {
   Accomplishment,
   MergeRecord,
 } from './skills';
+export { experienceYears } from './skills';
 
 // Interview coaching.
 export type {

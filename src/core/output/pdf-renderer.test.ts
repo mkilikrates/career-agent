@@ -39,7 +39,7 @@ const skill = (id: string, name: string): SkillMapEntry => ({
   category: 'Technical',
   proficiencySignal: 'Evidence-based.',
   evidence: [],
-  recency: asISODate('2024-01-01'),
+  since: asISODate('2024-01-01'),
 });
 
 const skillMapOf = (

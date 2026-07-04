@@ -59,29 +59,36 @@ const parseIso = (iso: unknown): number | null => {
 };
 
 /**
- * Approximate the experience duration for a single skill, in whole months,
- * derived from its dated evidence trail plus its recency (R20.6). The span runs
- * from the EARLIEST dated evidence to the LATEST observed date (the max of the
- * evidence dates and the entry's `recency`), rounded to the nearest month. A
- * skill with a single dated point (or none) yields a minimum of one month so the
- * model still sees it as carrying some experience rather than zero.
+ * Approximate the experience duration for a single skill, in whole months
+ * (R20.6, R70.7). When the entry carries a `since` date (the date the user
+ * first used this skill), duration is simply `now - since`. When `since` is
+ * absent, the function falls back to `now - earliestEvidence`. A skill with no
+ * usable dates yields a minimum of one month so the model still sees it as
+ * carrying some experience rather than zero.
  *
- * Pure and deterministic; never negative.
+ * Accepts an optional `now` parameter for deterministic testing.
+ * Pure and never negative.
  */
-export const approxDurationMonths = (entry: SkillMapEntry): number => {
+export const approxDurationMonths = (entry: SkillMapEntry, now?: Date): number => {
+  const nowMs = (now ?? new Date()).getTime();
+
+  // R70.7: If `since` is available, duration is simply (now - since).
+  const sinceMs = parseIso(entry.since);
+  if (sinceMs !== null) {
+    const months = Math.round((nowMs - sinceMs) / MS_PER_DAY / DAYS_PER_MONTH);
+    return Math.max(1, months);
+  }
+
+  // Fallback: derive from the evidence date span when `since` is missing.
   const dates: number[] = [];
   for (const ev of entry.evidence ?? []) {
     const ms = parseIso(ev.when);
     if (ms !== null) dates.push(ms);
   }
-  const recency = parseIso(entry.recency);
-  if (recency !== null) dates.push(recency);
-
-  if (dates.length === 0) return 1; // no usable dates → minimum signal
+  if (dates.length === 0) return 1;
 
   const earliest = Math.min(...dates);
-  const latest = Math.max(...dates);
-  const months = Math.round((latest - earliest) / MS_PER_DAY / DAYS_PER_MONTH);
+  const months = Math.round((nowMs - earliest) / MS_PER_DAY / DAYS_PER_MONTH);
   return Math.max(1, months);
 };
 

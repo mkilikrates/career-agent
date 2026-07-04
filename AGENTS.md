@@ -144,6 +144,7 @@ A change is complete only when **all** of these are true:
 - [ ] Docs updated in **every** available language (`docs/en/**`, `docs/pt-BR/**`, `README*`),
       or pending translations explicitly flagged.
 - [ ] Versions bumped consistently across code and all languages (§5).
+- [ ] `CHANGELOG.md` updated with an entry under the current version (Added/Changed/Fixed/Removed).
 - [ ] No real personal data committed.
 
 ## Hard don'ts

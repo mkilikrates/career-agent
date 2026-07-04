@@ -100,7 +100,7 @@ const renderEntry = (entry: SkillMapEntry): string[] => {
   if (entry.selfAssessment !== undefined) {
     lines.push(`- **Self-assessment:** ${oneLine(entry.selfAssessment)}`);
   }
-  lines.push(`- **Recency:** ${asString(entry.recency)}`);
+  lines.push(`- **Since:** ${asString(entry.since ?? '')}`);
   if (entry.brokenReference === true) {
     lines.push('- **Broken reference:** yes');
   }
@@ -140,6 +140,7 @@ const ANCHOR = /^<!--\s*id:\s*(\S+)\s*-->$/;
 const CATEGORY = /^- \*\*Category:\*\* (.*)$/;
 const PROFICIENCY = /^- \*\*Proficiency:\*\* (.*)$/;
 const SELF_ASSESS = /^- \*\*Self-assessment:\*\* (.*)$/;
+const SINCE = /^- \*\*Since:\*\* (.*)$/;
 const RECENCY = /^- \*\*Recency:\*\* (.*)$/;
 const BROKEN = /^- \*\*Broken reference:\*\* (.*)$/;
 const EVIDENCE = /^- `([^`]*)` \(([^)]*)\) — (.*)$/;
@@ -155,7 +156,8 @@ interface PartialEntry {
   category: SkillCategory;
   proficiencySignal: string;
   selfAssessment?: string;
-  recency: string;
+  since: string;
+  legacyRecency?: string;
   brokenReference?: boolean;
   evidence: SkillEvidence[];
   merge?: { from: SkillTerm[]; rationale: string; at: string };
@@ -165,19 +167,29 @@ const newPartial = (name: string): PartialEntry => ({
   name,
   category: 'Domain',
   proficiencySignal: '',
-  recency: '',
+  since: '',
   evidence: [],
 });
 
 /** Finalise a partial into a {@link SkillMapEntry} (ids defaulted defensively). */
 const finalise = (p: PartialEntry): SkillMapEntry => {
+  let sinceValue = p.since;
+  if (!sinceValue && p.legacyRecency) {
+    // Migration (R70.5): derive since from earliest evidence date, fall back to recency.
+    let earliest = '';
+    for (const e of p.evidence) {
+      const w = e.when as unknown as string;
+      if (w && (earliest === '' || w < earliest)) earliest = w;
+    }
+    sinceValue = earliest || p.legacyRecency;
+  }
   const entry: SkillMapEntry = {
     id: asSkillId(p.id ?? `SKILL-${p.name}`),
     name: p.name,
     category: p.category,
     proficiencySignal: p.proficiencySignal,
     evidence: p.evidence,
-    recency: asISODate(p.recency),
+    ...(sinceValue ? { since: asISODate(sinceValue) } : {}),
   };
   if (p.selfAssessment !== undefined) entry.selfAssessment = p.selfAssessment;
   if (p.brokenReference === true) entry.brokenReference = true;
@@ -247,9 +259,14 @@ export const parseSkillMap = (markdown: string): SkillMapEntry[] => {
       current.selfAssessment = self[1];
       continue;
     }
+    const since = SINCE.exec(line);
+    if (since) {
+      current.since = since[1];
+      continue;
+    }
     const recency = RECENCY.exec(line);
     if (recency) {
-      current.recency = recency[1];
+      current.legacyRecency = recency[1];
       continue;
     }
     const broken = BROKEN.exec(line);

@@ -155,7 +155,7 @@ describe('buildReferenceGraph — from store records (R18.2, R18.3)', () => {
       { ref: asBulletId('BULLET-01'), when: asISODate('2024-01-01'), note: 'pipeline' },
       { ref: asDocId('cv.pdf'), when: asISODate('2023-01-01'), note: 'doc evidence' },
     ],
-    recency: asISODate('2024-01-01'),
+    since: asISODate('2024-01-01'),
   };
 
   const accomplishment: Accomplishment = {

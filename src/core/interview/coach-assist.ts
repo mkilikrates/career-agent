@@ -43,6 +43,7 @@ import type {
   StarAnswer,
   StarElement,
 } from '@core/types';
+import { experienceYears } from '@core/types';
 import {
   BaseAssistableOperation,
   type AssistTransport,
@@ -286,20 +287,65 @@ const isThirdParty = (dest: EgressDestination): boolean =>
   dest.kind !== 'keyless-local';
 
 /**
- * The skill names carried in the question-generation request, scoped to the
- * destination (R22.7). For a keyed cloud (third-party) `dest` every skill marked
- * private is EXCLUDED (R22.7, R46.4); for a keyless Local Provider private
- * skills are retained (R46.5). Preserves the skill map's entry order.
+ * Build a compact structured candidate profile for the STAR question prompt,
+ * including only the skills relevant to the target role — matched + gap — with
+ * proficiency signal, evidence count, and approximate experience years (computed
+ * from `since`) so the model can calibrate question depth and seniority (R70.6).
+ * For a keyed cloud (third-party) `dest`, private skills are excluded (R22.7, R46.4).
  */
-export const starQuestionSkillNames = (
+export function buildCandidateProfile(
+  role: RolePreference,
   map: SkillMap,
   dest: EgressDestination,
-): string[] => {
+): string {
   const thirdParty = isThirdParty(dest);
-  return map.entries
-    .filter((entry) => !(thirdParty && entry.private === true))
-    .map((entry) => entry.name);
-};
+  const asString = (v: unknown): string => v as unknown as string;
+
+  // Resolve matched skills to their full map entries.
+  const matchedEntries = role.matchedSkills
+    .map((id) => map.entries.find((e) => asString(e.id) === asString(id)))
+    .filter((entry): entry is typeof map.entries[number] =>
+      entry != null && !(thirdParty && entry.private === true),
+    );
+
+  // Format each matched skill with context: name (evidence count, experience years, signal).
+  const matchedLines = matchedEntries.map((entry) => {
+    const evidenceCount = entry.evidence.length;
+    const signal = entry.proficiencySignal?.trim();
+    const parts = [entry.name];
+    if (evidenceCount > 0) parts.push(`${evidenceCount} evidence`);
+    if (entry.since) {
+      const years = experienceYears(entry.since);
+      if (years !== undefined) {
+        parts.push(years === 0 ? '< 1 year experience' : `~${years} years experience`);
+      }
+    }
+    if (signal && signal.length > 0 && signal.length < 60) parts.push(signal);
+    return `  - ${parts.join(', ')}`;
+  });
+
+  // Gap skills: just names (we don't have map entries for them).
+  const gapLines = role.gapSkills.map((g) => `  - ${asString(g)} (gap — developing)`);
+
+  // Compute a rough seniority signal from the total evidence trail.
+  const totalEvidence = matchedEntries.reduce((sum, e) => sum + e.evidence.length, 0);
+  const skillCount = matchedEntries.length;
+
+  const lines: string[] = [
+    `CANDIDATE PROFILE (for question-level calibration):`,
+    `- Target role: ${role.title}`,
+    `- Profile: ${skillCount} matched skill${skillCount !== 1 ? 's' : ''}, ${totalEvidence} total evidence points`,
+  ];
+  if (matchedLines.length > 0) {
+    lines.push(`- Matched skills:`);
+    lines.push(...matchedLines);
+  }
+  if (gapLines.length > 0) {
+    lines.push(`- Gap skills (developing):`);
+    lines.push(...gapLines);
+  }
+  return lines.join('\n');
+}
 
 /**
  * Build the behaviour-first STAR-question prompt for the target role (R22.6).
@@ -309,18 +355,16 @@ export const starQuestionSkillNames = (
  * write open behavioural STAR practice questions that probe those qualities.
  * Technical depth is capped at a single question (those are easier to prepare
  * for); the model never suggests facts or outcomes for the candidate to claim
- * (R22.9 — practice prompts only). The candidate's skills are passed only as
- * background context and are scoped to `dest`, so for a keyed cloud
- * (third-party) destination private skills are excluded (R22.7, R46.4); for a
- * keyless Local Provider they are retained (R46.5). When `dest` is omitted the
- * third-party (safe) default applies.
+ * (R22.9 — practice prompts only). The candidate profile is passed as structured
+ * context (matched skills with proficiency/evidence/since + gaps) so the model
+ * can calibrate question depth to the candidate's actual level.
  */
 export function buildStarQuestionsPrompt(
   role: RolePreference,
   map: SkillMap,
   dest: EgressDestination = { provider: 'openai', kind: 'keyed-cloud' },
 ): string {
-  const skills = starQuestionSkillNames(map, dest).join(', ');
+  const profile = buildCandidateProfile(role, map, dest);
   const description = role.description?.trim();
   return (
     `You are an experienced interviewer preparing behavioural practice questions ` +
@@ -330,15 +374,16 @@ export function buildStarQuestionsPrompt(
     'succeeding in this specific role, whatever the industry or seniority. Then ' +
     'write up to 5 open behavioural STAR-format practice questions that probe ' +
     'those qualities and ask the candidate to recount their own Situation, Task, ' +
-    'Action, and Result. Prioritise behaviours and qualities; include at most ' +
-    'one question focused on technical depth, since technical topics are easier ' +
-    'to prepare for. Do NOT suggest facts or outcomes for them to claim. Return ' +
-    'ONLY a JSON array and nothing else, where each element is an object with ' +
-    'two string fields: "competency" (the single behaviour or quality that ' +
-    'question probes) and "question" (the open behavioural practice question). ' +
-    'Example: [{"competency": "Leadership", "question": "Tell me about a time ' +
-    'you led a team through a difficult change."}].\n\n' +
-    `Use the candidate's background only as context: ${skills}`
+    'Action, and Result. Calibrate the depth and seniority of your questions to ' +
+    'match the candidate\'s profile below. Prioritise behaviours and qualities; ' +
+    'include at most one question focused on technical depth, since technical ' +
+    'topics are easier to prepare for. Do NOT suggest facts or outcomes for them ' +
+    'to claim. Return ONLY a JSON array and nothing else, where each element is ' +
+    'an object with two string fields: "competency" (the single behaviour or ' +
+    'quality that question probes) and "question" (the open behavioural practice ' +
+    'question). Example: [{"competency": "Leadership", "question": "Tell me ' +
+    'about a time you led a team through a difficult change."}].\n\n' +
+    profile
   );
 }
 

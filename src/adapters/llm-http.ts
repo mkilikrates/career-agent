@@ -34,11 +34,18 @@ import type {
   Transcript,
 } from './provider';
 import { OPENAI_PROVIDER_ID, ANTHROPIC_PROVIDER_ID, LOCAL_PROVIDER_ID } from './provider-manager';
-import { getLocalConfig, isLocalConnectionFailure, localUnreachableMessage } from './local-config';
+import { getLocalConfig, getProviderModel, isLocalConnectionFailure, localUnreachableMessage } from './local-config';
+import { captureRateLimits } from './rate-limits';
 
 /** A provider chat response that also carries the textual completion. */
 export interface LlmChatResponse extends ChatResponse {
   readonly text: string;
+  /**
+   * Chat-capable model IDs extracted from a `GET /models` validation probe
+   * response (R4.3). Only populated on a probe (prompt-less request); real
+   * completions never set this field.
+   */
+  readonly models?: readonly string[];
 }
 
 /** Read the textual completion from an (opaque) provider chat response. */
@@ -111,11 +118,122 @@ const providerError = (status: number, data: unknown): string => {
   return message ? `${status}: ${message}` : `Request failed with status ${status}.`;
 };
 
-const ok = (): LlmChatResponse => ({ __brand: 'ChatResponse', text: '' });
+const ok = (models?: readonly string[]): LlmChatResponse => ({
+  __brand: 'ChatResponse',
+  text: '',
+  ...(models ? { models } : {}),
+});
 
 /** Bearer auth header, omitted entirely for keyless (local) servers. */
 const bearer = (key: string): Record<string, string> =>
   key.trim().length > 0 ? { authorization: `Bearer ${key}` } : {};
+
+/**
+ * Chat-model ID patterns considered chat-capable. IDs matching any of these are
+ * included in the model dropdown; everything else (embeddings, DALL·E, whisper,
+ * tts, moderation) is excluded. The UI explains this filtering to the user.
+ */
+const CHAT_MODEL_PATTERNS: readonly RegExp[] = [
+  /^gpt-/i, // OpenAI GPT family
+  /^o[1-9]/i, // OpenAI reasoning models (o1, o3, …)
+  /^chatgpt-/i, // OpenAI ChatGPT-* aliases
+  /^claude/i, // Anthropic Claude family
+  /^gemma/i, // Google Gemma (local)
+  /^llama/i, // Meta Llama (local)
+  /^mistral/i, // Mistral (local)
+  /^qwen/i, // Alibaba Qwen (local)
+  /^phi/i, // Microsoft Phi (local)
+  /^deepseek/i, // DeepSeek (local)
+  /^command/i, // Cohere Command
+  /^codellama/i, // Code Llama
+  /^vicuna/i, // Vicuna
+  /^yi-/i, // Yi models
+  /^solar/i, // Upstage Solar
+  /^nous/i, // NousResearch
+  /^openchat/i, // OpenChat
+  /^neural/i, // Neural-chat
+  /^zephyr/i, // Zephyr
+  /^dolphin/i, // Dolphin
+  /^orca/i, // Orca
+  /^tinyllama/i, // TinyLlama
+  /^star/i, // StarCoder etc — borderline but commonly used for chat
+];
+
+/**
+ * Additional model IDs that are explicitly NOT chat-capable and should never
+ * appear in the chat-model dropdown — even if their prefix would match above.
+ */
+const NON_CHAT_PATTERNS: readonly RegExp[] = [
+  /embed/i, // text-embedding-*
+  /dall-e/i, // DALL·E image generation
+  /whisper/i, // Whisper STT
+  /tts/i, // text-to-speech
+  /moderation/i, // OpenAI moderation
+  /^babbage/i, // legacy completions
+  /^davinci/i, // legacy completions
+  /^ada/i, // legacy
+  /^curie/i, // legacy
+  /completions/i, // models explicitly labelled as completions-only (not chat)
+  /realtime/i, // realtime audio models (not chat-compatible)
+];
+
+/**
+ * Whether a model ID looks like a chat-capable model. Returns `true` when the ID
+ * matches at least one chat pattern AND does not match any non-chat pattern. For
+ * local servers (Ollama/LocalAI) that only load chat models, almost everything
+ * matches; for OpenAI's full /models list, this filters out embeddings/STT/etc.
+ */
+export const isChatModel = (id: string): boolean => {
+  if (NON_CHAT_PATTERNS.some((re) => re.test(id))) return false;
+  // For local servers that return unconventional names, accept any model that
+  // didn't hit a non-chat exclusion IF the list has no chat-pattern matches at
+  // all. But per-model, if we can confirm it's chat, great — otherwise let it
+  // through so local users with custom model names aren't blocked.
+  return CHAT_MODEL_PATTERNS.some((re) => re.test(id));
+};
+
+/**
+ * Extract chat-capable model IDs from a provider's `GET /models` response body.
+ * Handles the standard OpenAI/Anthropic/Ollama `{ data: [{ id: ... }] }` shape.
+ * Returns an empty array when parsing fails or no chat models are found — never
+ * throws.
+ */
+export const extractChatModels = (data: unknown): string[] => {
+  try {
+    const arr = (data as { data?: unknown }).data;
+    if (!Array.isArray(arr)) return [];
+    const ids = arr
+      .map((item) => {
+        const id = (item as { id?: unknown }).id;
+        return typeof id === 'string' ? id.trim() : '';
+      })
+      .filter((id) => id.length > 0);
+    // Filter to chat-capable. If the filter yields zero results (e.g. a local
+    // server with a custom model name not in our patterns), return all models
+    // unfiltered — prefer showing everything over showing nothing.
+    const chat = ids.filter(isChatModel);
+    return chat.length > 0 ? chat : ids;
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Models that only work on the OpenAI Responses API (`/v1/responses`) and do NOT
+ * support the Chat Completions endpoint. When the selected model matches one of
+ * these patterns, the client routes directly to the Responses API rather than
+ * attempting chat/completions first and receiving a 404.
+ *
+ * These patterns are deliberately narrow (exact gpt-5.5-pro variants) to avoid
+ * accidentally routing a local-server model to a non-existent endpoint.
+ */
+const RESPONSES_ONLY_PATTERNS: readonly RegExp[] = [
+  /^gpt-5\.5-pro/i, // GPT-5.5 Pro — responses-only on OpenAI
+];
+
+/** Whether a model ID requires the Responses API (not chat/completions). */
+export const isResponsesOnlyModel = (id: string): boolean =>
+  RESPONSES_ONLY_PATTERNS.some((re) => re.test(id));
 
 // --- Shared OpenAI-compatible transport ------------------------------------
 //
@@ -144,6 +262,13 @@ interface OpenAiChatConfig {
   readonly baseUrl: string;
   readonly model: string;
   readonly maxTokens: number;
+  /**
+   * The JSON body key for the completion-token cap. OpenAI cloud requires
+   * `max_completion_tokens` for GPT-5.5+ models; self-hosted servers (Ollama,
+   * LocalAI, llama.cpp) expect the legacy `max_tokens`. Defaults to
+   * `max_completion_tokens` (the newer, forward-compatible name).
+   */
+  readonly maxTokensKey?: 'max_tokens' | 'max_completion_tokens';
 }
 
 /**
@@ -153,6 +278,9 @@ interface OpenAiChatConfig {
  * cheap `GET /models` auth check that spends no tokens (R4.3) and reports the
  * server's failure reason on rejection (R4.4). A request carrying prompt text
  * issues the `/chat/completions` completion and returns the textual result.
+ *
+ * For models that only support the Responses API (e.g. gpt-5.5-pro), the
+ * request is routed to `/responses` instead of `/chat/completions`.
  *
  * The `key` is handed straight to the server via `bearer()`, which omits the
  * auth header entirely for keyless (local) servers (R43.2).
@@ -173,7 +301,15 @@ const openAiCompatibleChat = async (
     if (!res.ok) {
       throw new Error(providerError(res.status, await readJson(res)));
     }
-    return ok();
+    // Capture the model list so the UI can populate a model-selection dropdown.
+    const data = await readJson(res);
+    const models = extractChatModels(data);
+    return ok(models.length > 0 ? models : undefined);
+  }
+
+  // Route responses-only models (gpt-5.5-pro) to the Responses API.
+  if (isResponsesOnlyModel(config.model)) {
+    return openAiResponses(doFetch, config, req, key);
   }
 
   const res = await doFetch(`${config.baseUrl}/chat/completions`, {
@@ -184,7 +320,14 @@ const openAiCompatibleChat = async (
     },
     body: JSON.stringify({
       model: config.model,
-      max_tokens: config.maxTokens,
+      // Use `max_completion_tokens` — the newer parameter name required by
+      // GPT-5.5+ models. Older models (gpt-4o, gpt-4.1, etc.) also accept it,
+      // while they reject the legacy `max_tokens` when used with newer model IDs.
+      // For local servers (Ollama, LocalAI, etc.) the caller passes `max_tokens`.
+      // 0 = "no cap": omit the field so the provider uses its own default (R43.6).
+      ...(config.maxTokens > 0
+        ? { [config.maxTokensKey ?? 'max_completion_tokens']: config.maxTokens }
+        : {}),
       messages: [{ role: 'user', content: prompt }],
       // OpenAI does not train on API data by default; `store: false`
       // additionally opts out of 30-day retention when the user has not
@@ -195,9 +338,172 @@ const openAiCompatibleChat = async (
   });
   const data = await readJson(res);
   if (!res.ok) {
+    // If the server says this model isn't chat-capable, try the Responses API
+    // as a fallback (covers models that transition between endpoints).
+    const errMsg = extractErrorMessage(data) ?? '';
+    if (res.status === 404 && /not a chat model/i.test(errMsg)) {
+      return openAiResponses(doFetch, config, req, key);
+    }
+    // On a 429 "request too large" error, capture the rate-limit headers and
+    // retry ONCE with the prompt trimmed to fit the now-known budget. This lets
+    // the adaptive system learn the real limit from the first failure and
+    // recover automatically rather than surfacing the error to the user.
+    if (res.status === 429) {
+      captureRateLimits(config.model, res.headers);
+      // Parse the limit from the error body (e.g. "Limit 50000, Requested 62371")
+      const limitMatch = errMsg.match(/Limit\s+(\d+)/i);
+      const requestedMatch = errMsg.match(/Requested\s+(\d+)/i);
+      if (limitMatch && requestedMatch) {
+        const limit = Number.parseInt(limitMatch[1], 10);
+        const requested = Number.parseInt(requestedMatch[1], 10);
+        if (limit > 0 && requested > limit && prompt.length > 0) {
+          // Trim the prompt proportionally to fit within the limit (with margin).
+          const ratio = (limit * 0.85) / requested; // 85% of limit for safety margin
+          const trimmedLength = Math.floor(prompt.length * ratio);
+          if (trimmedLength > 100) { // only retry if we'd keep meaningful content
+            const trimmedPrompt = prompt.slice(0, trimmedLength) +
+              '\n\n[Note: background context was trimmed to fit token limits.]';
+            const retryRes = await doFetch(
+              isResponsesOnlyModel(config.model)
+                ? `${config.baseUrl}/responses`
+                : `${config.baseUrl}/chat/completions`,
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', ...bearer(key) },
+                body: JSON.stringify(
+                  isResponsesOnlyModel(config.model)
+                    ? {
+                        model: config.model,
+                        input: trimmedPrompt,
+                        ...(config.maxTokens > 0 ? { max_output_tokens: Math.max(config.maxTokens, 16) } : {}),
+                        ...(noTraining(req) ? { store: false } : {}),
+                      }
+                    : {
+                        model: config.model,
+                        ...(config.maxTokens > 0
+                          ? { [config.maxTokensKey ?? 'max_completion_tokens']: config.maxTokens }
+                          : {}),
+                        messages: [{ role: 'user', content: trimmedPrompt }],
+                        ...(noTraining(req) ? { store: false } : {}),
+                      },
+                ),
+              },
+            );
+            const retryData = await readJson(retryRes);
+            if (retryRes.ok) {
+              captureRateLimits(config.model, retryRes.headers);
+              const text = isResponsesOnlyModel(config.model)
+                ? extractResponsesText(retryData)
+                : extractOpenAiText(retryData);
+              return { __brand: 'ChatResponse', text } as LlmChatResponse;
+            }
+            // Retry also failed — fall through to throw the original error.
+          }
+        }
+      }
+    }
     throw new Error(providerError(res.status, data));
   }
+  // Capture rate-limit headers for adaptive budget estimation on subsequent calls.
+  captureRateLimits(config.model, res.headers);
   return { __brand: 'ChatResponse', text: extractOpenAiText(data) } as LlmChatResponse;
+};
+
+/**
+ * Issue a request via the OpenAI Responses API (`/v1/responses`). This endpoint
+ * is required for models like gpt-5.5-pro that do not support chat/completions.
+ * The response shape differs from chat/completions, so we extract text from the
+ * `output` array instead of `choices`.
+ */
+const openAiResponses = async (
+  doFetch: typeof fetch,
+  config: OpenAiChatConfig,
+  req: ChatRequest,
+  key: string,
+): Promise<ChatResponse> => {
+  const prompt = promptText(req);
+  const res = await doFetch(`${config.baseUrl}/responses`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...bearer(key),
+    },
+    body: JSON.stringify({
+      model: config.model,
+      input: prompt,
+      // Responses API uses max_output_tokens with a minimum of 16.
+      ...(config.maxTokens > 0
+        ? { max_output_tokens: Math.max(config.maxTokens, 16) }
+        : {}),
+      ...(noTraining(req) ? { store: false } : {}),
+    }),
+  });
+  const data = await readJson(res);
+  if (!res.ok) {
+    // 429 retry for Responses API (same adaptive logic as chat/completions).
+    if (res.status === 429) {
+      captureRateLimits(config.model, res.headers);
+      const errMsg = extractErrorMessage(data) ?? '';
+      const limitMatch = errMsg.match(/Limit\s+(\d+)/i);
+      const requestedMatch = errMsg.match(/Requested\s+(\d+)/i);
+      if (limitMatch && requestedMatch) {
+        const limit = Number.parseInt(limitMatch[1], 10);
+        const requested = Number.parseInt(requestedMatch[1], 10);
+        if (limit > 0 && requested > limit && prompt.length > 0) {
+          const ratio = (limit * 0.85) / requested;
+          const trimmedLength = Math.floor(prompt.length * ratio);
+          if (trimmedLength > 100) {
+            const trimmedPrompt = prompt.slice(0, trimmedLength) +
+              '\n\n[Note: background context was trimmed to fit token limits.]';
+            const retryRes = await doFetch(`${config.baseUrl}/responses`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', ...bearer(key) },
+              body: JSON.stringify({
+                model: config.model,
+                input: trimmedPrompt,
+                ...(config.maxTokens > 0 ? { max_output_tokens: Math.max(config.maxTokens, 16) } : {}),
+                ...(noTraining(req) ? { store: false } : {}),
+              }),
+            });
+            const retryData = await readJson(retryRes);
+            if (retryRes.ok) {
+              captureRateLimits(config.model, retryRes.headers);
+              return { __brand: 'ChatResponse', text: extractResponsesText(retryData) } as LlmChatResponse;
+            }
+          }
+        }
+      }
+    }
+    throw new Error(providerError(res.status, data));
+  }
+  captureRateLimits(config.model, res.headers);
+  return { __brand: 'ChatResponse', text: extractResponsesText(data) } as LlmChatResponse;
+};
+
+/**
+ * Extract the textual completion from a Responses API response body.
+ * Shape: `{ output: [{ type: "message", content: [{ type: "output_text", text: "..." }] }] }`
+ */
+const extractResponsesText = (data: unknown): string => {
+  const output = (data as { output?: unknown }).output;
+  if (!Array.isArray(output)) return '';
+  for (const item of output) {
+    if (item && (item as { type?: string }).type === 'message') {
+      const content = (item as { content?: unknown }).content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (
+            block &&
+            (block as { type?: string }).type === 'output_text' &&
+            typeof (block as { text?: unknown }).text === 'string'
+          ) {
+            return (block as { text: string }).text;
+          }
+        }
+      }
+    }
+  }
+  return '';
 };
 
 /**
@@ -249,14 +555,23 @@ const OPENAI_DEFAULT_MODEL = 'gpt-4o-mini';
 /** Build the OpenAI {@link LlmProvider} (Chat Completions API). */
 export function createOpenAiLlmProvider(options: HttpLlmOptions = {}): LlmProvider {
   const baseUrl = options.baseUrl ?? OPENAI_BASE;
-  const model = options.model ?? OPENAI_DEFAULT_MODEL;
-  const maxTokens = options.maxTokens ?? 512;
+  const defaultModel = options.model ?? OPENAI_DEFAULT_MODEL;
+  const fallbackMaxTokens = options.maxTokens ?? 512;
 
   return {
     id: OPENAI_PROVIDER_ID,
     async chat(req, key): Promise<ChatResponse> {
       const doFetch = resolveFetch(options.fetchImpl);
-      return openAiCompatibleChat(doFetch, { baseUrl, model, maxTokens }, req, key);
+      // Read per-call: the user's model choice (from the dropdown populated at
+      // validation), and the shared token limit (R43.6).
+      const model = getProviderModel(OPENAI_PROVIDER_ID) ?? defaultModel;
+      const maxTokens = getLocalConfig().maxTokens ?? fallbackMaxTokens;
+      return openAiCompatibleChat(
+        doFetch,
+        { baseUrl, model, maxTokens, maxTokensKey: 'max_completion_tokens' },
+        req,
+        key,
+      );
     },
   };
 }
@@ -292,8 +607,8 @@ const extractAnthropicText = (data: unknown): string => {
 /** Build the Anthropic {@link LlmProvider} (Messages API). */
 export function createAnthropicLlmProvider(options: HttpLlmOptions = {}): LlmProvider {
   const baseUrl = options.baseUrl ?? ANTHROPIC_BASE;
-  const model = options.model ?? ANTHROPIC_DEFAULT_MODEL;
-  const maxTokens = options.maxTokens ?? 512;
+  const defaultModel = options.model ?? ANTHROPIC_DEFAULT_MODEL;
+  const fallbackMaxTokens = options.maxTokens ?? 512;
 
   return {
     id: ANTHROPIC_PROVIDER_ID,
@@ -307,8 +622,14 @@ export function createAnthropicLlmProvider(options: HttpLlmOptions = {}): LlmPro
         if (!res.ok) {
           throw new Error(providerError(res.status, await readJson(res)));
         }
-        return ok();
+        const data = await readJson(res);
+        const models = extractChatModels(data);
+        return ok(models.length > 0 ? models : undefined);
       }
+
+      // Read per-call: the user's model choice and the shared token limit (R43.6).
+      const model = getProviderModel(ANTHROPIC_PROVIDER_ID) ?? defaultModel;
+      const maxTokens = getLocalConfig().maxTokens ?? fallbackMaxTokens;
 
       const res = await doFetch(`${baseUrl}/messages`, {
         method: 'POST',
@@ -318,14 +639,51 @@ export function createAnthropicLlmProvider(options: HttpLlmOptions = {}): LlmPro
           // Messages API exposes no per-request training toggle, so `noTraining`
           // needs no wire change here — the default already honours it (R42.1).
           model,
-          max_tokens: maxTokens,
+          // 0 = "no cap": omit max_tokens so the provider uses its default.
+          // Anthropic requires max_tokens, so for "no cap" we set a generous
+          // fallback (4096) rather than omitting it entirely.
+          max_tokens: maxTokens > 0 ? maxTokens : 4096,
           messages: [{ role: 'user', content: prompt }],
         }),
       });
       const data = await readJson(res);
       if (!res.ok) {
+        // 429 retry for Anthropic (same adaptive logic as OpenAI-compatible).
+        if (res.status === 429) {
+          captureRateLimits(model, res.headers);
+          const errMsg = extractErrorMessage(data) ?? '';
+          const limitMatch = errMsg.match(/Limit\s+(\d+)/i);
+          const requestedMatch = errMsg.match(/Requested\s+(\d+)/i);
+          if (limitMatch && requestedMatch) {
+            const limit = Number.parseInt(limitMatch[1], 10);
+            const requested = Number.parseInt(requestedMatch[1], 10);
+            if (limit > 0 && requested > limit && prompt.length > 0) {
+              const ratio = (limit * 0.85) / requested;
+              const trimmedLength = Math.floor(prompt.length * ratio);
+              if (trimmedLength > 100) {
+                const trimmedPrompt = prompt.slice(0, trimmedLength) +
+                  '\n\n[Note: background context was trimmed to fit token limits.]';
+                const retryRes = await doFetch(`${baseUrl}/messages`, {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json', ...anthropicHeaders(key) },
+                  body: JSON.stringify({
+                    model,
+                    max_tokens: maxTokens > 0 ? maxTokens : 4096,
+                    messages: [{ role: 'user', content: trimmedPrompt }],
+                  }),
+                });
+                const retryData = await readJson(retryRes);
+                if (retryRes.ok) {
+                  captureRateLimits(model, retryRes.headers);
+                  return { __brand: 'ChatResponse', text: extractAnthropicText(retryData) } as LlmChatResponse;
+                }
+              }
+            }
+          }
+        }
         throw new Error(providerError(res.status, data));
       }
+      captureRateLimits(model, res.headers);
       return { __brand: 'ChatResponse', text: extractAnthropicText(data) } as LlmChatResponse;
     },
   };
@@ -475,10 +833,10 @@ export function createLocalLlmProvider(options: LocalLlmOptions = {}): LlmProvid
       // rejections (R54.5) and report the server's own reason (R4.4).
       const isProbe = promptText(req).length === 0;
       if (isProbe) {
-        return openAiCompatibleChat(doFetch, { baseUrl, model, maxTokens }, req, key);
+        return openAiCompatibleChat(doFetch, { baseUrl, model, maxTokens, maxTokensKey: 'max_tokens' }, req, key);
       }
       return withLocalReachability(baseUrl, () =>
-        openAiCompatibleChat(doFetch, { baseUrl, model, maxTokens }, req, key),
+        openAiCompatibleChat(doFetch, { baseUrl, model, maxTokens, maxTokensKey: 'max_tokens' }, req, key),
       );
     },
   };

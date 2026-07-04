@@ -141,22 +141,35 @@ describe('parseDiscoveredSkills', () => {
   it('splits on commas/newlines/semicolons/bullets and trims markers', () => {
     const reply = '- Kubernetes\n* Go;  Terraform, Incident Response.';
     expect(parseDiscoveredSkills(reply, new Set())).toEqual([
-      'Kubernetes',
-      'Go',
-      'Terraform',
-      'Incident Response',
+      { name: 'Kubernetes', since: undefined },
+      { name: 'Go', since: undefined },
+      { name: 'Terraform', since: undefined },
+      { name: 'Incident Response', since: undefined },
     ]);
   });
 
   it('drops empties and over-long (>60 char) fragments that look like prose', () => {
     const prose = 'a'.repeat(61);
     const out = parseDiscoveredSkills(`Kubernetes, ${prose}, ,Go`, new Set());
-    expect(out).toEqual(['Kubernetes', 'Go']);
+    expect(out).toEqual([
+      { name: 'Kubernetes', since: undefined },
+      { name: 'Go', since: undefined },
+    ]);
   });
 
   it('de-dupes case-insensitively against the existing set and within the reply', () => {
     const existing = new Set(['kubernetes']);
     const out = parseDiscoveredSkills('Kubernetes, Go, go, GO', existing);
-    expect(out).toEqual(['Go']);
+    expect(out).toEqual([{ name: 'Go', since: undefined }]);
+  });
+
+  it('extracts (since YYYY) suffix from skill names', () => {
+    const reply = 'JavaScript (since 2005), React (2018), Python';
+    const out = parseDiscoveredSkills(reply, new Set());
+    expect(out).toEqual([
+      { name: 'JavaScript', since: '2005' },
+      { name: 'React', since: '2018' },
+      { name: 'Python', since: undefined },
+    ]);
   });
 });

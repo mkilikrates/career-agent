@@ -28,7 +28,7 @@ export {
   StarQuestionsOperation,
   createStarQuestionsOperation,
   buildStarQuestionsPrompt,
-  starQuestionSkillNames,
+  buildCandidateProfile,
   parseQuestionPrompts,
   StarSummaryOperation,
   createStarSummaryOperation,

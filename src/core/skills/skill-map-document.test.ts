@@ -89,7 +89,7 @@ describe('skill-map-document — serialization (R34.1, R34.2)', () => {
     }
   });
 
-  it('serializes each entry field (R14.1): name, category, signal, evidence, recency', () => {
+  it('serializes each entry field (R14.1): name, category, signal, evidence, since', () => {
     const map = generate([skill('Python')], { asOf: AS_OF });
     const py = map.entries[0];
     const md = serializeSkillMap(map.entries);
@@ -97,7 +97,9 @@ describe('skill-map-document — serialization (R34.1, R34.2)', () => {
     expect(md).toContain(`## ${py.name}`);
     expect(md).toContain(`- **Category:** ${py.category}`);
     expect(md).toContain(`- **Proficiency:** ${py.proficiencySignal}`);
-    expect(md).toContain(`- **Recency:** ${String(py.recency)}`);
+    // When since is undefined (standalone skill with no employment date),
+    // the serializer writes an empty Since line.
+    expect(md).toContain('- **Since:** ');
     expect(md).toContain(`\`${String(py.evidence[0].ref)}\` (${String(py.evidence[0].when)})`);
   });
 
@@ -200,5 +202,133 @@ describe('skill-map-document — persistence (R14.4)', () => {
     const saved = await saveConfirmedSkillMap(tree, map, true);
     expect(saved).toBe(CANONICAL_FILES.skillMap);
     expect(tree.has('profile/skill_map.md')).toBe(true);
+  });
+});
+
+describe('skill-map-document — since serialization and recency migration (R70.4, R70.5)', () => {
+  it('serializes `since` as "- **Since:**" not "- **Recency:**"', () => {
+    const map = generate([skill('Python')], { asOf: AS_OF });
+    const md = serializeSkillMap(map.entries);
+
+    expect(md).toContain('- **Since:**');
+    expect(md).not.toContain('- **Recency:**');
+  });
+
+  it('parses a legacy document with "- **Recency:**" and migrates to `since` using earliest evidence date', () => {
+    // Simulate a legacy document that has Recency instead of Since
+    const legacyMd = [
+      '---',
+      'ids:',
+      '  - SKILL-typescript',
+      '---',
+      '# Skill Map',
+      '',
+      '## TypeScript',
+      '',
+      '<!-- id: SKILL-typescript -->',
+      '',
+      '- **Category:** Language',
+      '- **Proficiency:** Used in multiple projects',
+      '- **Recency:** 2024-01-01',
+      '',
+      '**Evidence:**',
+      '',
+      '- `cv.pdf` (2020-03-15) — First used TypeScript',
+      '- `cv.pdf` (2023-06-01) — Senior TypeScript role',
+      '',
+    ].join('\n');
+
+    const parsed = parseSkillMap(legacyMd);
+
+    expect(parsed).toHaveLength(1);
+    // Migration: since should be the earliest evidence date (2020-03-15), not the recency date
+    expect(String(parsed[0].since)).toBe('2020-03-15');
+  });
+
+  it('parses a legacy document with "- **Recency:**" and falls back to recency when no evidence', () => {
+    const legacyMd = [
+      '---',
+      'ids:',
+      '  - SKILL-go',
+      '---',
+      '# Skill Map',
+      '',
+      '## Go',
+      '',
+      '<!-- id: SKILL-go -->',
+      '',
+      '- **Category:** Language',
+      '- **Proficiency:** Basic usage',
+      '- **Recency:** 2022-06-01',
+      '',
+      '**Evidence:**',
+      '',
+      '_No evidence recorded._',
+      '',
+    ].join('\n');
+
+    const parsed = parseSkillMap(legacyMd);
+
+    expect(parsed).toHaveLength(1);
+    // Fallback: no evidence, so since = recency value
+    expect(String(parsed[0].since)).toBe('2022-06-01');
+  });
+
+  it('parses the new "- **Since:**" format directly', () => {
+    const newMd = [
+      '---',
+      'ids:',
+      '  - SKILL-rust',
+      '---',
+      '# Skill Map',
+      '',
+      '## Rust',
+      '',
+      '<!-- id: SKILL-rust -->',
+      '',
+      '- **Category:** Language',
+      '- **Proficiency:** Active contributor',
+      '- **Since:** 2019-08-01',
+      '',
+      '**Evidence:**',
+      '',
+      '- `cv.pdf` (2019-08-01) — Started using Rust',
+      '',
+    ].join('\n');
+
+    const parsed = parseSkillMap(newMd);
+
+    expect(parsed).toHaveLength(1);
+    expect(String(parsed[0].since)).toBe('2019-08-01');
+  });
+
+  it('drops the recency key on next save by re-serializing with Since (R70.4)', () => {
+    const legacyMd = [
+      '---',
+      'ids:',
+      '  - SKILL-python',
+      '---',
+      '# Skill Map',
+      '',
+      '## Python',
+      '',
+      '<!-- id: SKILL-python -->',
+      '',
+      '- **Category:** Domain',
+      '- **Proficiency:** Expert',
+      '- **Recency:** 2023-01-01',
+      '',
+      '**Evidence:**',
+      '',
+      '- `cv.pdf` (2021-05-10) — Used Python for data analysis',
+      '',
+    ].join('\n');
+
+    // Parse legacy -> re-serialize: now writes Since, not Recency
+    const parsed = parseSkillMap(legacyMd);
+    const reserialized = serializeSkillMap(parsed);
+
+    expect(reserialized).toContain('- **Since:** 2021-05-10');
+    expect(reserialized).not.toContain('- **Recency:**');
   });
 });

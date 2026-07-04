@@ -83,6 +83,14 @@ Tests are **co-located** with the code they cover as `*.test.ts(x)` files.
 |---|---|
 | `App.tsx` | The shell root: localisation, consent, provider selection, the phase wizard, and the modals (redact-and-proceed, Payload Preview). |
 | `runtime.ts` | The composition root — the **only** place provider adapters and the Egress Gate are constructed and wired. |
+| `AppShell.tsx` | Two-area layout wrapper: header + sidebar + main content area. |
+| `NavSidebar.tsx` | Sidebar navigation with phase stepper, Settings link, and Save & Exit button. |
+| `PhaseStepper.tsx` | Reusable phase progress stepper component shown in the sidebar. |
+| `WelcomePage.tsx` | First-run welcome page with pipeline overview and privacy callout. |
+| `ResumeScreen.tsx` | Return-visit resume screen showing last session state and outstanding items. |
+| `SettingsPage.tsx` | Dedicated settings view (providers, language, privacy/consent). |
+| `SaveStatusProvider.tsx` | React context providing persistence status to the component tree. |
+| `SaveStatusIndicator.tsx` | Header indicator showing "Progress saved" or "Temporary session" status. |
 | `PhaseWizard.tsx`, `phase-wizard-controller.ts` | Wizard navigation/persistence driving the orchestrator. |
 | `ProviderSetup.tsx`, `ProviderSelection.tsx`, `provider-availability.ts` | BYOK / local provider setup and per-capability selection. |
 | `IngestScreen.tsx` | Phase 1 — upload/paste, review, send-control panel, and the read-only **Conversion Preview**. |

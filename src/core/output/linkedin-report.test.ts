@@ -29,7 +29,7 @@ const doc = asDocId('linkedin.md');
 const skill = (
   id: string,
   name: string,
-  opts: { recency?: string; evidence?: number } = {},
+  opts: { since?: string; evidence?: number } = {},
 ): SkillMapEntry => ({
   id: asSkillId(id),
   name,
@@ -40,7 +40,7 @@ const skill = (
     when: asISODate('2024-01-01'),
     note: 'evidence',
   })),
-  recency: asISODate(opts.recency ?? '2024-01-01'),
+  since: asISODate(opts.since ?? '2024-01-01'),
 });
 
 const skillMapOf = (
@@ -96,9 +96,9 @@ const item = (
 
 /** A fully-populated confirmed-evidence set exercising every report section. */
 const fullEvidence = (): ConfirmedEvidence => {
-  const react = skill('SKILL-react', 'React', { recency: '2024-06-01', evidence: 3 });
-  const node = skill('SKILL-node', 'Node.js', { recency: '2024-03-01', evidence: 2 });
-  const k8s = skill('SKILL-k8s', 'Kubernetes', { recency: '2023-01-01', evidence: 1 });
+  const react = skill('SKILL-react', 'React', { since: '2024-06-01', evidence: 3 });
+  const node = skill('SKILL-node', 'Node.js', { since: '2024-03-01', evidence: 2 });
+  const k8s = skill('SKILL-k8s', 'Kubernetes', { since: '2023-01-01', evidence: 1 });
   const acc = accomplishment('BULLET-01', 'Led the React migration across 12 teams.', [
     react.id,
   ]);

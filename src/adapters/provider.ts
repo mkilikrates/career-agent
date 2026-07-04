@@ -51,6 +51,13 @@ export interface RedactedPayload {
 export interface ValidationResult {
   readonly valid: boolean;
   readonly reason?: string;
+  /**
+   * Chat-capable model IDs returned by the provider's `GET /models` endpoint on
+   * a successful validation probe. Populated only when `valid` is `true` and the
+   * endpoint returned a parseable model list. The UI uses this to populate a
+   * model-selection dropdown so the user can choose which model to use (R43.6).
+   */
+  readonly models?: readonly string[];
 }
 
 /** Descriptor for a registered provider in the pluggable registry. */

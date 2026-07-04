@@ -519,7 +519,7 @@ setLocalConfig(patch: Partial<LocalProviderConfig>): LocalProviderConfig;
 
 Because the endpoint is on localhost, using it keeps the app fully offline — no Redacted Payload leaves the device (R1.5, R43.5) — yet requests still pass through the single Egress Gate for consistent labelling and PII screening (R7.5), with the label marking a local on-device call and no third-party egress (R7.6).
 
-The local chat client reads `maxTokens` from `local-config` **at call time** (like `baseUrl`/`model`), so an edit applies on the next request without rebuilding the client. The default is **2048** — deliberately higher than the cloud clients' 512 — because reasoning models (e.g. `deepseek-r1`) emit a chain-of-thought *before* their answer; at 512 the reasoning consumes the whole budget and the answer (`message.content`) comes back empty/truncated, which previously yielded zero parsed questions and a silent no-op in the UI. The cloud (BYOK) clients keep the 512 default to bound per-token cost; only the on-device Local Provider, where tokens are free, defaults higher and is user-editable. `getLocalConfig` coerces a non-positive or non-numeric saved value back to the default, and `setLocalConfig` drops an invalid `maxTokens` patch so a usable saved value is preserved (R43.6).
+All three chat clients (OpenAI, Anthropic, Local) read `maxTokens` from `local-config` **at call time**, so one setting controls them all and an edit applies on the next request without rebuilding the client. The default is **2048** — deliberately higher than the old hardcoded 512 — because reasoning models (e.g. `deepseek-r1`) emit a chain-of-thought *before* their answer; at 512 the reasoning consumes the whole budget and the answer (`message.content`) comes back empty/truncated, which previously yielded zero parsed questions and a silent no-op in the UI. A value of **0 means "no cap"**: the `max_tokens` field is omitted from the request entirely for OpenAI-compatible endpoints (letting the provider use its own context-window limit), or set to a generous 4096 fallback for Anthropic (which requires the field). `getLocalConfig` coerces a negative or non-numeric saved value back to the default, and `setLocalConfig` drops an invalid `maxTokens` patch so a usable saved value is preserved (R43.6).
 
 ### Per-Capability Provider Selection
 
@@ -1325,3 +1325,251 @@ Trust invariants hold unchanged: all calls route through the Egress Gate (local 
 ### UI notes (carries the R58 design system)
 
 The Coaching screen in AI mode presents: a short STAR explainer, the question list (one line each, competency hidden), question selection, an answer area (type or record/upload → Whisper via the gate → confirm transcript), the follow-up loop with the cap/dig-deeper control, and the per-question summary; at session end, the detected-skills-not-in-map confirm-to-add control. The small skills/roles suggestion list layout (heading on its own line, the Add action on its own row) is tidied as part of this work.
+
+
+### UI Redesign: Card-Based Navigation, Welcome Page, Save Status, and Session Resume (R66–R69)
+
+This section describes the structural UI redesign that replaces the current single-page vertical layout with a card-based, progressively-disclosed multi-view application.
+
+#### App-Level View Management
+
+The app uses **state-driven view routing** (no library router needed). `App.tsx` holds an `AppView` discriminated union that determines which top-level view renders:
+
+```typescript
+type AppView =
+  | { kind: 'language' }           // first screen always, needed to localise everything after
+  | { kind: 'welcome' }            // first-run only (no persisted session)
+  | { kind: 'resume' }             // return visit (persisted session exists)
+  | { kind: 'settings' }           // provider setup, model, tokens, language, privacy
+  | { kind: 'pipeline'; phase: Phase }; // one phase card at a time
+```
+
+View transitions:
+- On mount: always start at `language` (confirm or auto-skip if already persisted).
+- After language: check Memory Store — if empty → `welcome`; if persisted data → `resume`.
+- Welcome → `settings` (provider setup) → `pipeline: 'ingest'`.
+- Resume → `pipeline: lastActivePhase`.
+- From any pipeline card: the nav sidebar can switch to `settings` or another phase.
+- From settings: "Back to pipeline" returns to `pipeline: currentPhase`.
+
+#### First-Run vs Return-Visit Flow
+
+```mermaid
+flowchart TD
+  A[App mounts] --> B[Language confirmation]
+  B --> C{Persisted session?}
+  C -->|No| D[Welcome Page]
+  C -->|Yes| E[Resume Screen]
+  D --> F[Settings / Provider Setup]
+  F --> G[Pipeline: Ingest]
+  E --> H[Pipeline: last active phase]
+  G --> I[...]
+  H --> I[...]
+```
+
+#### Welcome Page Component (`WelcomePage.tsx`)
+
+A simple, clean landing page. No configuration, no forms — just explanation and one button.
+
+Structure:
+- **Heading**: app title
+- **Tagline**: "Build your professional profile, practise interviews, and generate tailored CVs — all on your device."
+- **How it works**: a small 5-step visual (icons or numbered steps showing Ingest → Skills → Roles → Coaching → Output) with one-line descriptions of each.
+- **Privacy callout**: a highlighted card/banner: "Your data stays on this device. AI features are optional and only send a redacted summary to your chosen provider."
+- **Action**: a single "Get started" button → transitions to `settings` view.
+
+All strings from `locales/` — the page is displayed in the confirmed Session Language (R66.8).
+
+#### Resume Screen Component (`ResumeScreen.tsx`)
+
+Shown when a persisted session exists. Purpose: orient the returning user and offer a fast path back.
+
+Structure:
+- **Heading**: "Welcome back"
+- **Last session summary**: "You were at [phase name] for [role name, if applicable]."
+- **Outstanding items** (from the existing `SessionSummary.outstanding` computation, R35.1): rendered as a compact list of what needs attention.
+- **Actions**:
+  - "Continue" (primary) → `pipeline: lastActivePhase`
+  - "Go to Settings" → `settings`
+  - "Start fresh" (danger, with confirm) → clears store, goes to `welcome`
+
+#### Card-Based Layout Shell (`AppShell.tsx`)
+
+Replaces the current vertical stacking. The shell is a two-area layout:
+
+```
+┌─────────────────────────────────────────┐
+│  Header: app title + save status + exit │
+├────────┬────────────────────────────────┤
+│        │                                │
+│  Nav   │     Main Content Area          │
+│ (side) │  (one view/card at a time)     │
+│        │                                │
+├────────┴────────────────────────────────┤
+│  Footer (optional: attribution/version) │
+└─────────────────────────────────────────┘
+```
+
+**Nav sidebar** (collapsible on mobile → hamburger):
+- **Pipeline stepper**: 6 phase entries, each showing:
+  - Phase name (localised)
+  - Status badge: "not started" / "in progress" / "done"
+  - The current phase is highlighted
+  - A subtle "→ recommended" indicator on the next incomplete phase
+  - Clicking any phase → `pipeline: thatPhase`
+- **Settings link** (gear icon + label) → `settings` view
+- **Save & Exit button** → triggers Memory Store zip export
+
+**Header**:
+- App title (compact)
+- **Save-status indicator**: "✓ Progress saved" (normal) or "⚠ Temporary session — export before closing" (fallback-tier/incognito). Briefly flashes "✓ Saved just now" after each auto-save.
+- **Save & Exit** shortcut (compact icon-button for mobile where sidebar is collapsed)
+
+**Main content area**: renders one component at a time based on `AppView`.
+
+#### Settings Page (`SettingsPage.tsx`)
+
+Groups all configuration into sections within one view. Not part of the pipeline stepper — it's a separate nav destination.
+
+Sections:
+1. **Chat provider** — provider dropdown, API key or local base URL, model dropdown (populated after validation), test/validate button
+2. **Speech-to-text** — provider dropdown, key (if OpenAI), model — with a note: "You can use a different provider for speech-to-text than for chat (e.g. Anthropic for chat + Local Whisper for transcription)"
+3. **Completion tokens** — the max-tokens field (shared, 0 = no limit) with explanation
+4. **Language** — language selector + confirm
+5. **Privacy & consent** — privacy statement, training consent toggle, network labels history
+
+A "Back to pipeline" button or nav-click returns to the current phase card.
+
+#### Progressive Disclosure Within Phase Cards
+
+Each phase card starts with the minimum UI and reveals more as the user progresses. Implementation: each screen tracks an internal `step` state that gates which sections render.
+
+**Example — Coaching card progression:**
+1. **Role selector** → user picks a role
+2. **Question list appears** (script + AI suggested) → user picks a question
+3. **Answer interface appears** (type / record / upload) → user answers
+4. **Follow-up loop** (if AI mode) → until done
+5. **Result + talking point confirmation** → user confirms
+6. **Next question or session summary** → loop or end
+
+Sections below the current step are not rendered (not just collapsed — absent from DOM). This keeps the card focused and short.
+
+**Example — Ingest card progression:**
+1. **Upload/paste area** → user adds documents
+2. **Document list with status** appears → user can review/remove
+3. **Extraction review table** appears after extraction → user confirms/edits/deletes
+4. **Phase completion action** → "Save and generate skill map"
+
+#### Persistent Save-Status Indicator
+
+Implemented as a global React context (`SaveStatusProvider`) that any component can trigger:
+
+```typescript
+interface SaveStatusContext {
+  /** Current save status. */
+  readonly status: 'saved' | 'saving' | 'temporary';
+  /** Trigger a "just saved" flash after a successful persist. */
+  readonly notifySaved: () => void;
+}
+```
+
+- `'saved'` → shows "✓ Progress saved" (muted green)
+- `'saving'` → shows "Saving…" (brief, during async persist)
+- `'temporary'` → shows "⚠ Temporary session — export before closing" (amber, always visible)
+
+Detection of temporary mode: check whether the Storage_Adapter is in the Fallback tier AND `sessionStorage` (which doesn't survive close) is the only persistence — or detect incognito heuristically via a small IndexedDB write test at startup.
+
+The existing `store.logConfirmation(...)` calls and `saveInterview(...)`/`saveSkillMap(...)`/etc. already trigger persists — each of those call sites also calls `notifySaved()` in the new context.
+
+#### Integration with Existing Architecture
+
+- **XState orchestrator** (`statechart.ts`): unchanged. It still models the 6-phase FSM. The view routing (`AppView`) drives which phase card is shown, but the orchestrator still tracks phase transitions and resume state.
+- **PhaseWizardController**: still used, but its `goToPhase()` now drives the `AppView` update rather than scrolling within a single page. The `phases()` + status data feeds the sidebar stepper.
+- **MemoryTree / Storage_Adapter**: unchanged. The "Save & Exit" button calls the existing `export()` path from the Memory screen. Auto-save is already happening; we just add the visible status feedback.
+- **Design system tokens**: the shell layout uses the existing `tokens.spacing`, `tokens.color`, etc. New structural components (`AppShell`, `NavSidebar`, `PhaseStepper`) are added to the design-system layer.
+
+#### New Components Summary
+
+| Component | Responsibility |
+|---|---|
+| `AppShell.tsx` | Two-area layout (sidebar + main), header, save-status indicator |
+| `NavSidebar.tsx` | Phase stepper, settings link, save & exit button |
+| `PhaseStepper.tsx` | Visual stepper with status badges and "recommended next" |
+| `WelcomePage.tsx` | First-run explanation + "Get started" |
+| `ResumeScreen.tsx` | Return-visit summary + "Continue" / "Start fresh" |
+| `SettingsPage.tsx` | All provider/model/token/language/privacy config in one view |
+| `SaveStatusProvider.tsx` | React context for global save-status state |
+| `SaveStatusIndicator.tsx` | The rendered "✓ Saved" / "⚠ Temporary" badge |
+
+Existing phase-screen components (`IngestScreen`, `SkillMapScreen`, `RoleDiscoveryScreen`, `CoachingScreen`, `OutputScreen`, `MemoryScreen`) remain but are refactored to support progressive disclosure (internal `step` state gating which sections render). Their props interfaces stay the same; they just become more incremental in what they show at each internal step.
+
+
+### Experience Duration Replaces Recency (R70)
+
+The `recency: ISODate` field is removed from `SkillMapEntry` and replaced by `since?: ISODate` — the date the user first used the skill. All downstream consumers (skill-map generation, serialization, role-discovery payload, coaching prompt, UI review) switch from "last used" to "years of experience" computed as `currentYear - since.year`.
+
+#### Data model change
+
+```typescript
+// BEFORE
+interface SkillMapEntry {
+  // ...
+  recency: ISODate;   // most recent evidence date — REMOVED
+}
+
+// AFTER
+interface SkillMapEntry {
+  // ...
+  since?: ISODate;    // when the user first used this skill (R70.1)
+}
+```
+
+`since` is optional because gap skills (those identified by the Role_Matcher but not yet in the user's map) have no evidence and no start date. When absent, duration is displayed as "unknown" and the prompt omits the years field for that skill.
+
+#### Derivation on generation (R70.2)
+
+When the Skill_Mapper generates the skill map from extracted items, it sets `since` to the **earliest** `evidence[].when` date for that skill. This is conservative: it might undercount (the user's actual start predates their oldest CV), but it's a safe default the user can correct.
+
+#### User editability (R70.3)
+
+The Skill Map review screen surfaces a "Since" field per skill (a year/month picker or text input). On edit, the user's value overrides the derived one and is persisted. This is the "user in control" lever: the user always knows better than their documents.
+
+#### Migration from `recency` (R70.5)
+
+When `getLocalConfig()` / the skill-map parser encounters an entry with `recency` but no `since`:
+- If the entry has evidence, `since = min(evidence[].when)`
+- If the entry has no evidence, `since = recency` (the recency value is the best available proxy)
+- The `recency` key is dropped from the persisted Markdown on the next save
+
+This is transparent: the user doesn't see a migration step; the old data just works with the new field.
+
+#### Experience duration computation
+
+```typescript
+/** Compute approximate years of experience from a `since` date. */
+function experienceYears(since: ISODate | undefined): number | undefined {
+  if (!since) return undefined;
+  const start = new Date(since as string);
+  const now = new Date();
+  return Math.max(0, Math.round((now.getTime() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000)));
+}
+```
+
+Used in:
+- **Coaching prompt** (`buildCandidateProfile`): "JavaScript, ~8 years experience, 5 evidence points, Strong evidence"
+- **Role-discovery payload** (`buildDiscoveryPayload`): `approxDurationMonths` is now `(currentDate - since)` in months rather than `(recency - earliestEvidence)` which was inaccurate
+- **Skill map UI review**: shows "Experience: ~8 years (since 2016)" next to each skill
+
+#### Files touched
+
+| File | Change |
+|---|---|
+| `@core/types/skills.ts` | Remove `recency`, add `since?: ISODate` |
+| `@core/skills/skill-map.ts` | Generation: set `since` from earliest evidence |
+| `@core/skills/skill-map-document.ts` | Serialize/parse `since` instead of `recency`; migration logic |
+| `@core/skills/review.ts` | `addUserSkill` sets `since`; edit path allows `since` override |
+| `@core/role-matcher/role-discovery-payload.ts` | Use `since` for `approxDurationMonths` |
+| `@core/interview/coach-assist.ts` | `buildCandidateProfile` shows years from `since` |
+| `src/ui/SkillMapScreen.tsx` | Add "Since" editable field per skill |
+| `locales/en.json`, `locales/pt-BR.json` | "Since" / "Experience" labels |
+| All tests referencing `recency` | Update to use `since` |

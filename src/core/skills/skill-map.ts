@@ -5,8 +5,8 @@
 // {@link SkillMapEntry} records. Each entry preserves the user's original skill
 // phrasing (R17.3 via the conservative normaliser), carries a category, an
 // EVIDENCE-BASED proficiency signal (never a self-reported score unless the user
-// supplies one, R14.3), a dated evidence trail, and the recency of the most
-// recent evidence (R14.1).
+// supplies one, R14.3), a dated evidence trail, and the `since` date of the
+// earliest evidence (R70.1).
 //
 // Two trust rules govern what becomes a skill:
 //   * Skills are derived ONLY from verified source material or explicit user
@@ -156,7 +156,9 @@ const termsFromItem = (item: ExtractedItem): SourceTerm[] => {
   switch (item.type) {
     case 'skill': {
       const name = typeof f.name === 'string' ? f.name.trim() : '';
-      return name ? [{ term: asSkillTerm(name), item }] : [];
+      // AI-discovered skills may carry a `since` field (inferred start year).
+      const since = typeof f.since === 'string' ? f.since.trim() : undefined;
+      return name ? [{ term: asSkillTerm(name), item, when: since }] : [];
     }
     case 'employment': {
       const techs = Array.isArray(f.technologies) ? (f.technologies as unknown[]) : [];
@@ -249,7 +251,7 @@ const CONFIDENCE_RANK: Record<ExtractedItem['confidence'], number> = {
 
 /**
  * Phrase an EVIDENCE-BASED proficiency signal (R14.3): it describes the volume,
- * confidence, and recency of the evidence — never a self-reported score. A
+ * confidence, and duration of the evidence — never a self-reported score. A
  * self-assessment is recorded separately and only when the user provides one
  * (see {@link generate}).
  */
@@ -257,7 +259,7 @@ const proficiencySignalOf = (acc: SkillAccumulator, recency: string): string => 
   const count = acc.evidence.length;
   const noun = count === 1 ? 'source' : 'sources';
   const confirmed = acc.userConfirmed ? 'user-confirmed, ' : '';
-  return `Evidence-based: ${confirmed}${acc.highestConfidence.toLowerCase()} confidence across ${count} ${noun}; most recent ${recency}.`;
+  return `Evidence-based: ${confirmed}${acc.highestConfidence.toLowerCase()} confidence across ${count} ${noun}; since ${recency}.`;
 };
 
 // --- Generation ------------------------------------------------------------
@@ -290,11 +292,21 @@ const recencyOf = (evidence: readonly SkillEvidence[], fallback: string): string
   return latest || fallback;
 };
 
+/** The earliest evidence date in an entry, or '' when empty (R70.2). */
+const earliestOf = (evidence: readonly SkillEvidence[]): string => {
+  let earliest = '';
+  for (const e of evidence) {
+    const w = asString(e.when);
+    if (w && (earliest === '' || w < earliest)) earliest = w;
+  }
+  return earliest;
+};
+
 /**
  * Generate a skill map from verified extractions (R14.1, R14.2, R14.3, R18.2,
  * R18.3). Pure and deterministic for a fixed `asOf`/clock. The result's entries
  * preserve user phrasing, carry an evidence-based proficiency signal, a dated
- * evidence trail, and recency; when accomplishments/talking points are supplied
+ * evidence trail, and a `since` date; when accomplishments/talking points are supplied
  * their stable ids are referenced bi-directionally through the reference graph.
  */
 export const generate = (
@@ -351,7 +363,7 @@ export const generate = (
     const note = src.detail
       ? `${asString(src.term)} (${src.detail}) [${src.item.type}]`
       : `${asString(src.term)} [${src.item.type}]`;
-    acc.evidence.push({ ref: src.item.sourceDoc, when: asISODate(src.when ?? asOf), note });
+    acc.evidence.push({ ref: src.item.sourceDoc, when: asISODate(src.when || ''), note });
     acc.userConfirmed ||= src.item.userConfirmed;
     acc.sourceCount += 1;
     if (CONFIDENCE_RANK[src.item.confidence] > CONFIDENCE_RANK[acc.highestConfidence]) {
@@ -388,7 +400,7 @@ export const generate = (
       category: categorise(acc.name),
       proficiencySignal: '', // filled after evidence is finalised
       evidence: acc.evidence,
-      recency: asISODate(asOf),
+      since: asISODate(asOf),
       ...(merge ? { mergeRecord: toMergeRecord(merge, asISODate(asOf)) } : {}),
       // selfAssessment is intentionally omitted: an evidence-based signal never
       // includes a self-reported score unless the user provides one (R14.3).
@@ -417,15 +429,46 @@ export const generate = (
     }
   }
 
-  // 6. Finalise evidence ordering, recency, and the evidence-based signal.
+  // 6. Finalise evidence ordering, since date, and the evidence-based signal.
   for (const entry of entries) {
     const finalEvidence = dedupeEvidence(entry.evidence);
     entry.evidence.length = 0;
     entry.evidence.push(...finalEvidence);
-    const recency = recencyOf(finalEvidence, asOf);
-    (entry as { recency: ISODate }).recency = asISODate(recency);
+    const earliest = earliestOf(finalEvidence);
+    // Only set `since` when a real date was found. When `earliest` is empty, all
+    // evidence is from standalone skill items with no employment context — leave
+    // `since` undefined so the UI prompts the user to fill it (R70.3).
+    (entry as { since?: ISODate }).since = earliest ? asISODate(earliest) : undefined;
     const acc = accBackref.get(entry)!;
-    entry.proficiencySignal = proficiencySignalOf(acc, recency);
+    entry.proficiencySignal = proficiencySignalOf(acc, earliest || asOf);
+  }
+
+  // 6b. Cross-reference: for entries still missing `since`, look up the earliest
+  // employment item that lists this skill in its technologies and use its start
+  // date. This handles standalone skill-type items (e.g. from LinkedIn skills
+  // list) by inferring from the employment timeline.
+  const employmentDates = new Map<string, string>(); // skill name (lower) → earliest employment start
+  for (const item of extractions) {
+    if (item.type !== 'employment') continue;
+    const startDate = (item.fields.start ?? item.fields.startedOn) as string | undefined;
+    if (!startDate || typeof startDate !== 'string') continue;
+    const techs = Array.isArray(item.fields.technologies) ? (item.fields.technologies as unknown[]) : [];
+    for (const tech of techs) {
+      if (typeof tech !== 'string') continue;
+      const key = tech.trim().toLowerCase();
+      const existing = employmentDates.get(key);
+      if (!existing || startDate < existing) {
+        employmentDates.set(key, startDate);
+      }
+    }
+  }
+  for (const entry of entries) {
+    if (entry.since !== undefined) continue;
+    const key = entry.name.toLowerCase();
+    const empDate = employmentDates.get(key);
+    if (empDate) {
+      (entry as { since?: ISODate }).since = asISODate(empDate);
+    }
   }
 
   entries.sort((a, b) => (asString(a.id) < asString(b.id) ? -1 : asString(a.id) > asString(b.id) ? 1 : 0));
@@ -466,6 +509,6 @@ export const linkEvidence = (
   const finalEvidence = dedupeEvidence(entry.evidence);
   entry.evidence.length = 0;
   entry.evidence.push(...finalEvidence);
-  (entry as { recency: ISODate }).recency = asISODate(recencyOf(finalEvidence, asString(entry.recency)));
+  (entry as { since?: ISODate }).since = asISODate(recencyOf(finalEvidence, asString(entry.since ?? '')));
   return map;
 };

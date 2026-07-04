@@ -168,8 +168,11 @@ export class DefaultProviderManager implements ProviderManager {
       return { valid: false, reason: 'API key must not be empty.' };
     }
     try {
-      await plugin.llm.chat(VALIDATION_PROBE, key);
-      return { valid: true };
+      const resp = await plugin.llm.chat(VALIDATION_PROBE, key);
+      // Extract chat-capable models from the probe response so the UI can show a
+      // model-selection dropdown (R43.6). The field is only present on probes.
+      const models = (resp as { models?: readonly string[] }).models;
+      return { valid: true, ...(models && models.length > 0 ? { models } : {}) };
     } catch (error) {
       return { valid: false, reason: describeError(error) };
     }

@@ -25,7 +25,7 @@ const skillWith = (refs: string[]): SkillMapEntry => ({
     when: asISODate('2024-01-01'),
     note: 'note',
   })),
-  recency: asISODate('2024-01-01'),
+  since: asISODate('2024-01-01'),
 });
 
 describe('@core/healing — clean store (R36.1)', () => {

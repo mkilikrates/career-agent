@@ -24,6 +24,20 @@ import { PHASE_SEQUENCE, type Phase } from '@core/orchestrator';
 import type { PhaseWizardController } from './phase-wizard-controller';
 import { Badge, Button, PhaseChrome } from './design-system';
 
+/**
+ * Map the current phase to its phase-specific completion-action locale key
+ * (R67.6). Each label names the DESTINATION so the user knows where they are
+ * going after confirming.
+ */
+const PHASE_COMPLETION_LABEL: Record<Phase, string> = {
+  'ingest': 'views.pipeline.saveAndSkillMap',
+  'skill-map': 'views.pipeline.saveAndRoles',
+  'role-discovery': 'views.pipeline.saveAndCoaching',
+  'interview-coaching': 'views.pipeline.saveAndOutput',
+  'output': 'views.pipeline.saveToMemory',
+  'memory': 'wizard.confirmAndContinue',
+};
+
 export interface PhaseWizardProps {
   /** The controller driving the orchestrator (phase hub + confirm/advance). */
   readonly controller: PhaseWizardController;
@@ -36,10 +50,16 @@ export interface PhaseWizardProps {
    * wizard owns navigation and the confirm/advance step.
    */
   readonly renderPhase?: (phase: Phase) => ReactNode;
+  /**
+   * Optional callback invoked when the user navigates to a different phase via
+   * the hub buttons or previous/next controls. Allows the host (App) to sync
+   * the top-level `appView` state with the wizard's phase changes (R66.1).
+   */
+  readonly onPhaseChange?: (phase: Phase) => void;
 }
 
 /** Render the phase navigator, the current review screen, and outstanding items. */
-export function PhaseWizard({ controller, t, renderPhase }: PhaseWizardProps) {
+export function PhaseWizard({ controller, t, renderPhase, onPhaseChange }: PhaseWizardProps) {
   // Re-render whenever the controller (orchestrator phase / summary) changes.
   const [, forceRender] = useReducer((n: number) => n + 1, 0);
   useEffect(() => controller.subscribe(forceRender), [controller]);
@@ -57,6 +77,12 @@ export function PhaseWizard({ controller, t, renderPhase }: PhaseWizardProps) {
       ? PHASE_SEQUENCE[currentIndex + 1]
       : null;
 
+  // Navigate to a phase: drives the controller AND notifies the host (App).
+  const navigateTo = (phase: Phase) => {
+    void controller.goToPhase(phase);
+    onPhaseChange?.(phase);
+  };
+
   return (
     <section aria-label={t('wizard.heading')}>
       <h2>{t('wizard.heading')}</h2>
@@ -71,7 +97,7 @@ export function PhaseWizard({ controller, t, renderPhase }: PhaseWizardProps) {
                 variant={view.current ? 'primary' : 'secondary'}
                 aria-current={view.current ? 'step' : undefined}
                 disabled={view.current}
-                onClick={() => void controller.goToPhase(view.phase)}
+                onClick={() => navigateTo(view.phase)}
               >
                 {t(`wizard.phase.${view.phase}`)}
               </Button>{' '}
@@ -94,8 +120,8 @@ export function PhaseWizard({ controller, t, renderPhase }: PhaseWizardProps) {
         nextLabel={
           next ? t('wizard.goToNext', { phase: t(`wizard.phase.${next}`) }) : t('wizard.nextPhase')
         }
-        onPrevious={previous ? () => void controller.goToPhase(previous) : undefined}
-        onNext={next ? () => void controller.goToPhase(next) : undefined}
+        onPrevious={previous ? () => navigateTo(previous) : undefined}
+        onNext={next ? () => navigateTo(next) : undefined}
       >
         <div data-current-phase={current}>
           {/* The phase's own working UI, when provided by the host shell. */}
@@ -106,8 +132,10 @@ export function PhaseWizard({ controller, t, renderPhase }: PhaseWizardProps) {
             </p>
           ) : null}
           {/* Persist after every confirmed step (R35.2). */}
-          <Button onClick={() => void controller.confirmStep()}>
-            {t('wizard.confirmAndContinue')}
+          <Button onClick={() => void controller.confirmStep().then((nextPhase) => {
+            onPhaseChange?.(nextPhase);
+          })}>
+            {t(PHASE_COMPLETION_LABEL[current])}
           </Button>
         </div>
       </PhaseChrome>

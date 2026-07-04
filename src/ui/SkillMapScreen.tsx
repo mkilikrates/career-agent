@@ -16,6 +16,7 @@ import {
   asDocId,
   asISODate,
   asItemId,
+  experienceYears,
   type ExtractedItem,
 } from '@core/types';
 import { trailOf, userConfirmation } from '@core/provenance';
@@ -114,7 +115,7 @@ export function SkillMapScreen({
 }: SkillMapScreenProps) {
   const [status, setStatus] = useState<string>('');
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [aiSuggestions, setAiSuggestions] = useState<Array<{ name: string; since?: string }>>([]);
   const [aiSelected, setAiSelected] = useState<Set<string>>(new Set());
   const [aiError, setAiError] = useState<string>('');
   // Free-text skills the user adds by hand (comma- or newline-separated). The
@@ -198,7 +199,7 @@ export function SkillMapScreen({
       // Pre-select every returned candidate: in "AI only" the model is the sole
       // discoverer and in "Both" it has already reviewed/refined the parser's
       // list, so the returned set is the curated candidate list to keep.
-      setAiSelected(new Set(found));
+      setAiSelected(new Set(found.map((s) => s.name)));
       if (error) {
         setAiError(t('assist.fallback', { reason: error.message }));
       } else if (found.length === 0) {
@@ -221,10 +222,11 @@ export function SkillMapScreen({
 
   const handleAddSelected = () => {
     const at = asISODate(new Date().toISOString());
-    const added: ExtractedItem[] = [...aiSelected].map((name) => ({
-      id: asItemId(`ai-suggested.md#skill-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`),
+    const selectedSuggestions = aiSuggestions.filter((s) => aiSelected.has(s.name));
+    const added: ExtractedItem[] = selectedSuggestions.map((s) => ({
+      id: asItemId(`ai-suggested.md#skill-${s.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`),
       type: 'skill',
-      fields: { name },
+      fields: { name: s.name, ...(s.since ? { since: `${s.since}-01-01` } : {}) },
       confidence: 'High',
       // User explicitly confirms each AI suggestion → user-confirmation
       // provenance, never a fabricated source (No-Fabrication / R12.4, R38.1).
@@ -304,15 +306,20 @@ export function SkillMapScreen({
             <Card style={{ marginTop: tokens.spacing.sm }}>
               <h4>{t('skillMap.ai.suggestionsHeading')}</h4>
               <ul>
-                {aiSuggestions.map((name) => (
-                  <li key={name}>
+                {aiSuggestions.map((s) => (
+                  <li key={s.name}>
                     <label>
                       <input
                         type="checkbox"
-                        checked={aiSelected.has(name)}
-                        onChange={() => toggleSuggestion(name)}
+                        checked={aiSelected.has(s.name)}
+                        onChange={() => toggleSuggestion(s.name)}
                       />{' '}
-                      {name}
+                      {s.name}
+                      {s.since && (
+                        <small style={{ color: tokens.colour.muted, marginLeft: tokens.spacing.xs }}>
+                          (since ~{s.since})
+                        </small>
+                      )}
                     </label>
                   </li>
                 ))}
@@ -360,15 +367,48 @@ export function SkillMapScreen({
       {skillMap && skillMap.entries.length > 0 ? (
         <>
           <ul>
-            {skillMap.entries.map((entry) => (
-              <li key={entry.id as unknown as string}>
-                <strong>{entry.name}</strong> <Badge>{entry.category}</Badge>
-                <br />
-                <small>{entry.proficiencySignal}</small>
-                <br />
-                <small>{t('skillMap.evidenceCount', { count: entry.evidence.length })}</small>
-              </li>
-            ))}
+            {skillMap.entries.map((entry) => {
+              const years = experienceYears(entry.since);
+              const yearsLabel =
+                years === undefined
+                  ? ''
+                  : years === 0
+                    ? '< 1 year'
+                    : t('skillMap.experienceYears', { years });
+              return (
+                <li key={entry.id as unknown as string}>
+                  <strong>{entry.name}</strong> <Badge>{entry.category}</Badge>
+                  <br />
+                  <small>{entry.proficiencySignal}</small>
+                  <br />
+                  <small>{t('skillMap.evidenceCount', { count: entry.evidence.length })}</small>
+                  <br />
+                  <label style={{ fontSize: tokens.typography.scale.sm, display: 'flex', alignItems: 'center', gap: tokens.spacing.xs, marginTop: tokens.spacing.xs }}>
+                    {t('skillMap.since')}{' '}
+                    <input
+                      type="month"
+                      value={entry.since ? (entry.since as unknown as string).slice(0, 7) : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const updated = skillMap.entries.map((sk) =>
+                          sk.id === entry.id
+                            ? { ...sk, since: raw ? asISODate(`${raw}-01`) : undefined }
+                            : sk,
+                        );
+                        onSkillMap({ ...skillMap, entries: updated });
+                      }}
+                      style={{ marginLeft: tokens.spacing.xs }}
+                    />
+                    {yearsLabel ? <strong style={{ marginLeft: tokens.spacing.xs }}>{yearsLabel}</strong> : null}
+                  </label>
+                  {!entry.since && (
+                    <small style={{ color: tokens.colour.muted, display: 'block', marginTop: '2px' }}>
+                      {t('skillMap.sinceHint')}
+                    </small>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           <Button onClick={() => void handleSave()}>{t('skillMap.save')}</Button>
         </>

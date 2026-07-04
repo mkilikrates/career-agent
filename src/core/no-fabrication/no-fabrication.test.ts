@@ -50,7 +50,7 @@ const skillEntryOutput = (id: string, name: string): GeneratedOutput => {
     category: 'Technical',
     proficiencySignal: 'demonstrated',
     evidence: [],
-    recency: asISODate('2024-05-01'),
+    since: asISODate('2024-05-01'),
   };
   return { kind: 'skill-map-entry', entry };
 };

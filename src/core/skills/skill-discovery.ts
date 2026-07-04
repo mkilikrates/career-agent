@@ -142,8 +142,11 @@ export const DISCOVERY_PROMPT_INSTRUCTION =
   'skills. List every distinct skill that is demonstrated or strongly implied by ' +
   'the evidence below — include technical skills, tools, methodologies, domains, ' +
   'and soft/leadership skills that the described work clearly required. Do not ' +
-  'invent skills that the evidence does not support. Return ONLY a comma-separated ' +
-  'list of concise skill names, with no commentary, numbering, or explanation.';
+  'invent skills that the evidence does not support. For each skill, infer the ' +
+  'approximate year the person first started using it based on the employment ' +
+  'dates in the evidence. Return ONLY a comma-separated list where each entry ' +
+  'is either "skill name (since YYYY)" when a start year can be inferred, or ' +
+  'just "skill name" when it cannot. No commentary, numbering, or explanation.';
 
 /** Compose the full prompt for one corpus chunk. */
 export function buildDiscoveryPrompt(corpusChunk: string): string {
@@ -176,30 +179,49 @@ export function buildReviewPrompt(
   return `${REVIEW_PROMPT_INSTRUCTION}\n\nSKILLS DETECTED BY THE PARSER:\n${detected}\n\nCAREER EVIDENCE:\n${corpusChunk}`;
 }
 
+/** A discovered skill with an optional inferred start year. */
+export interface DiscoveredSkill {
+  /** The skill name. */
+  readonly name: string;
+  /** Approximate start year inferred by the model (e.g. "2005"), or undefined. */
+  readonly since?: string;
+}
+
 /**
- * Parse a model reply into a clean, de-duplicated list of candidate skill names.
+ * Parse a model reply into a clean, de-duplicated list of candidate skills.
  * Splits on commas / newlines / semicolons / bullets, strips list markers and
- * trailing punctuation, drops empties and over-long fragments (likely prose, not
- * a skill), and skips anything already present in `existing` (case-insensitive).
- * `existing` is the set of lower-cased names already known (map entries + already
- * suggested), enabling cumulative de-dupe across multiple chunk replies.
+ * trailing punctuation, extracts an optional `(since YYYY)` suffix, drops
+ * empties and over-long fragments (likely prose, not a skill), and skips
+ * anything already present in `existing` (case-insensitive). `existing` is the
+ * set of lower-cased names already known (map entries + already suggested),
+ * enabling cumulative de-dupe across multiple chunk replies.
  */
 export function parseDiscoveredSkills(
   reply: string,
   existing: ReadonlySet<string>,
-): string[] {
-  const out: string[] = [];
+): DiscoveredSkill[] {
+  const out: DiscoveredSkill[] = [];
   const seen = new Set(existing);
   for (const raw of reply.split(/[\n,;•]/)) {
-    const name = raw
+    let cleaned = raw
       .replace(/^\s*(?:[-*]|\d+\.)\s*/, '')
       .replace(/\.$/, '')
       .trim();
-    if (name.length === 0 || name.length > 60) continue;
-    const key = name.toLowerCase();
+    if (cleaned.length === 0 || cleaned.length > 80) continue;
+
+    // Extract optional "(since YYYY)" or "(YYYY)" suffix.
+    let since: string | undefined;
+    const sinceMatch = cleaned.match(/\(\s*(?:since\s+)?(\d{4})\s*\)\s*$/i);
+    if (sinceMatch) {
+      since = sinceMatch[1];
+      cleaned = cleaned.slice(0, sinceMatch.index).trim();
+    }
+
+    if (cleaned.length === 0 || cleaned.length > 60) continue;
+    const key = cleaned.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(name);
+    out.push({ name: cleaned, since });
   }
   return out;
 }

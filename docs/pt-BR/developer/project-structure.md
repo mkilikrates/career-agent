@@ -83,6 +83,14 @@ Os testes ficam **co-localizados** com o código que cobrem, como arquivos `*.te
 |---|---|
 | `App.tsx` | A raiz do shell: localização, consentimento, seleção de provedor, o assistente de fases e os modais (redigir e prosseguir, Pré-visualização da Carga). |
 | `runtime.ts` | A raiz de composição — o **único** lugar onde os adaptadores de provedor e o Portão de Saída são construídos e ligados. |
+| `AppShell.tsx` | Wrapper de layout de duas áreas: cabeçalho + barra lateral + área de conteúdo principal. |
+| `NavSidebar.tsx` | Navegação na barra lateral com indicador de fases, link de Configurações e botão Salvar e Sair. |
+| `PhaseStepper.tsx` | Componente reutilizável de indicador de progresso de fases exibido na barra lateral. |
+| `WelcomePage.tsx` | Página de boas-vindas na primeira execução com visão do pipeline e aviso de privacidade. |
+| `ResumeScreen.tsx` | Tela de retomada para visitas recorrentes, mostrando o estado da última sessão e itens pendentes. |
+| `SettingsPage.tsx` | Página dedicada de configurações (provedores, idioma, privacidade/consentimento). |
+| `SaveStatusProvider.tsx` | Contexto React que fornece o status de persistência à árvore de componentes. |
+| `SaveStatusIndicator.tsx` | Indicador no cabeçalho mostrando status "Progresso salvo" ou "Sessão temporária". |
 | `PhaseWizard.tsx`, `phase-wizard-controller.ts` | Navegação/persistência do assistente que dirige o orquestrador. |
 | `ProviderSetup.tsx`, `ProviderSelection.tsx`, `provider-availability.ts` | Configuração de provedor BYOK / local e seleção por capacidade. |
 | `IngestScreen.tsx` | Fase 1 — enviar/colar, revisar, painel de controle de envio e a **Pré-visualização de Conversão** somente leitura. |

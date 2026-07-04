@@ -29,6 +29,8 @@ import {
   validateLocalBaseUrl,
   localCorsGuidance,
   isLikelyCorsRejection,
+  setProviderModel,
+  getProviderModel,
   type LocalProviderConfig,
 } from '@adapters/local-config';
 import type { SessionLanguage } from '@core/locale';
@@ -100,6 +102,12 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [stored, setStored] = useState<Record<ProviderId, boolean>>({});
+  // Chat models returned by the provider's GET /models after a successful
+  // validation — filtered to chat-capable only. Populates a model dropdown so
+  // the user picks their model rather than being stuck on a hardcoded default.
+  const [availableModels, setAvailableModels] = useState<readonly string[]>([]);
+  // The user's selected chat model for the currently-viewed provider.
+  const [selectedModel, setSelectedModel] = useState<string>(() => getProviderModel(providers[0]?.id ?? '') ?? '');
   // Editable config for the keyless local provider (R43.2); seeded from, and
   // persisted to, browser-local storage rather than the encrypted vault.
   const [localCfg, setLocalCfg] = useState<LocalProviderConfig>(() => getLocalConfig());
@@ -139,6 +147,15 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
       if (!result.valid) {
         setStatus({ kind: 'invalid', reason: result.reason ?? '' });
         return;
+      }
+      // Capture available chat models from the validation probe (R43.6).
+      if (result.models && result.models.length > 0) {
+        setAvailableModels(result.models);
+        // Default-select: the user's prior choice if still available, else first.
+        const prior = getProviderModel(selected);
+        const pick = (prior && result.models.includes(prior)) ? prior : result.models[0];
+        setSelectedModel(pick);
+        setProviderModel(selected, pick);
       }
       await providerManager.storeKey(selected, keyInput);
       setKeyInput('');
@@ -215,6 +232,14 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
       setLocalCfg(setLocalConfig({ configured: true }));
       onKeysChanged?.();
       setStatus({ kind: 'saved' });
+      // Capture available models from the local server (R43.6).
+      if (result.models && result.models.length > 0) {
+        setAvailableModels(result.models);
+        const prior = localCfg.model;
+        const pick = result.models.includes(prior) ? prior : result.models[0];
+        setSelectedModel(pick);
+        updateLocalField({ model: pick });
+      }
     } catch (error) {
       setStatus({ kind: 'error', reason: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -235,6 +260,8 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
           setStatus({ kind: 'idle' });
           setKeyInput('');
           setLocalCfg(getLocalConfig());
+          setAvailableModels([]);
+          setSelectedModel(getProviderModel(e.target.value) ?? '');
         }}
       >
         {providers.map((p) => (
@@ -283,23 +310,6 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
               autoComplete="off"
               value={localCfg.sttModel}
               onChange={(e) => updateLocalField({ sttModel: e.target.value })}
-              disabled={busy}
-            />
-            <TextField
-              label={t('provider.local.maxTokensLabel')}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              autoComplete="off"
-              value={String(localCfg.maxTokens)}
-              onChange={(e) => {
-                const next = Number.parseInt(e.target.value, 10);
-                // Show what the user types; persistence drops a non-positive value
-                // so a usable saved limit is preserved (R43.6).
-                updateLocalField({
-                  maxTokens: Number.isFinite(next) ? next : localCfg.maxTokens,
-                });
-              }}
               disabled={busy}
             />
             <Button
@@ -361,6 +371,54 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
           </small>
         </Banner>
       )}
+
+      {/* Model selection dropdown — populated from GET /models after validation.
+          Shown for all providers, filtered to chat-capable models only (R43.6). */}
+      {availableModels.length > 0 ? (
+        <div style={{ marginTop: tokens.spacing.sm }}>
+          <Select
+            label={t('provider.modelLabel')}
+            value={selectedModel}
+            onChange={(e) => {
+              setSelectedModel(e.target.value);
+              if (keyless) {
+                updateLocalField({ model: e.target.value });
+              } else {
+                setProviderModel(selected, e.target.value);
+              }
+            }}
+          >
+            {availableModels.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </Select>
+          <p>
+            <small>{t('provider.modelHint')}</small>
+          </p>
+        </div>
+      ) : null}
+
+      {/* Shared max completion tokens — applies to all providers (R43.6).
+          0 = no limit. Visible regardless of which provider is selected. */}
+      <div style={{ marginTop: tokens.spacing.sm }}>
+        <TextField
+          label={t('provider.local.maxTokensLabel')}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          autoComplete="off"
+          value={String(localCfg.maxTokens)}
+          onChange={(e) => {
+            const next = Number.parseInt(e.target.value, 10);
+            updateLocalField({
+              maxTokens: Number.isFinite(next) && next >= 0 ? next : localCfg.maxTokens,
+            });
+          }}
+          disabled={busy}
+        />
+      </div>
     </section>
   );
 }

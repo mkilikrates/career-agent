@@ -13,3 +13,4 @@ coverage
 
 # Windows "mark of the web" alternate-data-stream artifacts.
 *:Zone.Identifier
+raw-data/

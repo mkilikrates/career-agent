@@ -4,6 +4,28 @@
     "tagline": "Assistente de carreira local. Seus arquivos permanecem no seu dispositivo. Este é um pacote estático, sem servidor de backend.",
     "privacyNotice": "Seus arquivos permanecem no seu dispositivo. O Agente de Carreira não é totalmente offline: quando você pede para usar um provedor de IA, apenas uma carga mínima e redigida é enviada a esse provedor — nunca os arquivos do seu Repositório de Memória."
   },
+  "shell": {
+    "title": "Agente de Carreira",
+    "nav": {
+      "settings": "Configurações",
+      "saveExit": "Salvar e Sair",
+      "openMenu": "Abrir menu de navegação",
+      "closeMenu": "Fechar menu de navegação"
+    }
+  },
+  "stepper": {
+    "label": "Fases do pipeline",
+    "recommended": "Próxima recomendada",
+    "status": {
+      "notStarted": "Não iniciado",
+      "inProgress": "Em andamento",
+      "done": "Concluído"
+    }
+  },
+  "saveExit": {
+    "button": "Salvar e Sair",
+    "buttonShort": "Salvar"
+  },
   "privacy": {
     "statement": {
       "heading": "Sua privacidade",
@@ -47,6 +69,8 @@
     "heading": "Conectar um provedor de IA (sua própria chave)",
     "intro": "O Agente de Carreira usa a chave do seu próprio provedor de nuvem. O agente não inclui nenhuma chave compartilhada. Sua chave é validada com uma chamada de teste, criptografada e armazenada apenas neste navegador — ela nunca é gravada nos seus arquivos de carreira.",
     "selectLabel": "Provedor",
+    "modelLabel": "Modelo de chat",
+    "modelHint": "Exibindo apenas modelos de chat. Selecione o modelo para operações de IA.",
     "errorRecovery": "Verifique os dados e tente novamente. Sua configuração armazenada permanece inalterada.",
     "keyLabel": "Chave de API",
     "validateAndSave": "Validar e salvar chave",
@@ -64,7 +88,7 @@
       "baseUrlLabel": "URL base",
       "chatModelLabel": "Modelo de chat",
       "sttModelLabel": "Modelo de fala para texto",
-      "maxTokensLabel": "Máximo de tokens de resposta",
+      "maxTokensLabel": "Máximo de tokens de resposta (0 = sem limite)",
       "testConnection": "Testar conexão",
       "configured": "Este provedor local está configurado e pronto.",
       "notConfigured": "Este provedor local ainda não foi testado.",
@@ -167,6 +191,9 @@
       "add": "Adicionar minhas competências",
       "added": "Adicionada(s) {{count}} competência(s) que você inseriu."
     },
+    "since": "Experiência desde:",
+    "sinceHint": "Informe quando começou a usar esta competência — usado para calibrar a profundidade das perguntas de entrevista.",
+    "experienceYears": "~{{years}} anos",
     "save": "Salvar mapa de competências",
     "saved": "Mapa de competências salvo no Repositório de Memória.",
     "ai": {
@@ -468,6 +495,47 @@
       "unresolved-conflict": "Conflito não resolvido"
     }
   },
+  "views": {
+    "welcome": {
+      "intro": "Monte seu perfil profissional, pratique entrevistas e gere currículos personalizados — tudo no seu dispositivo.",
+      "getStarted": "Começar",
+      "heading": "Agente de Carreira",
+      "tagline": "Sua carreira, seus dados, seu dispositivo.",
+      "privacyCallout": "Tudo roda localmente. Seus arquivos nunca saem do seu dispositivo.",
+      "step1": "Adicione seus documentos de carreira",
+      "step2": "Monte seu mapa de competências",
+      "step3": "Descubra funções compatíveis",
+      "step4": "Pratique entrevistas STAR",
+      "step5": "Gere currículos personalizados"
+    },
+    "resume": {
+      "heading": "Bem-vindo de volta",
+      "intro": "Você tem uma sessão existente. Continue de onde parou ou ajuste suas configurações.",
+      "continue": "Continuar",
+      "goToSettings": "Ir para Configurações",
+      "lastActive": "Última atividade: {{phase}}",
+      "outstandingHeading": "Itens pendentes",
+      "startFresh": "Recomeçar",
+      "startFreshConfirm": "Isto vai limpar seu Repositório de Memória. Essa ação não pode ser desfeita. Tem certeza?"
+    },
+    "settings": {
+      "backToPipeline": "Voltar ao pipeline",
+      "continueToIngest": "Continuar — envie seus documentos →",
+      "heading": "Configurações",
+      "sttNote": "Você pode usar um provedor diferente para chat e fala para texto.",
+      "languageSection": "Idioma",
+      "providerSection": "Provedores",
+      "privacySection": "Privacidade e consentimento"
+    },
+    "pipeline": {
+      "goToSettings": "Configurações",
+      "saveAndSkillMap": "Salvar e gerar mapa de competências",
+      "saveAndRoles": "Salvar e descobrir funções",
+      "saveAndCoaching": "Salvar e iniciar treinamento",
+      "saveAndOutput": "Salvar e gerar currículo",
+      "saveToMemory": "Salvar na memória"
+    }
+  },
   "inspector": {
     "heading": "Inspetor de rastreamento de origem",
     "intro": "Inspecione qualquer afirmação para ver exatamente de onde ela veio. Informe uma referência de afirmação (por exemplo BULLET-01, STAR-01 ou um id de competência) para ver seu rastreamento de origem.",
@@ -480,6 +548,32 @@
       "sourceLine": "Documento de origem {{doc}}, linha {{line}}: \"{{quote}}\"",
       "userConfirmation": "Você confirmou isto em {{at}}: {{note}}",
       "interviewAnswer": "Da sua resposta de entrevista confirmada {{star}}"
+    }
+  },
+  "stepper": {
+    "label": "Progresso do pipeline",
+    "recommended": "→ recomendado",
+    "status": {
+      "notStarted": "Não iniciado",
+      "inProgress": "Em andamento",
+      "done": "Concluído"
+    }
+  },
+  "saveStatus": {
+    "saved": "✓ Progresso salvo",
+    "savedJustNow": "✓ Salvo agora mesmo",
+    "saving": "Salvando…",
+    "temporary": "⚠ Sessão temporária — exporte antes de fechar"
+  },
+  "saveExit": {
+    "button": "Salvar e sair",
+    "buttonShort": "Salvar"
+  },
+  "shell": {
+    "title": "Agente de Carreira",
+    "nav": {
+      "settings": "Configurações",
+      "saveExit": "Salvar e sair"
     }
   }
 }

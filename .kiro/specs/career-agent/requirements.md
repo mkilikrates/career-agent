@@ -565,7 +565,9 @@ The product's defining promise is trust: user files never leave the device, and 
 3. THE Provider_Manager SHALL allow the user to edit the Local Provider base URL and model name so the Local Provider can target Ollama, LocalAI, LM Studio, llama.cpp server, or vLLM.
 4. WHERE the user runs on lower-capacity hardware, THE Provider_Manager SHALL allow the user to set the Local Provider chat model name to a model sized to the user's hardware capacity.
 5. WHILE every selected provider is a Local Provider on the user's own device, THE Career_Agent SHALL transmit no Redacted Payload off the device.
-6. THE Provider_Manager SHALL allow the user to configure the Local Provider's maximum completion-token limit, SHALL default that limit to a value large enough for reasoning models that emit chain-of-thought before their answer (2048 tokens), and SHALL apply the configured limit to every Local Provider chat completion so that a model which consumes tokens reasoning before answering still has budget to return its full answer.
+6. THE Provider_Manager SHALL allow the user to configure the maximum completion-token limit, SHALL default that limit to a value large enough for reasoning models that emit chain-of-thought before their answer (2048 tokens), SHALL apply the configured limit to every provider's chat completion request, and SHALL treat a value of zero as "no limit" by omitting the max-tokens field from the request so the provider uses its own default context-window limit.
+7. WHEN a key validation or connection test succeeds, THE Provider_Manager SHALL capture the list of chat-capable models reported by the provider's models endpoint, SHALL filter the list to models suitable for chat (excluding embeddings, speech-to-text, image-generation, and legacy completion models), SHALL present the filtered list to the user as a selectable dropdown, and SHALL persist the user's model choice per provider in browser-local storage so it applies to all subsequent requests and survives reload.
+8. WHERE the provider's models endpoint returns models that do not match the known chat-model patterns, THE Provider_Manager SHALL include those models in the dropdown unfiltered so that users with custom or unconventional model names are never blocked, and SHALL indicate in the UI that only chat-capable models are shown.
 
 ### Requirement 44: Per-Capability Provider Selection
 
@@ -844,3 +846,72 @@ The product's defining promise is trust: user files never leave the device, and 
 5. WHERE the destination of a text payload is a keyless Local Provider on the user's own device with no third-party egress per Requirement 7.6, THE Career_Agent MAY skip the Payload Preview because no payload leaves the device.
 6. THE Career_Agent SHALL route the Payload Preview through the single Egress Gate defined in Requirement 7.5 so the review occurs before any transmission, consistent with the network-operation labelling of Requirement 7.3.
 7. THE Payload Preview SHALL apply to outbound chat and LLM text operations, and audio transcription SHALL continue to surface the resulting transcript for confirmation and correction per Requirement 26.
+
+
+### Requirement 66: Welcome Page and First-Run Onboarding
+
+**User Story:** As a first-time user, I want to understand what Career Agent does and how the process works before I start, so that I feel oriented and confident about what to expect.
+
+#### Acceptance Criteria
+
+1. WHEN the Session Language has been confirmed and no previous session exists (first-run), THE Career_Agent SHALL present a Welcome Page before any pipeline phase or provider setup.
+2. THE Welcome Page SHALL explain in one or two sentences what Career Agent does (builds professional profiles, coaches STAR interviews, generates tailored CVs — all on-device).
+3. THE Welcome Page SHALL describe what the user will do: upload documents, review skills, pick target roles, practise coaching, and generate outputs.
+4. THE Welcome Page SHALL communicate the core privacy promise: data stays on your device unless you connect an AI provider, and even then only a redacted summary is sent.
+5. THE Welcome Page SHALL show a visual representation of the pipeline phases (Ingest → Skills → Roles → Coaching → Output) so the user understands the journey before starting.
+6. THE Welcome Page SHALL provide a single "Get started" action that advances the user to provider setup.
+7. ON subsequent visits (a persisted session exists), THE Career_Agent SHALL skip the Welcome Page and proceed directly to the resume/continue screen per Requirement 69.
+8. THE Welcome Page SHALL be presented in the Session Language the user confirmed in Requirement 41, so the page is fully localised.
+
+### Requirement 67: Card-Based Phase Navigation
+
+**User Story:** As a user working through the pipeline, I want each phase to feel like its own focused page so that I am not overwhelmed by seeing everything at once.
+
+#### Acceptance Criteria
+
+1. THE Career_Agent SHALL present each pipeline phase (Ingest, Skill Map, Role Discovery, Interview Coaching, Output, Memory) as a separate, full-screen card or page view, showing only one phase at a time.
+2. THE Career_Agent SHALL provide a persistent navigation element (sidebar, top bar, or stepper) visible on every phase card that indicates the current phase, the completion status of each phase, and allows the user to jump to any phase.
+3. THE navigation element SHALL indicate a recommended next phase when a previous phase has been completed and the next phase has not, so the user knows the intended progression without being blocked from choosing differently.
+4. THE Career_Agent SHALL move settings (provider setup, model selection, max completion tokens, language, privacy and consent) to a separate Settings page or panel accessible from the navigation element, so that infrequently-changed configuration does not occupy pipeline screen space.
+5. WITHIN each phase card, THE Career_Agent SHALL use progressive disclosure: show only the controls and information relevant to the user's current state in that phase, and reveal subsequent sections as prior steps are completed (for example, the coaching card shows the role selector first, then questions after selection, then the answer interface after question selection).
+6. AT the end of each phase card, THE Career_Agent SHALL show a phase-specific completion action with a clear label describing what happens (for example "Save skill map and discover roles" rather than "Confirm and continue"), and the label SHALL name the destination phase so the user knows where they are going.
+7. THE Career_Agent SHALL present all user-facing strings on the navigation element and phase cards from the externalised locale resources, consistent with Requirement 41.
+
+### Requirement 68: Persistent Save Status and Save-and-Exit
+
+**User Story:** As a user who may need to leave at any time, I want to see that my progress is saved and have a way to safely exit, so that I never lose my work.
+
+#### Acceptance Criteria
+
+1. THE Career_Agent SHALL display a persistent save-status indicator visible on every phase card that shows whether the current session state is saved ("Progress saved") or unsaved/temporary.
+2. WHERE the session is running in the Fallback storage tier and the data will not survive a window close (incognito or ephemeral mode), THE Career_Agent SHALL display a warning indicator ("Temporary session — export before closing") in place of the normal save status.
+3. THE Career_Agent SHALL provide a "Save & Exit" action accessible from every phase card that triggers a full Memory Store export (the same `.zip` download as the Memory screen export) so the user has a portable checkpoint before closing the browser.
+4. THE Career_Agent SHALL auto-save the session state to the active storage tier after every confirmed step within a phase (each extraction review, skill map generation, role confirmation, coaching answer, or output generation), consistent with existing Requirement 35.2 but now with visible feedback to the user.
+5. WHEN auto-save completes, THE Career_Agent SHALL briefly update the save-status indicator to confirm the save completed (for example a transient "✓ Saved just now" message).
+
+### Requirement 69: Session Resume and Continue-Later
+
+**User Story:** As a returning user, I want to pick up exactly where I left off without scrolling through setup screens, so that my time is respected.
+
+#### Acceptance Criteria
+
+1. WHEN the Career_Agent loads and a persisted session with confirmed progress exists, THE Career_Agent SHALL present a Resume Screen that names the last active phase and role (when applicable) and offers a "Continue" action to return directly to that phase card.
+2. THE Resume Screen SHALL also show any outstanding items (unanswered coaching questions, flagged talking points, unreviewed skills) as a summary, consistent with the existing Requirement 35.1 outstanding-set computation but now presented before the pipeline rather than at its bottom.
+3. THE Resume Screen SHALL offer a "Start fresh" or "Go to Settings" option alongside the continue action, so the user is not locked into resuming.
+4. WHEN no persisted session exists (first-run or after a full reset), THE Career_Agent SHALL show the Welcome Page per Requirement 66 instead of the Resume Screen.
+5. THE Resume Screen SHALL be presented in the Session Language, consistent with Requirement 41.
+
+
+### Requirement 70: Experience Duration Replaces Recency in the Skill Map
+
+**User Story:** As a user, I want my skill map to show how many years of experience I have with each skill rather than just when it was last mentioned in a document, so that the actual depth of my expertise is represented accurately and drives correct question calibration.
+
+#### Acceptance Criteria
+
+1. THE Skill_Mapper SHALL record each skill's experience duration as a `since` date (the year/month the user first used the skill) rather than a `recency` date (the most recent evidence date), and SHALL compute approximate years of experience from the `since` date.
+2. WHEN generating the skill map from documents, THE Skill_Mapper SHALL derive the initial `since` value from the earliest evidence date for that skill in the ingested documents.
+3. THE Skill_Mapper SHALL allow the user to edit the `since` date for any skill during skill-map review, so the user can correct it when their actual experience predates their oldest uploaded document.
+4. THE Skill_Mapper SHALL remove the `recency` field from the skill-map data model and all persisted Markdown, replacing all uses of `recency` with the `since` field and computed experience duration.
+5. WHERE the skill map is loaded from a previously-saved Memory Store that contains a `recency` field but no `since` field, THE Skill_Mapper SHALL migrate the entry by using the earliest evidence date (or the `recency` value if no evidence exists) as the initial `since` value, so that existing user data is preserved without loss.
+6. THE Interview_Coach SHALL use the experience duration (years computed from `since`) in the candidate profile sent with the STAR question prompt, so that the model calibrates question depth to actual experience rather than document recency.
+7. THE Role_Matcher SHALL use the experience duration (computed from `since`) when building the role-discovery payload, so that approximate years of experience are correctly conveyed to the model for level inference.

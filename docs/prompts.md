@@ -87,17 +87,21 @@ You are analysing a person's career evidence to identify their professional
 skills. List every distinct skill that is demonstrated or strongly implied by
 the evidence below — include technical skills, tools, methodologies, domains,
 and soft/leadership skills that the described work clearly required. Do not
-invent skills that the evidence does not support. Return ONLY a comma-separated
-list of concise skill names, with no commentary, numbering, or explanation.
+invent skills that the evidence does not support. For each skill, infer the
+approximate year the person first started using it based on the employment
+dates in the evidence. Return ONLY a comma-separated list where each entry
+is either "skill name (since YYYY)" when a start year can be inferred, or
+just "skill name" when it cannot. No commentary, numbering, or explanation.
 ```
 
 Followed by `CAREER EVIDENCE:` and the corpus chunk (each item rendered as a
 flattened line, e.g. `employment; title: SRE; employer: Acme; technologies: Kubernetes, Go`).
 
-- **Reply format**: comma-separated skill names.
+- **Reply format**: comma-separated, each optionally `"skill name (since YYYY)"`.
 - **Parser**: `parseDiscoveredSkills` (splits on `, ; • newline`, strips markers,
+  extracts an optional `(since YYYY)` or `(YYYY)` suffix into a `since` field,
   de-dupes case-insensitively against the existing map/baseline, drops
-  fragments >60 chars).
+  fragments >60 chars). Returns `DiscoveredSkill[]` with `{ name, since? }`.
 - **Trust**: each suggestion is a proposal; the user confirms each before it
   becomes a user-confirmed skill.
 
@@ -110,6 +114,8 @@ flattened line, e.g. `employment; title: SRE; employer: Acme; technologies: Kube
   `buildDiscoveryPayload(map, dest)` — **employer-free**: each skill is projected
   to `{ name, approxDurationMonths, category }` only. No employer/company name is
   ever included. For `keyed-cloud`, private skills are excluded.
+  `approxDurationMonths` is computed as `(now − since)` — i.e. the elapsed time
+  since the user first used the skill (R70.7).
 
 **Prompt template:**
 
@@ -152,21 +158,36 @@ First, identify the few behaviours and qualities that matter MOST for succeeding
 in this specific role, whatever the industry or seniority. Then write up to 5
 open behavioural STAR-format practice questions that probe those qualities and
 ask the candidate to recount their own Situation, Task, Action, and Result.
-Prioritise behaviours and qualities; include at most one question focused on
-technical depth, since technical topics are easier to prepare for. Do NOT
-suggest facts or outcomes for them to claim. Return ONLY a JSON array and
+Calibrate the depth and seniority of your questions to match the candidate's
+profile below. Prioritise behaviours and qualities; include at most one question
+focused on technical depth, since technical topics are easier to prepare for. Do
+NOT suggest facts or outcomes for them to claim. Return ONLY a JSON array and
 nothing else, where each element is an object with two string fields:
 "competency" (the single behaviour or quality that question probes) and
 "question" (the open behavioural practice question). Example:
 [{"competency": "Leadership", "question": "Tell me about a time you led a team
 through a difficult change."}].
 
-Use the candidate's background only as context: <comma-separated skill names>
+CANDIDATE PROFILE (for question-level calibration):
+- Target role: <role.title>
+- Profile: <N> matched skills, <M> total evidence points
+- Matched skills:
+  - <skill name>, <evidence count> evidence, ~<N> years experience, <proficiency signal>
+  - ...
+- Gap skills (developing):
+  - <gap skill name> (gap — developing)
+  - ...
 ```
 
 The model infers the role's key behaviours/qualities itself (no hardcoded
-competency list), so it generalises to any job/background; skills are background
-context only, so the questions stay behaviour-first rather than a tools quiz.
+competency list), so it generalises to any job/background. The structured
+candidate profile gives the model enough context to calibrate question depth and
+seniority — a candidate with ~15 years experience and many evidence points gets
+senior-level questions, while someone with < 1 year gets appropriately scoped
+ones. Experience duration is derived from the skill's `since` date (the year the
+user first used the skill, R70.6). Only role-relevant skills (matched + gaps)
+are sent, keeping the prompt compact; for a keyed cloud (third-party)
+destination, private skills are excluded (R22.7).
 
 (The `The role: …` sentence is included only when the role has a description.)
 

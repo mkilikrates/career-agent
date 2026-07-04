@@ -110,7 +110,7 @@ const dedupeEvidence = (evidence: readonly SkillEvidence[]): SkillEvidence[] => 
 /**
  * Phrase an evidence-based proficiency signal for an entry built outside
  * {@link generate} (split-restored or user-added). Describes volume, optional
- * user confirmation, and recency — never a self-reported score (R14.3).
+ * user confirmation, and duration — never a self-reported score (R14.3).
  */
 const evidenceSignal = (
   evidence: readonly SkillEvidence[],
@@ -120,7 +120,7 @@ const evidenceSignal = (
   const count = evidence.length;
   const noun = count === 1 ? 'source' : 'sources';
   const confirmed = userConfirmed ? 'user-confirmed, ' : '';
-  return `Evidence-based: ${confirmed}low confidence across ${count} ${noun}; most recent ${recency}.`;
+  return `Evidence-based: ${confirmed}low confidence across ${count} ${noun}; since ${recency}.`;
 };
 
 /** Mint a stable, unique SkillId for a term, avoiding ids already in the map. */
@@ -162,6 +162,8 @@ export interface UserSkillInput {
   readonly when: string;
   /** Optional explicit category; inferred from the name when omitted (R14.1). */
   readonly category?: SkillCategory;
+  /** When the user first started using this skill (R70.3, optional; defaults to `when`). */
+  readonly since?: string;
 }
 
 /** Thrown when an added skill is missing its required role/project or time (R19.2). */
@@ -200,6 +202,7 @@ export const addUserSkill = (map: SkillMap, input: UserSkillInput): SkillMapEntr
   const name = input.name.trim();
   const roleOrProject = input.roleOrProject.trim();
   const when = asISODate(input.when.trim());
+  const sinceDate = asISODate((input.since ?? input.when).trim());
 
   // User-confirmation provenance (R38.1) — the source for a hand-added skill.
   const provenance: Provenance = userConfirmation(
@@ -212,16 +215,16 @@ export const addUserSkill = (map: SkillMap, input: UserSkillInput): SkillMapEntr
   const evidence: SkillEvidence[] = [
     { ref: USER_CONFIRMATION_REF, when, note },
   ];
-  const recency = recencyOf(evidence, asString(when));
+  const latestDate = recencyOf(evidence, asString(when));
 
   const id = freshSkillId(name, usedIds(map));
   const entry: SkillMapEntry = {
     id,
     name, // user's original phrasing preserved (R17.3)
     category: input.category ?? categoriseSkill(name),
-    proficiencySignal: evidenceSignal(evidence, recency, true),
+    proficiencySignal: evidenceSignal(evidence, latestDate, true),
     evidence,
-    recency: asISODate(recency),
+    since: sinceDate,
   };
 
   map.entries.push(entry);
@@ -308,8 +311,8 @@ export const applyMerge = (map: SkillMap, decision: MergeDecision): MergeRecord 
   representative.evidence.length = 0;
   representative.evidence.push(...combined);
 
-  const recency = recencyOf(combined, asString(representative.recency));
-  (representative as { recency: ISODate }).recency = asISODate(recency);
+  const recency = recencyOf(combined, asString(representative.since ?? ''));
+  (representative as { since?: ISODate }).since = asISODate(recency);
 
   const intoTerm = asSkillTerm(representative.name);
   const fromTerms = others.map((e) => asSkillTerm(e.name));
@@ -394,7 +397,7 @@ export const splitMerge = (map: SkillMap, skill: SkillId): SkillMapEntry[] => {
     const matched = matchedByTerm.get(asString(term)) ?? [];
     // The representative also keeps any unmatched / proof-link evidence.
     const evidence = dedupeEvidence(isRepresentative ? [...matched, ...unmatched] : matched);
-    const recency = recencyOf(evidence, asString(entry.recency));
+    const recency = recencyOf(evidence, asString(entry.since ?? ''));
     const userConfirmed = evidence.some(
       (e) => asString(e.ref) === asString(USER_CONFIRMATION_REF),
     );
@@ -405,7 +408,7 @@ export const splitMerge = (map: SkillMap, skill: SkillId): SkillMapEntry[] => {
       category: categoriseSkill(term),
       proficiencySignal: evidenceSignal(evidence, recency, userConfirmed),
       evidence,
-      recency: asISODate(recency),
+      since: asISODate(recency),
       // mergeRecord intentionally cleared — the merge has been reversed.
     });
   }

@@ -217,6 +217,33 @@ Transcription models are far smaller than chat models and run comfortably on mos
 
 ## Step 5 — Using Career Agent
 
+### Welcome page & resume screen
+
+The first time you open Career Agent you see a **Welcome page** — a quick 5-step pipeline overview explaining how the process works, plus a privacy callout reminding you that your data stays on your device.
+
+If you've used the app before, you'll land on a **Resume screen** instead. It shows the state of your last session, any outstanding items, and lets you **Continue** where you left off or **Start fresh**.
+
+### Navigating the app
+
+Career Agent uses a **card-based layout** with two main areas:
+
+- **Sidebar** (left) — contains the **Phase Stepper**, which shows your progress through the pipeline at a glance. Below the stepper you'll find a **Settings** link and a **Save & Exit** button.
+- **Main area** (right) — displays the active phase content. Each phase reveals its sections progressively as you work through it (progressive disclosure), so you're never overwhelmed with options you haven't reached yet.
+
+At the top of the screen a **Save status indicator** tells you whether your progress has been saved ("Progress saved") or if you're running in a temporary session ("Temporary session" — meaning you should export before closing).
+
+When you complete a phase, a phase-specific action button appears (for example, "Save and generate skill map") so you always know how to move forward.
+
+### Settings page
+
+Click **Settings** in the sidebar to access all configuration in one place:
+
+- **Providers** — switch between cloud/local AI, manage API keys, test connections.
+- **Language** — choose English or Portuguese.
+- **Privacy & Consent** — review the privacy statement and manage your consent preferences.
+
+### The six phases
+
 Career Agent walks you through six steps (it saves your progress automatically, so you can stop and come back any time):
 
 1. **Add your documents** — upload your CV, certificates, or LinkedIn export, or paste text. Everything is read on your computer. You can **preview the converted text** of each document to check it came through correctly; if a file looks garbled, remove it and paste the text instead.
