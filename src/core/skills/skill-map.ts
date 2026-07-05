@@ -147,6 +147,9 @@ interface SourceTerm {
  *   - `skill` items contribute their named skill (undated);
  *   - `employment` items contribute each listed technology, dated by the role's
  *     end (or start) so the evidence trail carries a real date (R14.1);
+ *   - `education` items contribute each listed skill, dated by the education
+ *     start date so the `since` derivation reflects when the skill was first
+ *     encountered (R71.4, R71.5);
  *   - `language` items contribute the language as a skill, noting the stated
  *     proficiency as source context (not a self-assessment).
  * Other item types carry no claimable skill.
@@ -167,12 +170,28 @@ const termsFromItem = (item: ExtractedItem): SourceTerm[] => {
         .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
         .map((t) => ({ term: asSkillTerm(t.trim()), item, when }));
     }
+    case 'education': {
+      const skills = Array.isArray(f.skills) ? (f.skills as unknown[]) : [];
+      // Use education start date as `when` — represents when the skill was first encountered (R71.5).
+      const start = typeof f.start === 'string' && f.start.trim().length > 0
+        ? f.start.trim()
+        : typeof f.startedOn === 'string' && f.startedOn.trim().length > 0
+          ? f.startedOn.trim()
+          : undefined;
+      return skills
+        .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        .map((s) => ({ term: asSkillTerm(s.trim()), item, when: start }));
+    }
     case 'language': {
       const language = typeof f.language === 'string' ? f.language.trim() : '';
       const proficiency = typeof f.proficiency === 'string' ? f.proficiency.trim() : undefined;
       return language
         ? [{ term: asSkillTerm(language), item, detail: proficiency }]
         : [];
+    }
+    case 'core_competency': {
+      const name = typeof f.name === 'string' ? f.name.trim() : '';
+      return name ? [{ term: asSkillTerm(name), item }] : [];
     }
     default:
       return [];
@@ -241,6 +260,8 @@ interface SkillAccumulator {
   highestConfidence: ExtractedItem['confidence'];
   userConfirmed: boolean;
   sourceCount: number;
+  /** Set when at least one source item is of type `core_competency` (R73.4). */
+  hasCoreCompetencySource: boolean;
 }
 
 const CONFIDENCE_RANK: Record<ExtractedItem['confidence'], number> = {
@@ -356,6 +377,7 @@ export const generate = (
         highestConfidence: 'Low',
         userConfirmed: false,
         sourceCount: 0,
+        hasCoreCompetencySource: false,
       };
       accumulators.set(repKey, acc);
     }
@@ -366,6 +388,7 @@ export const generate = (
     acc.evidence.push({ ref: src.item.sourceDoc, when: asISODate(src.when || ''), note });
     acc.userConfirmed ||= src.item.userConfirmed;
     acc.sourceCount += 1;
+    if (src.item.type === 'core_competency') acc.hasCoreCompetencySource = true;
     if (CONFIDENCE_RANK[src.item.confidence] > CONFIDENCE_RANK[acc.highestConfidence]) {
       acc.highestConfidence = src.item.confidence;
     }
@@ -397,7 +420,7 @@ export const generate = (
     const entry: SkillMapEntry = {
       id,
       name: asString(acc.name), // user's original phrasing preserved (R17.3)
-      category: categorise(acc.name),
+      category: acc.hasCoreCompetencySource ? 'Core_Competency' : categorise(acc.name),
       proficiencySignal: '', // filled after evidence is finalised
       evidence: acc.evidence,
       since: asISODate(asOf),

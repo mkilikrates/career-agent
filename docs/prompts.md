@@ -46,6 +46,7 @@ matching section here.
 |---|------------|------------------|----------------|--------------|--------|
 | 1 | Provider key validation | Provider Setup | none (`GET /models`) | — | — |
 | 2 | Skill discovery | Skill Map → "Suggest skills with AI" | `buildDiscoveryPrompt` (`@core/skills/skill-discovery.ts`) | comma-separated list | `parseDiscoveredSkills` |
+| 2a | Structured career extraction | Document upload → AI extraction | `buildCareerExtractionPrompt` (`@core/skills/career-extraction.ts`) | JSON `{ professional_summary, positions, education, technical_skills, core_competencies, languages, hobbies, causes, additional_info }` | `parseCareerExtraction` |
 | 3 | Role discovery | Role Discovery → "Recommend roles with AI" | `buildDiscoveryPrompt` (`@core/role-matcher/role-discovery-payload.ts`) | `Title — reason` per line | `parseAiRoles` |
 | 4 | STAR practice questions | Coaching → "Suggest practice questions with AI" | `buildStarQuestionsPrompt` (`@core/interview/coach-assist.ts`) | JSON array of `{competency, question}` | `parseQuestionPrompts` (JSON-first, tolerant line fallback) |
 | 5 | Educational STAR summary | Coaching → educational summary | `buildStarSummaryPrompt` (`@core/interview/coach-assist.ts`) | free-text guidance | trimmed text |
@@ -104,6 +105,121 @@ flattened line, e.g. `employment; title: SRE; employer: Acme; technologies: Kube
   fragments >60 chars). Returns `DiscoveredSkill[]` with `{ name, since? }`.
 - **Trust**: each suggestion is a proposal; the user confirms each before it
   becomes a user-confirmed skill.
+
+---
+
+## 2a. Structured career extraction (`career_extraction`)
+
+- **File**: `src/core/skills/career-extraction.ts`
+- **Builder**: `buildCareerExtractionPrompt(corpusChunk)` =
+  `CAREER_EXTRACTION_INSTRUCTION` + `"\n\nDOCUMENT CONTENT:\n"` + chunk.
+- **Corpus**: the full career document text, split into chunks of ≤6000 chars
+  (same chunking as skill discovery). One request **per chunk**. For
+  `keyless-local` the chunks are the **raw whole-document text** (via
+  `buildRawDiscoveryCorpus`); for `keyed-cloud` they are structured non-private
+  item lines (via `buildDiscoveryCorpus`).
+
+**Instruction (`CAREER_EXTRACTION_INSTRUCTION`):**
+
+```
+You are analysing a career document to extract a structured, ATS-compatible
+profile. Extract ONLY what the document explicitly states — do NOT invent or
+infer information that is not present in the source text (No-Fabrication Rule).
+
+Return a single JSON object with this exact structure:
+{
+  "professional_summary": "A brief 2-3 sentence career summary drawn from the document",
+  "positions": [
+    { "title": "…", "company": "…", "location": "…", "start": "YYYY-MM or YYYY", "end": "YYYY-MM or YYYY or null", "description": "…", "achievements": ["…"], "technologies": ["…"] }
+  ],
+  "education": [
+    { "institution": "…", "degree": "…", "start": "YYYY-MM or YYYY", "end": "YYYY-MM or YYYY or null", "skills": ["…"] }
+  ],
+  "technical_skills": [
+    { "name": "…", "since": "YYYY or null" }
+  ],
+  "core_competencies": ["…"],
+  "languages": [
+    { "language": "…", "proficiency": "…" }
+  ],
+  "hobbies": ["…"],
+  "causes": ["…"],
+  "additional_info": [
+    { "category": "…", "value": "…" }
+  ]
+}
+
+Rules:
+- For positions: extract title, company, location (city/region when present),
+  start/end dates, a brief role description, quantified achievements (use
+  numbers where possible), and technologies/skills used in that role. Map skills
+  and technologies to each specific position where they were used.
+- For education: extract institution, degree/course, start/end dates, and skills
+  gained.
+- For technical_skills: list standalone technical skills not tied to a specific
+  position or course. Include an approximate start year if determinable.
+- For core_competencies: list soft skills, leadership skills, and domain
+  competencies distinct from technical skills.
+- For languages: list spoken/written languages with proficiency levels (e.g.
+  "Native", "Fluent", "Professional", "Intermediate", "Basic").
+- For hobbies: list hobbies and interests if mentioned.
+- For causes: list causes, volunteering, or community involvement if mentioned.
+- For additional_info: surface any other CV-relevant categories (e.g.
+  publications, patents, awards, memberships) that do not fit the fields above.
+- Leave date fields as null when the document does not specify them.
+- Omit empty arrays and null/empty string fields rather than including them as
+  empty.
+- Be tolerant of varied document formats and languages.
+- Return ONLY the JSON object, no commentary or explanation.
+```
+
+Followed by `DOCUMENT CONTENT:` and the corpus chunk.
+
+- **Reply format**: a single JSON object with
+  `{ "professional_summary", "positions": [...], "education": [...], "technical_skills": [...], "core_competencies": [...], "languages": [...], "hobbies": [...], "causes": [...], "additional_info": [...] }`.
+- **Parser**: `parseCareerExtraction` — fence-tolerant, preamble-stripping JSON
+  extraction (same pattern as `parseQuestionPrompts`):
+  1. Strip markdown code fences (`` ```json … ``` ``).
+  2. Attempt to parse the whole reply first, then the first `{`…last `}` slice
+     (object embedded in preamble/chatter).
+  3. Validate shape and normalise each field tolerantly.
+  4. Return an empty extraction if nothing parseable is found.
+
+  Field normalisation tolerates alternative field names (`employer`/`startDate`/
+  `endDate`, `skills`/`technologies`, `technical_skills`/`technicalSkills`/`skills`),
+  null dates, and comma-separated technology strings.
+
+  New fields are normalised tolerantly:
+  - `professional_summary` / `professionalSummary` → optional string.
+  - `core_competencies` / `coreCompetencies` → string array.
+  - `languages` → array of `{ language, proficiency }` objects (name/level
+    aliases accepted).
+  - `hobbies` → string array.
+  - `causes` → string array.
+  - `additional_info` / `additionalInfo` → array of `{ category, value }` objects.
+  - Positions: `location`/`city`, `description`/`summary`,
+    `achievements`/`accomplishments` are all accepted aliases.
+- **Merge**: `mergeCareerExtractions` — combines results from multiple chunks
+  into a single de-duplicated extraction:
+  - Professional summary: longest non-empty summary wins.
+  - Positions de-duplicated by (company + title + start date); on collision the
+    entry with the richest data (tech list, location, description, achievements)
+    wins.
+  - Education de-duplicated by (institution + degree); richest skills list wins.
+  - Technical skills de-duplicated by name (case-insensitive); keeps the entry
+    with the earliest `since` date.
+  - Core competencies: merged and de-duplicated case-insensitively.
+  - Languages: de-duplicated by language name (case-insensitive).
+  - Hobbies, causes: merged and de-duplicated case-insensitively.
+  - Additional info: de-duplicated by (category + value).
+- **Conversion**: `careerExtractionToItems` converts the extraction into
+  `ExtractedItem[]` for the ingestion pipeline. Item types:
+  `professional_summary`, `employment`, `education`, `skill`,
+  `core_competency`, `language_proficiency`, `hobby`, `cause`,
+  `additional_info`. All carry `confidence: 'Medium'`, `userConfirmed: false`.
+- **Trust**: the extraction requires user review/confirmation before entering the
+  knowledge base (R71.6, R12, R73.9). The prompt forbids inventing information
+  not in the source (No-Fabrication Rule, R71.10).
 
 ---
 

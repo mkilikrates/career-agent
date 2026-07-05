@@ -18,7 +18,8 @@ read it first and follow it for every task. This file adds only the Kiro-specifi
 
 ## Use the spec workflow — do not bypass it
 
-This repo is driven by a Kiro spec. For any behavioral change:
+This repo is driven by a **single** Kiro spec at `.kiro/specs/career-agent/`. For any
+behavioral change — whether a bug fix, a new feature, or an adjustment:
 
 1. Update **requirements** (`.kiro/specs/career-agent/requirements.md`) in EARS format.
 2. Update the **design** (`design.md`).
@@ -27,6 +28,14 @@ This repo is driven by a Kiro spec. For any behavioral change:
 
 When running tasks, prefer Kiro's spec task execution so `tasks.md` status stays in sync.
 If code and spec disagree, reconcile them — never let them silently drift.
+
+## NEVER create a new spec folder
+
+**All changes — bugs, features, adjustments — go into the existing spec at
+`.kiro/specs/career-agent/`.** Do NOT create a new spec folder (e.g.
+`.kiro/specs/some-bug-fix/`). This project has one living spec that evolves
+incrementally. A new folder produces disconnected, duplicative artifacts that
+conflict with the single-source-of-truth principle above.
 
 ## Definition of Done (mirror of `AGENTS.md`)
 

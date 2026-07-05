@@ -151,6 +151,19 @@ describe('skill-map-document — round trip (R34.2)', () => {
     expect(parsed[0].brokenReference).toBe(true);
     expect(parsed).toEqual(map.entries);
   });
+
+  it('round-trips a Core_Competency category entry (R73.4)', () => {
+    const map = generate(
+      [item('core_competency', { name: 'Strategic Planning' })],
+      { asOf: AS_OF },
+    );
+    expect(map.entries[0].category).toBe('Core_Competency');
+    const md = serializeSkillMap(map.entries);
+    expect(md).toContain('- **Category:** Core_Competency');
+    const parsed = parseSkillMap(md);
+    expect(parsed[0].category).toBe('Core_Competency');
+    expect(parsed).toEqual(map.entries);
+  });
 });
 
 describe('skill-map-document — persistence (R14.4)', () => {

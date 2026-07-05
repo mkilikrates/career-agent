@@ -24,6 +24,7 @@
 // role requirement, score, or skill is fabricated.
 
 import type {
+  ExtractedItem,
   LocaleConfig,
   RolePreference,
   SkillId,
@@ -178,18 +179,84 @@ const listNames = (names: string[], max = 3): string => {
 };
 
 /**
+ * Options for {@link scoreMatch} that enable enhanced scoring using structured
+ * employment data (R71.8). When `items` is provided and the role has few or no
+ * explicitly defined required/preferred skills (typical for user-added roles),
+ * the scorer extracts skills from employment items' technologies and uses them
+ * to compute a meaningful match score rather than falling back to 0%.
+ */
+export interface ScoreMatchOptions {
+  /**
+   * Structured employment (and education) items (R71.8). Technologies from each
+   * position are used as effective required skills when the role lacks its own.
+   */
+  readonly items?: readonly ExtractedItem[];
+}
+
+// --- Employment-derived skill extraction (R71.8) ---------------------------
+
+/** Minimum number of explicit required+preferred skills for the standard path. */
+const MIN_EXPLICIT_SKILLS = 1;
+
+/**
+ * Extract unique skill/technology names from employment and education items,
+ * preserving the skill phrasing from the source. Pure and deterministic.
+ */
+const extractSkillsFromItems = (items: readonly ExtractedItem[]): string[] => {
+  const seen = new Set<string>();
+  const skills: string[] = [];
+  for (const item of items) {
+    const f = item.fields;
+    let techs: unknown[] = [];
+    if (item.type === 'employment' && Array.isArray(f.technologies)) {
+      techs = f.technologies as unknown[];
+    } else if (item.type === 'education' && Array.isArray(f.skills)) {
+      techs = f.skills as unknown[];
+    }
+    for (const t of techs) {
+      if (typeof t === 'string' && t.trim().length > 0) {
+        const canon = canonicalTerm(t.trim());
+        if (canon.length > 0 && !seen.has(canon)) {
+          seen.add(canon);
+          skills.push(t.trim());
+        }
+      }
+    }
+  }
+  return skills;
+};
+
+/**
  * Score a {@link RoleSpec} against a {@link SkillMap} using ontological matching
  * (R20.2, R20.3). Pure and deterministic. The returned score is an estimate and
  * is labelled as such; matched skills are the user's own skill ids and gap
  * skills are the unmet required skills in their source phrasing.
+ *
+ * When {@link ScoreMatchOptions.items} is provided and the role has few or no
+ * explicit required/preferred skills (R71.8 — typical for user-added roles),
+ * technologies extracted from employment items are used as effective required
+ * skills. This replaces the 0% fallback for user-added roles that lack
+ * structured skill definitions.
  */
 export const scoreMatch = (
   role: RoleSpec,
   map: SkillMap,
   taxonomy: Taxonomy = loadTaxonomyFromYaml(DEFAULT_TAXONOMY_YAML),
+  options?: ScoreMatchOptions,
 ): MatchScore => {
-  const required = role.requiredSkills ?? [];
+  let required = role.requiredSkills ?? [];
   const preferred = role.preferredSkills ?? [];
+
+  // R71.8: When the role has few/no explicit skills and employment items are
+  // provided, derive effective required skills from employment technologies.
+  const explicitCount = required.length + preferred.length;
+  const useEmploymentData =
+    explicitCount < MIN_EXPLICIT_SKILLS &&
+    options?.items !== undefined &&
+    options.items.length > 0;
+  if (useEmploymentData) {
+    required = extractSkillsFromItems(options!.items!);
+  }
 
   const nameById = new Map<string, string>(
     map.entries.map((e) => [asString(e.id), e.name]),
@@ -239,11 +306,20 @@ export const scoreMatch = (
     `${scoreLabel} (an estimate based on your current evidence, not a guarantee).`,
   );
   if (required.length > 0) {
-    parts.push(
-      `You match ${satisfiedRequired} of ${required.length} core skills for this ${role.roleType} role` +
-        (matchedNames.length > 0 ? ` (${listNames(matchedNames)})` : '') +
-        '.',
-    );
+    if (useEmploymentData) {
+      parts.push(
+        `Scored using ${required.length} skills from your employment history.` +
+          ` You match ${satisfiedRequired} of them for this ${role.roleType} role` +
+          (matchedNames.length > 0 ? ` (${listNames(matchedNames)})` : '') +
+          '.',
+      );
+    } else {
+      parts.push(
+        `You match ${satisfiedRequired} of ${required.length} core skills for this ${role.roleType} role` +
+          (matchedNames.length > 0 ? ` (${listNames(matchedNames)})` : '') +
+          '.',
+      );
+    }
   } else {
     parts.push(`This ${role.roleType} role lists no fixed core skills.`);
   }

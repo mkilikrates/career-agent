@@ -4,28 +4,6 @@
     "tagline": "Local-first career assistant. Your files stay on your device. This is a static bundle with no backend server.",
     "privacyNotice": "Your files stay on your device. Career Agent is not fully offline: when you ask it to use an AI provider, only a minimised, redacted payload is sent to that provider — never your Memory Store files."
   },
-  "shell": {
-    "title": "Career Agent",
-    "nav": {
-      "settings": "Settings",
-      "saveExit": "Save & Exit",
-      "openMenu": "Open navigation menu",
-      "closeMenu": "Close navigation menu"
-    }
-  },
-  "stepper": {
-    "label": "Pipeline phases",
-    "recommended": "Recommended next",
-    "status": {
-      "notStarted": "Not started",
-      "inProgress": "In progress",
-      "done": "Complete"
-    }
-  },
-  "saveExit": {
-    "button": "Save & Exit",
-    "buttonShort": "Save"
-  },
   "privacy": {
     "statement": {
       "heading": "Your privacy",
@@ -208,6 +186,45 @@
       "add": "Add selected skills",
       "added": "Added {{count}} confirmed skill(s). Regenerate the map to include them.",
       "none": "The AI did not suggest any new skills."
+    },
+    "extraction": {
+      "heading": "Structured career extraction",
+      "review": "Review the AI's structured extraction of your career timeline before it enters your skill map.",
+      "positions": "Employment positions",
+      "education": "Education",
+      "skills": "Standalone skills",
+      "confirm": "Confirm and add to skill map",
+      "noResults": "The AI could not extract any structured career data from your documents.",
+      "noPositions": "No employment positions extracted.",
+      "noEducation": "No education entries extracted.",
+      "noSkills": "No standalone skills extracted.",
+      "positionItem": "{{title}} at {{company}}",
+      "dates": "{{start}} – {{end}}",
+      "datesOngoing": "{{start}} – present",
+      "at": "at",
+      "technologies": "Technologies:",
+      "skillsGained": "Skills gained:",
+      "since": "since ~{{year}}",
+      "coreCompetencies": "Core competencies",
+      "noCoreCompetencies": "No core competencies extracted.",
+      "languagesSection": "Languages",
+      "noLanguages": "No languages extracted.",
+      "hobbiesSection": "Hobbies & interests",
+      "noHobbies": "No hobbies or interests extracted.",
+      "causesSection": "Causes & volunteering",
+      "noCauses": "No causes or volunteering extracted.",
+      "professionalSummarySection": "Professional summary",
+      "noProfessionalSummary": "No professional summary extracted.",
+      "additionalInfoSection": "Additional information",
+      "noAdditionalInfo": "No additional information extracted.",
+      "languageItem": "{{language}} — {{proficiency}}",
+      "additionalInfoItem": "{{category}}: {{value}}",
+      "dedup": {
+        "heading": "Possible duplicates detected",
+        "intro": "The following skills look like they might be duplicates. You can merge them or keep them separate.",
+        "merge": "Merge",
+        "keep": "Keep separate"
+      }
     }
   },
   "roles": {
@@ -394,9 +411,11 @@
     "heading": "Memory & maintenance",
     "intro": "Your Memory Store lives on your device. Export it for backup or import a previous snapshot.",
     "export": "Export Memory Store (JSON)",
+    "exportZip": "Download session as zip",
+    "exportedZip": "Downloaded your session as a zip archive.",
     "import": "Import a snapshot",
-    "exported": "Exported your Memory Store.",
     "imported": "Imported {{count}} file(s) into your Memory Store.",
+    "exported": "Exported your Memory Store.",
     "filesHeading": "Stored files",
     "noFiles": "No files stored yet.",
     "logHeading": "Session log",
@@ -499,6 +518,8 @@
     "welcome": {
       "intro": "Build your professional profile, practise interviews, and generate tailored CVs — all on your device.",
       "getStarted": "Get started",
+      "importSession": "Import a previous session",
+      "importError": "Could not import that file: {{reason}}. Please check it is a valid Career Agent export (.zip or .json) and try again.",
       "heading": "Career Agent",
       "tagline": "Your career, your data, your device.",
       "privacyCallout": "Everything runs locally. Your files never leave your device.",
@@ -567,7 +588,8 @@
   },
   "saveExit": {
     "button": "Save & Exit",
-    "buttonShort": "Save"
+    "buttonShort": "Save",
+    "downloadZip": "Download session as zip"
   },
   "shell": {
     "title": "Career Agent",

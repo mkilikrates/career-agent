@@ -779,3 +779,118 @@ These tasks were added after the original plan. Section 30 records work already 
     - Update `docs/prompts.md` candidate-profile section to show "~N years experience" format
     - Update `docs/en/developer/project-structure.md` and `docs/pt-BR/developer/project-structure.md` if the skill-map structure is documented
     - _Requirements: 70_
+
+
+- [x] 35. Structured AI Career Extraction — Foundation Map (R71)
+  - [x] 35.1 AI extraction prompt and parser
+    - Create `buildCareerExtractionPrompt(corpusChunk)` in `@core/skills/skill-discovery.ts` (or a new `career-extraction.ts`) that asks the model to extract `{ positions, education, skills }` as structured JSON
+    - Create `parseCareerExtraction(reply)` that tolerantly locates and parses the JSON (same strategy as `parseQuestionPrompts`: fence-tolerant, preamble-stripping), producing arrays of position/education/skill objects
+    - Handle chunked documents: each chunk returns partial data, merged and de-duplicated across chunks
+    - _Requirements: 71.1, 71.2, 71.10_
+  - [x] 35.2 Convert parsed extraction to ExtractedItems
+    - Map AI-extracted positions to `{ type: 'employment', fields: { title, employer, start, end, technologies } }` ExtractedItem objects
+    - Map AI-extracted education to `{ type: 'education', fields: { degree, institution, start, end, skills } }` ExtractedItem objects
+    - Map AI standalone skills to `{ type: 'skill', fields: { name, since } }` (since = earliest position using it, if determinable)
+    - Tag all with `sourceDoc: AI_DOC` and `confidence: 'Medium'` (user must confirm)
+    - _Requirements: 71.3_
+  - [x] 35.3 Wire the structured extraction into the AI-only/Both skill-map flow
+    - In `SkillMapScreen.tsx` / `SkillDiscoveryOperation`, when AI mode is selected: run the structured career extraction INSTEAD of (or before) the flat skill-name discovery
+    - Always include employment-type and education-type items in the `generate()` input regardless of assist mode (they're factual structure, not suggestions)
+    - Present the extracted positions, education, and skills to the user for review/edit/confirm before they enter the map
+    - _Requirements: 71.6, Problem B fix_
+  - [x] 35.4 Extend `termsFromItem` for education-type items
+    - Add a `case 'education'` in `termsFromItem()` that extracts skills with the education start date as `when`, so education-sourced skills get proper `since` values
+    - _Requirements: 71.4, 71.5_
+  - [x] 35.5 Enhance `buildCvModel` with employment grouping
+    - Add employment entries (title, company, start–end) to the CV model, grouped chronologically
+    - Place confirmed talking points under the appropriate employment entry (match by date range or skill overlap)
+    - When no talking points exist for a position, show the position header with its technologies listed
+    - Add a professional summary section at the top (derived from the role's description + top skills + experience years)
+    - _Requirements: 71.7_
+  - [x] 35.6 Enhance role-discovery scoring with employment data
+    - When computing match scores for user-added roles, use the structured employment data (skills per position, duration) rather than only the flat skill map; fill `matchedSkills` and `gapSkills` from the overlap between role description and the user's actual skills
+    - _Requirements: 71.8_
+  - [x] 35.7 Skill dedup: extend normalisation for AI-extracted variants
+    - Add a post-extraction dedup pass that groups obvious duplicates for user confirmation: strip parentheticals for comparison (`"DNS (Route 53)"` → base `"DNS"`), detect vendor-qualified duplicates (`"AWS Lambda"` vs `"Lambda"`), and present merge suggestions (not auto-merges) to the user
+    - _Requirements: Problem D fix, R15.4_
+  - [x] 35.8 Update prompts.md for the new extraction prompt
+    - Add section documenting `buildCareerExtractionPrompt`, its reply format, and `parseCareerExtraction`
+    - _Requirements: 71_
+  - [x] 35.9 Locale strings and docs update
+    - Add locale strings for the structured extraction review UI (en + pt-BR)
+    - Update user-guide docs (both languages) to describe the AI extraction flow
+    - _Requirements: 71_
+  - [ ]* 35.10 Tests for structured career extraction
+    - JSON parse tolerance (clean, fenced, embedded in preamble); positions/education/skills mapping to ExtractedItems; education in termsFromItem; CV model employment grouping; role scoring with employment data
+    - _Requirements: 71_
+
+- [x] 36. Zip Export with Session Import from Welcome (R72)
+  - [x] 36.1 Zip export implementation
+    - Use JSZip to build a `.zip` containing all MemoryTree files at their canonical paths + the JSON snapshot at root; filename: `career-agent-YYYY-MM-DD.zip`
+    - Add a "Download session as zip" button in the Memory phase and in the Save & Exit flow (alongside the existing JSON-only download)
+    - _Requirements: 72.1, 72.2, 72.4, 72.5_
+  - [x] 36.2 Import from Welcome Page
+    - Add an "Import a previous session" action on the Welcome Page (file-picker accepting `.zip` or `.json`)
+    - On import: parse the file (zip → extract into MemoryTree; JSON → importSnapshot); hydrate pipeline state; transition to Resume Screen
+    - Non-destructive: on failure, stay on Welcome with an error message
+    - _Requirements: 72.3, 72.6, 72.7_
+  - [x] 36.3 Locale strings and docs
+    - Add locale strings for zip export/import buttons and error messages (en + pt-BR)
+    - Update user-guide docs (both languages)
+    - _Requirements: 72_
+  - [ ]* 36.4 Tests for zip export/import
+    - Export produces a valid zip with canonical paths + JSON; import from zip restores full state; import from JSON still works; corrupt file shows error without data loss
+    - _Requirements: 72_
+
+- [x] 37. Fix duplicate locale keys in extraction review (Bug) + Rich ATS extraction schema (R73)
+  - [x] 37.1 Fix the duplicate `extraction` key bug in locale files
+    - The `skillMap.extraction` object was duplicated in both `locales/en.json` and `locales/pt-BR.json`; the second block (missing `positionItem`, `dates`, `datesOngoing`) silently overwrote the first in JSON parsing, causing the UI to render raw locale keys
+    - Merge into a single `extraction` block that contains ALL keys used by `SkillMapScreen.tsx`: `positionItem`, `dates`, `datesOngoing`, `noPositions`, `noEducation`, `noSkills`, `at`, `technologies`, `skillsGained`, plus the existing `heading`, `review`, `positions`, `education`, `skills`, `confirm`, `since`, and `dedup.*`
+    - Verify `t('skillMap.extraction.positionItem', {...})` and `t('skillMap.extraction.dates', {...})` render correctly
+    - _Requirements: 41.8 (no hardcoded strings), 71.6 (structured extraction review)_
+  - [x] 37.2 Evolve the AI extraction prompt to the rich ATS-compatible schema
+    - Update `buildCareerExtractionPrompt` in `@core/skills/career-extraction.ts` to request the full ATS schema: `professional_summary`, `positions` (with `location`, `description`, `achievements`), `education`, `technical_skills`, `core_competencies`, `languages`, `hobbies`, `causes`, `additional_info`
+    - Instruct the model to map skills per-position and to surface any other CV-relevant categories under `additional_info`
+    - _Requirements: 73.1, 73.7_
+  - [x] 37.3 Extend `ExtractedItem` types for new categories
+    - Add new item types to `@core/types`: `core_competency`, `hobby`, `cause`, `language_proficiency`, `professional_summary`, `additional_info`
+    - Each carries appropriate fields (e.g. `language_proficiency` has `{ language, proficiency }`)
+    - _Requirements: 73.2_
+  - [x] 37.4 Update `parseCareerExtraction` for the rich schema
+    - Parse the new JSON fields into the corresponding `ExtractedItem` types
+    - Handle the extensible `additional_info` array (any unrecognised key with array content → `additional_info` items)
+    - All new items tagged `confidence: 'Medium'` (user must confirm)
+    - _Requirements: 73.2, 73.6, 73.9_
+  - [x] 37.5 Update the extraction review UI to display new categories
+    - In `SkillMapScreen.tsx`, add sections for core competencies, languages, hobbies, causes, professional summary, and additional info with the same checkbox-confirm pattern
+    - Add all new user-facing strings to `locales/en.json` and `locales/pt-BR.json`
+    - _Requirements: 73.3, 73.8_
+  - [x] 37.6 Distinguish core competencies from technical skills in the skill map
+    - Extend `SkillMapEntry` with a `category` field that can be `'technical'` or `'core_competency'`
+    - Persist the distinction in `skill_map.md` serialization
+    - _Requirements: 73.4_
+  - [x] 37.7 Extend `buildCvModel` with new sections
+    - Add professional summary, core competencies section, languages section, hobbies/causes section to the CV model
+    - Each section renders only if the user has confirmed items in that category
+    - Use per-position achievements from the extraction when available
+    - _Requirements: 73.5_
+  - [x] 37.8 Update docs, prompts.md, CHANGELOG
+    - Update `docs/prompts.md` with the new extraction prompt
+    - Update user-guide docs (both languages) describing the richer extraction
+    - Add CHANGELOG entry for bug fix and enhancement
+    - _Requirements: 73_
+  - [ ]* 37.9 Tests for the rich ATS extraction
+    - JSON parse tolerance for new schema; new item types mapping; core competency distinction in skill map; CV model renders new sections only when confirmed; extensible `additional_info` capture
+    - _Requirements: 73_
+
+- [x] 38. Fix CV generation: AI tailoring without Target Opportunity + ATS Markdown renderer (Bugs)
+  - [x] 38.1 Fix AI CV tailoring falling back to script-only when no Target Opportunity is provided
+    - In `cv-request.ts` `generateCv`, remove the `!req.opportunity` condition from the script-only fallback guard; the AI path should run when the user opts into AI-assisted mode regardless of whether they provided a job posting — it can tailor toward the role alone using `buildCvTailoringPrompt(baseline)` which already handles the no-opportunity case
+    - The user saw "Script-only generation was used" despite selecting AI assist because the absence of a Target Opportunity was incorrectly treated as a reason to skip AI
+    - _Requirements: 30.7_
+  - [x] 38.2 Fix Markdown renderer to produce ATS-formatted CV using structured employment entries
+    - The `renderMarkdown` function only rendered the flat `experience` bullet list and ignored `employmentEntries` (grouped positions with company, dates, technologies, achievements), `professionalSummary`, `coreCompetencies`, `languages`, and `hobbiesAndCauses` — all of which `buildCvModel` already populates from confirmed extraction items
+    - Updated `renderExperience` to prefer `employmentEntries` when available, rendering each position as a `### Title — Company (dates)` subsection with technologies, achievements, and matched talking-point bullets underneath
+    - Added `renderCoreCompetencies`, `renderLanguages`, `renderHobbiesAndCauses` sections and updated `renderSummary` to prefer `professionalSummary` from confirmed R73 extraction items
+    - The CV now renders as a proper ATS-formatted document with structured employment history rather than just a flat skill list
+    - _Requirements: 71.7, 73.5, 32.1, 32.4_

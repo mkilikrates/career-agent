@@ -65,6 +65,7 @@ import { PayloadPreviewModal } from './PayloadPreviewModal';
 import { SettingsPage } from './SettingsPage';
 import { AppShell } from './AppShell';
 import { ResponsiveContainer, Button, Select } from './design-system';
+import { exportSessionZip, importZipToTree } from '../adapters/memory-store-zip';
 
 // ---------------------------------------------------------------------------
 // App-level view management (R66.1, R66.7, R67.1, R69.4).
@@ -188,6 +189,18 @@ export default function App() {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'career-agent-memory-store.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [store]);
+
+  // Save & Exit as zip: exports a timestamped .zip with canonical files + JSON
+  // snapshot at root (R72.1, R72.4, R72.5).
+  const handleSaveExitZip = useCallback(async () => {
+    const { blob, filename } = await exportSessionZip(store);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
   }, [store]);
@@ -593,7 +606,23 @@ export default function App() {
   // Welcome page (first-run only, task 33.4 — R66.1–R66.8).
   if (appView.kind === 'welcome') {
     return (
-      <WelcomePage t={t} onGetStarted={() => setAppView({ kind: 'settings', firstRun: true })} />
+      <WelcomePage
+        t={t}
+        onGetStarted={() => setAppView({ kind: 'settings', firstRun: true })}
+        onImportSession={async (file: File) => {
+          if (file.name.endsWith('.zip') || file.type === 'application/zip') {
+            const blob = new Blob([await file.arrayBuffer()], { type: 'application/zip' });
+            const imported = await importZipToTree(blob);
+            store.loadSnapshot(imported.snapshot());
+          } else {
+            const text = await file.text();
+            store.loadSnapshot(JSON.parse(text));
+          }
+          hydrateFromStore();
+          forceStoreRender((n) => n + 1);
+          setAppView({ kind: 'resume' });
+        }}
+      />
     );
   }
 
@@ -699,6 +728,7 @@ export default function App() {
       onPhaseSelect={goToPipelinePhase}
       onGoToSettings={() => setAppView({ kind: 'settings' })}
       onSaveExit={handleSaveExit}
+      onSaveExitZip={() => void handleSaveExitZip()}
       saveStatus={t('saveStatus.saved')}
       t={t}
     >

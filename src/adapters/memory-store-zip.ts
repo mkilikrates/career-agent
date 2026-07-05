@@ -71,6 +71,36 @@ export const exportTreeToZip = async (tree: MemoryTree): Promise<Blob> => {
   return new Blob([bytes], { type: ZIP_MIME_TYPE });
 };
 
+/** JSON snapshot filename placed at the zip root (R72.1). */
+export const ZIP_SNAPSHOT_FILENAME = 'career-agent-memory-store.json';
+
+/**
+ * Build a "Download session" zip (R72.1, R72.2, R72.5):
+ * - All Memory Store files in their canonical directory structure
+ * - The JSON snapshot (`career-agent-memory-store.json`) at the archive root
+ *
+ * The returned filename is timestamped: `career-agent-YYYY-MM-DD.zip` (R72.5).
+ */
+export const exportSessionZip = async (tree: MemoryTree): Promise<{ blob: Blob; filename: string }> => {
+  const zip = new JSZip();
+  // Add all files at their canonical paths (R72.2)
+  for (const path of tree.paths()) {
+    zip.file(entryNameFor(path), tree.read(path));
+  }
+  // Add JSON snapshot at the root (R72.1)
+  const snapshot = JSON.stringify(tree.snapshot(), null, 2);
+  zip.file(ZIP_SNAPSHOT_FILENAME, snapshot);
+
+  const bytes = await zip.generateAsync({
+    type: 'arraybuffer',
+    compression: 'DEFLATE',
+  });
+  const blob = new Blob([bytes], { type: ZIP_MIME_TYPE });
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const filename = `career-agent-${today}.zip`;
+  return { blob, filename };
+};
+
 /**
  * Parse a previously exported archive into a *fresh* {@link MemoryTree} (R3.4).
  *
@@ -96,10 +126,20 @@ export const importZipToTree = async (
 
   const next = new MemoryTree(options);
   // `JSZip.files` includes synthetic directory entries; skip those and keep
-  // only real files.
+  // only real files. Also skip the root-level JSON snapshot
+  // (`career-agent-memory-store.json`) that `exportSessionZip` places at the
+  // archive root for portability (R72.1) — it is not part of the canonical
+  // directory layout.
   const entries = Object.values(archive.files).filter((entry) => !entry.dir);
 
   for (const entry of entries) {
+    // Skip the root-level JSON snapshot if present (it was placed there for
+    // human convenience / re-import via JSON, not as a canonical file).
+    const baseName = entry.name.replace(/^.*\//, '');
+    if (baseName === ZIP_SNAPSHOT_FILENAME && !entry.name.includes(`${STORE_ROOT}/`)) {
+      continue;
+    }
+
     let canonicalPath: string;
     try {
       canonicalPath = normalizePath(entry.name);

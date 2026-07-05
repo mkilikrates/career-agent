@@ -11,7 +11,7 @@
 // (R58.1, R58.4, R58.10), and its empty/loading/error states match every other
 // screen (R58.6, R58.7, R58.8). No typography/colour/spacing is hardcoded.
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import {
   asDocId,
   asISODate,
@@ -24,10 +24,18 @@ import { MemoryTree } from '@core/storage';
 import {
   generate,
   saveSkillMap,
-  createSkillDiscoveryOperation,
+  buildCareerExtractionPrompt,
+  parseCareerExtraction,
+  mergeCareerExtractions,
+  careerExtractionToItems,
+  suggestAiDedups,
+  buildRawDiscoveryCorpus,
+  buildDiscoveryCorpus,
   type SkillMap,
+  type CareerExtraction,
+  type DedupSuggestion,
 } from '@core/skills';
-import { runAssist, type AssistMode, type EgressDestination } from '@core/assist';
+import { type AssistMode, type EgressDestination } from '@core/assist';
 import { AssistChoice } from './AssistChoice';
 import {
   Badge,
@@ -122,13 +130,13 @@ export function SkillMapScreen({
   // user is ultimately responsible for the list, so these are always included.
   const [manualText, setManualText] = useState<string>('');
 
-  // The skill-discovery operation, bound to a gate-routed transport: every
-  // prompt goes through the Egress Gate via `aiAssist` (PII screening, labelling,
-  // chosen-provider-only). scriptOnly never reaches it (zero provider calls).
-  const operation = useMemo(
-    () => createSkillDiscoveryOperation((prompt) => aiAssist(prompt)),
-    [aiAssist],
-  );
+  // Structured career extraction state (R71.6).
+  const [careerExtraction, setCareerExtraction] = useState<CareerExtraction | null>(null);
+  const [extractionItems, setExtractionItems] = useState<ExtractedItem[]>([]);
+  const [extractionReviewed, setExtractionReviewed] = useState(false);
+  const [extractionSelected, setExtractionSelected] = useState<Set<string>>(new Set());
+  const [dedupSuggestions, setDedupSuggestions] = useState<DedupSuggestion[]>([]);
+  const [dedupDecisions, setDedupDecisions] = useState<Map<string, 'merge' | 'keep'>>(new Map());
 
   const handleGenerate = () => {
     // The reviewed list that feeds the map depends on the discovery mode:
@@ -144,9 +152,14 @@ export function SkillMapScreen({
       (it.sourceDoc as unknown as string) === (AI_DOC as unknown as string);
     const isUser = (it: ExtractedItem): boolean =>
       (it.sourceDoc as unknown as string) === (USER_DOC as unknown as string);
+    // Employment-type and education-type items are factual structure — always
+    // included regardless of assist mode (Problem B fix).
+    const isStructural = (it: ExtractedItem): boolean =>
+      it.type === 'employment' || it.type === 'education';
     const aiItems = extractions.filter(isAi);
     const scriptItems = extractions.filter((it) => !isAi(it) && !isUser(it));
     const userItems = extractions.filter(isUser);
+    const structuralItems = extractions.filter((it) => isStructural(it) && !isAi(it) && !isUser(it));
     const base =
       assistMode === 'ai-only'
         ? aiItems
@@ -156,8 +169,13 @@ export function SkillMapScreen({
             ? aiItems
             : scriptItems;
     // User-typed skills are always included, whatever the discovery mode — the
-    // user owns the final list.
-    const map = generate([...base, ...userItems]);
+    // user owns the final list. Structural items (employment, education) are
+    // always included as factual context (Problem B fix).
+    const baseIds = new Set(base.map((it) => it.id as unknown as string));
+    const structuralExtras = structuralItems.filter(
+      (it) => !baseIds.has(it.id as unknown as string),
+    );
+    const map = generate([...base, ...userItems, ...structuralExtras]);
     onSkillMap(map);
     setStatus(t('skillMap.generated', { count: map.entries.length }));
   };
@@ -184,26 +202,40 @@ export function SkillMapScreen({
       ? { provider: chatProvider, kind: chatIsLocal ? 'keyless-local' : 'keyed-cloud' }
       : null;
     const rawTexts = rawDocs.map((d) => d.text).filter((tx) => tx.trim().length > 0);
+
     try {
-      // runAssist branches on the mode: script-only never constructs an Egress
-      // request; ai-assisted computes the baseline then routes supplements
-      // through the gate, falling back to the baseline on provider failure.
-      const { outcome, error } = await runAssist(
-        operation,
-        { extractions, existingMap: skillMap, rawTexts, review: assistMode === 'ai-assisted' },
-        { mode: assistMode, capability: 'skill_discovery' },
-        dest ?? undefined,
-      );
-      const found = outcome.suggestions.map((s) => s.value);
-      setAiSuggestions(found);
-      // Pre-select every returned candidate: in "AI only" the model is the sole
-      // discoverer and in "Both" it has already reviewed/refined the parser's
-      // list, so the returned set is the curated candidate list to keep.
-      setAiSelected(new Set(found.map((s) => s.name)));
-      if (error) {
-        setAiError(t('assist.fallback', { reason: error.message }));
-      } else if (found.length === 0) {
-        setAiError(t('skillMap.ai.none'));
+      // --- Structured career extraction (R71.1, R71.6) ---
+      // Build the corpus chunks for the extraction prompt.
+      const local = dest?.kind === 'keyless-local';
+      const useRaw = rawTexts.length > 0;
+      const chunks = useRaw
+        ? buildRawDiscoveryCorpus(rawTexts)
+        : buildDiscoveryCorpus(extractions, { includePrivate: local ?? false });
+
+      // Run the extraction prompt on each chunk and merge results.
+      const chunkExtractions: CareerExtraction[] = [];
+      for (const chunk of chunks) {
+        const prompt = buildCareerExtractionPrompt(chunk);
+        const reply = await aiAssist(prompt);
+        chunkExtractions.push(parseCareerExtraction(reply));
+      }
+      const merged = mergeCareerExtractions(chunkExtractions);
+      const items = careerExtractionToItems(merged);
+
+      // Run dedup suggestions on the extracted standalone skills.
+      const dedups = suggestAiDedups(merged.skills);
+
+      if (merged.positions.length === 0 && merged.education.length === 0 && merged.skills.length === 0) {
+        setAiError(t('skillMap.extraction.noResults'));
+      } else {
+        // Present the extraction for user review (R71.6).
+        setCareerExtraction(merged);
+        setExtractionItems(items);
+        setExtractionReviewed(false);
+        // Pre-select all items for convenience.
+        setExtractionSelected(new Set(items.map((it) => it.id as unknown as string)));
+        setDedupSuggestions(dedups);
+        setDedupDecisions(new Map());
       }
     } catch (error) {
       setAiError(error instanceof Error ? error.message : String(error));
@@ -212,11 +244,62 @@ export function SkillMapScreen({
     }
   };
 
+  /** After user reviews and confirms the structured extraction (R71.6). */
+  const handleConfirmExtraction = () => {
+    // Add only selected extraction items.
+    const selected = extractionItems.filter(
+      (it) => extractionSelected.has(it.id as unknown as string),
+    );
+
+    // Apply dedup merge decisions: remove variants whose canonical is merged.
+    const mergedVariants = new Set<string>();
+    for (const dedup of dedupSuggestions) {
+      const pairKey = [dedup.canonical.toLowerCase(), ...dedup.variants.map((v) => v.toLowerCase())].sort().join('|');
+      if (dedupDecisions.get(pairKey) === 'merge') {
+        for (const variant of dedup.variants) {
+          mergedVariants.add(variant.toLowerCase());
+        }
+      }
+    }
+
+    // Filter out merged variants from skill items.
+    const finalItems = selected.filter((it) => {
+      if (it.type === 'skill') {
+        const name = (it.fields as { name?: string }).name ?? '';
+        return !mergedVariants.has(name.toLowerCase());
+      }
+      return true;
+    });
+
+    onAddExtractions(finalItems);
+    setExtractionReviewed(true);
+    setStatus(t('skillMap.ai.added', { count: finalItems.length }));
+    // Clear extraction UI to show the flat suggestions flow if needed.
+    setCareerExtraction(null);
+    setExtractionItems([]);
+    setDedupSuggestions([]);
+  };
+
   const toggleSuggestion = (name: string) =>
     setAiSelected((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
+      return next;
+    });
+
+  const toggleExtractionItem = (id: string) =>
+    setExtractionSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const setDedupDecision = (key: string, decision: 'merge' | 'keep') =>
+    setDedupDecisions((prev) => {
+      const next = new Map(prev);
+      next.set(key, decision);
       return next;
     });
 
@@ -300,6 +383,293 @@ export function SkillMapScreen({
             <Banner role="status">
               <small>{aiError}</small>
             </Banner>
+          ) : null}
+
+          {/* Structured extraction review (R71.6) — shown before flat suggestions. */}
+          {careerExtraction && !extractionReviewed ? (
+            <Card style={{ marginTop: tokens.spacing.sm }}>
+              <h4>{t('skillMap.extraction.heading')}</h4>
+              <p><small>{t('skillMap.extraction.review')}</small></p>
+
+              {careerExtraction.positions.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.positions')}</h5>
+                  <ul>
+                    {careerExtraction.positions.map((pos, i) => {
+                      const itemId = extractionItems.find(
+                        (it) => it.type === 'employment' && (it.fields as { title?: string }).title === pos.title && (it.fields as { employer?: string }).employer === pos.company,
+                      )?.id as unknown as string | undefined;
+                      return (
+                        <li key={`pos-${i}`}>
+                          <label>
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
+                            <strong>{t('skillMap.extraction.positionItem', { title: pos.title, company: pos.company })}</strong>
+                            {pos.start ? (
+                              <small style={{ color: tokens.colour.muted, marginLeft: tokens.spacing.xs }}>
+                                {pos.end
+                                  ? t('skillMap.extraction.dates', { start: pos.start, end: pos.end })
+                                  : t('skillMap.extraction.datesOngoing', { start: pos.start })}
+                              </small>
+                            ) : null}
+                            {pos.technologies.length > 0 ? (
+                              <br />
+                            ) : null}
+                            {pos.technologies.length > 0 ? (
+                              <small style={{ color: tokens.colour.muted }}>{pos.technologies.join(', ')}</small>
+                            ) : null}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.education.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.education')}</h5>
+                  <ul>
+                    {careerExtraction.education.map((edu, i) => {
+                      const itemId = extractionItems.find(
+                        (it) => it.type === 'education' && (it.fields as { degree?: string }).degree === edu.degree && (it.fields as { institution?: string }).institution === edu.institution,
+                      )?.id as unknown as string | undefined;
+                      return (
+                        <li key={`edu-${i}`}>
+                          <label>
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
+                            <strong>{edu.degree}</strong> — {edu.institution}
+                            {edu.start ? (
+                              <small style={{ color: tokens.colour.muted, marginLeft: tokens.spacing.xs }}>
+                                {edu.end
+                                  ? t('skillMap.extraction.dates', { start: edu.start, end: edu.end })
+                                  : t('skillMap.extraction.datesOngoing', { start: edu.start })}
+                              </small>
+                            ) : null}
+                            {edu.skills.length > 0 ? (
+                              <br />
+                            ) : null}
+                            {edu.skills.length > 0 ? (
+                              <small style={{ color: tokens.colour.muted }}>{edu.skills.join(', ')}</small>
+                            ) : null}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.skills.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.skills')}</h5>
+                  <ul>
+                    {careerExtraction.skills.map((skill, i) => {
+                      const itemId = extractionItems.find(
+                        (it) => it.type === 'skill' && (it.fields as { name?: string }).name === skill.name,
+                      )?.id as unknown as string | undefined;
+                      return (
+                        <li key={`skill-${i}`}>
+                          <label>
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
+                            {skill.name}
+                            {skill.since ? (
+                              <small style={{ color: tokens.colour.muted, marginLeft: tokens.spacing.xs }}>
+                                {t('skillMap.extraction.since', { year: skill.since })}
+                              </small>
+                            ) : null}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.professionalSummary ? (
+                <>
+                  <h5>{t('skillMap.extraction.professionalSummarySection')}</h5>
+                  <ul>
+                    <li>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={extractionSelected.has('professional-summary')}
+                          onChange={() => toggleExtractionItem('professional-summary')}
+                        />{' '}
+                        {careerExtraction.professionalSummary}
+                      </label>
+                    </li>
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.coreCompetencies.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.coreCompetencies')}</h5>
+                  <ul>
+                    {careerExtraction.coreCompetencies.map((comp, i) => {
+                      const compId = `core-competency-${i}`;
+                      return (
+                        <li key={compId}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={extractionSelected.has(compId)}
+                              onChange={() => toggleExtractionItem(compId)}
+                            />{' '}
+                            {comp}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.languages.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.languagesSection')}</h5>
+                  <ul>
+                    {careerExtraction.languages.map((lang, i) => {
+                      const langId = `language-${i}`;
+                      return (
+                        <li key={langId}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={extractionSelected.has(langId)}
+                              onChange={() => toggleExtractionItem(langId)}
+                            />{' '}
+                            {t('skillMap.extraction.languageItem', { language: lang.language, proficiency: lang.proficiency })}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.hobbies.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.hobbiesSection')}</h5>
+                  <ul>
+                    {careerExtraction.hobbies.map((hobby, i) => {
+                      const hobbyId = `hobby-${i}`;
+                      return (
+                        <li key={hobbyId}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={extractionSelected.has(hobbyId)}
+                              onChange={() => toggleExtractionItem(hobbyId)}
+                            />{' '}
+                            {hobby}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.causes.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.causesSection')}</h5>
+                  <ul>
+                    {careerExtraction.causes.map((cause, i) => {
+                      const causeId = `cause-${i}`;
+                      return (
+                        <li key={causeId}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={extractionSelected.has(causeId)}
+                              onChange={() => toggleExtractionItem(causeId)}
+                            />{' '}
+                            {cause}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {careerExtraction.additionalInfo.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.additionalInfoSection')}</h5>
+                  <ul>
+                    {careerExtraction.additionalInfo.map((info, i) => {
+                      const infoId = `additional-info-${i}`;
+                      return (
+                        <li key={infoId}>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={extractionSelected.has(infoId)}
+                              onChange={() => toggleExtractionItem(infoId)}
+                            />{' '}
+                            {t('skillMap.extraction.additionalInfoItem', { category: info.category, value: info.value })}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              {dedupSuggestions.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.dedup.heading')}</h5>
+                  <ul>
+                    {dedupSuggestions.map((dedup) => {
+                      const pairKey = [dedup.canonical.toLowerCase(), ...dedup.variants.map((v) => v.toLowerCase())].sort().join('|');
+                      const decision = dedupDecisions.get(pairKey);
+                      return (
+                        <li key={pairKey}>
+                          <small>{dedup.reason}</small>
+                          <br />
+                          <Button
+                            variant={decision === 'merge' ? 'primary' : 'secondary'}
+                            onClick={() => setDedupDecision(pairKey, 'merge')}
+                          >
+                            {t('skillMap.extraction.dedup.merge')}
+                          </Button>{' '}
+                          <Button
+                            variant={decision === 'keep' ? 'primary' : 'secondary'}
+                            onClick={() => setDedupDecision(pairKey, 'keep')}
+                          >
+                            {t('skillMap.extraction.dedup.keep')}
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              ) : null}
+
+              <Button onClick={handleConfirmExtraction}>
+                {t('skillMap.extraction.confirm')}
+              </Button>
+            </Card>
           ) : null}
 
           {aiSuggestions.length > 0 ? (

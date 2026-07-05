@@ -247,7 +247,7 @@ Click **Settings** in the sidebar to access all configuration in one place:
 Career Agent walks you through six steps (it saves your progress automatically, so you can stop and come back any time):
 
 1. **Add your documents** — upload your CV, certificates, or LinkedIn export, or paste text. Everything is read on your computer. You can **preview the converted text** of each document to check it came through correctly; if a file looks garbled, remove it and paste the text instead.
-2. **Skill Map** — Career Agent builds a list of your skills, each linked to where it found the evidence. You review and confirm.
+2. **Skill Map** — Career Agent builds a list of your skills, each linked to where it found the evidence. You review and confirm. When AI mode is selected, the AI can extract a rich, ATS-compatible structured profile from your documents — employment positions with companies, locations, role descriptions, quantified achievements, and technologies used; education entries with institutions and skills gained; a professional summary; core competencies (soft skills and leadership qualities distinct from technical skills); spoken languages with proficiency levels; hobbies and interests; causes and volunteering; and any additional categories (publications, patents, awards, etc.). This structured extraction is presented for your review before it enters the skill map, giving it richer context about where and when each skill was used.
 3. **Role Discovery** — get suggested roles that match your skills, with the gaps called out.
 4. **Interview Coaching** — practise STAR answers. You can **type**, **upload an audio file**, or **record yourself** in the browser. The AI checks whether your answer is complete and asks follow-up questions — using only your own words.
 5. **Output** — generate a tailored CV in Markdown, PDF, and Word, plus advisory LinkedIn suggestions.
@@ -264,6 +264,18 @@ Career Agent walks you through six steps (it saves your progress automatically, 
 
 - **Chrome / Edge on desktop:** you can pick a real folder on your computer, and Career Agent saves your profile there as readable Markdown files you fully own.
 - **Other browsers:** your data is stored inside the browser. Use the **Export** button to save a `.zip` backup, and **Import** to restore it later or move it to another computer.
+
+### Exporting and importing sessions
+
+Career Agent offers two export formats:
+
+- **JSON export** ("Save & Exit" or "Export Memory Store (JSON)" in the Memory phase) — a single `.json` file containing your full session state.
+- **Zip export** ("Download session as zip" in the sidebar or Memory phase) — a timestamped `.zip` archive (e.g. `career-agent-2026-07-04.zip`) containing all your files in their original folder structure (`config/`, `profile/`, `interviews/`, `outputs/`, `log/`) so you can browse them with a regular file explorer, plus the JSON snapshot at the root for easy re-import.
+
+To **import a previous session**:
+
+- **From the Welcome Page:** click "Import a previous session", pick your `.zip` or `.json` file. Career Agent restores your data and takes you to the Resume screen. If the file is invalid, you stay on the Welcome page with an error message — nothing is lost.
+- **From the Memory phase:** use the file picker next to the "Import a snapshot" label. Both `.zip` and `.json` files are accepted.
 
 ---
 

@@ -4,28 +4,6 @@
     "tagline": "Assistente de carreira local. Seus arquivos permanecem no seu dispositivo. Este é um pacote estático, sem servidor de backend.",
     "privacyNotice": "Seus arquivos permanecem no seu dispositivo. O Agente de Carreira não é totalmente offline: quando você pede para usar um provedor de IA, apenas uma carga mínima e redigida é enviada a esse provedor — nunca os arquivos do seu Repositório de Memória."
   },
-  "shell": {
-    "title": "Agente de Carreira",
-    "nav": {
-      "settings": "Configurações",
-      "saveExit": "Salvar e Sair",
-      "openMenu": "Abrir menu de navegação",
-      "closeMenu": "Fechar menu de navegação"
-    }
-  },
-  "stepper": {
-    "label": "Fases do pipeline",
-    "recommended": "Próxima recomendada",
-    "status": {
-      "notStarted": "Não iniciado",
-      "inProgress": "Em andamento",
-      "done": "Concluído"
-    }
-  },
-  "saveExit": {
-    "button": "Salvar e Sair",
-    "buttonShort": "Salvar"
-  },
   "privacy": {
     "statement": {
       "heading": "Sua privacidade",
@@ -208,6 +186,45 @@
       "add": "Adicionar competências selecionadas",
       "added": "{{count}} competência(s) confirmada(s) adicionada(s). Gere o mapa novamente para incluí-las.",
       "none": "A IA não sugeriu novas competências."
+    },
+    "extraction": {
+      "heading": "Extração estruturada de carreira",
+      "review": "Revise a extração estruturada da sua linha do tempo profissional feita pela IA antes de entrar no mapa de competências.",
+      "positions": "Posições de emprego",
+      "education": "Formação",
+      "skills": "Competências isoladas",
+      "confirm": "Confirmar e adicionar ao mapa de competências",
+      "noResults": "A IA não conseguiu extrair dados estruturados de carreira dos seus documentos.",
+      "noPositions": "Nenhuma posição de emprego extraída.",
+      "noEducation": "Nenhuma entrada de formação extraída.",
+      "noSkills": "Nenhuma competência isolada extraída.",
+      "positionItem": "{{title}} na {{company}}",
+      "dates": "{{start}} – {{end}}",
+      "datesOngoing": "{{start}} – presente",
+      "at": "em",
+      "technologies": "Tecnologias:",
+      "skillsGained": "Competências adquiridas:",
+      "since": "desde ~{{year}}",
+      "coreCompetencies": "Competências essenciais",
+      "noCoreCompetencies": "Nenhuma competência essencial extraída.",
+      "languagesSection": "Idiomas",
+      "noLanguages": "Nenhum idioma extraído.",
+      "hobbiesSection": "Hobbies e interesses",
+      "noHobbies": "Nenhum hobby ou interesse extraído.",
+      "causesSection": "Causas e voluntariado",
+      "noCauses": "Nenhuma causa ou voluntariado extraído.",
+      "professionalSummarySection": "Resumo profissional",
+      "noProfessionalSummary": "Nenhum resumo profissional extraído.",
+      "additionalInfoSection": "Informações adicionais",
+      "noAdditionalInfo": "Nenhuma informação adicional extraída.",
+      "languageItem": "{{language}} — {{proficiency}}",
+      "additionalInfoItem": "{{category}}: {{value}}",
+      "dedup": {
+        "heading": "Possíveis duplicatas detectadas",
+        "intro": "As seguintes competências parecem ser duplicatas. Você pode mesclá-las ou mantê-las separadas.",
+        "merge": "Mesclar",
+        "keep": "Manter separadas"
+      }
     }
   },
   "roles": {
@@ -394,6 +411,8 @@
     "heading": "Memória e manutenção",
     "intro": "Seu Repositório de Memória fica no seu dispositivo. Exporte-o para backup ou importe um snapshot anterior.",
     "export": "Exportar Repositório de Memória (JSON)",
+    "exportZip": "Baixar sessão como zip",
+    "exportedZip": "Sessão baixada como arquivo zip.",
     "import": "Importar um snapshot",
     "exported": "Repositório de Memória exportado.",
     "imported": "{{count}} arquivo(s) importado(s) para o seu Repositório de Memória.",
@@ -499,6 +518,8 @@
     "welcome": {
       "intro": "Monte seu perfil profissional, pratique entrevistas e gere currículos personalizados — tudo no seu dispositivo.",
       "getStarted": "Começar",
+      "importSession": "Importar uma sessão anterior",
+      "importError": "Não foi possível importar esse arquivo: {{reason}}. Verifique se é uma exportação válida do Agente de Carreira (.zip ou .json) e tente novamente.",
       "heading": "Agente de Carreira",
       "tagline": "Sua carreira, seus dados, seu dispositivo.",
       "privacyCallout": "Tudo roda localmente. Seus arquivos nunca saem do seu dispositivo.",
@@ -567,7 +588,8 @@
   },
   "saveExit": {
     "button": "Salvar e sair",
-    "buttonShort": "Salvar"
+    "buttonShort": "Salvar",
+    "downloadZip": "Baixar sessão como zip"
   },
   "shell": {
     "title": "Agente de Carreira",

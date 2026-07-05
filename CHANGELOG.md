@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rich ATS-compatible AI extraction schema** (R73): the career extraction prompt
+  now produces a comprehensive structured profile including professional summary,
+  per-position location/description/quantified achievements, core competencies
+  (distinct from technical skills), spoken language proficiency, hobbies, causes,
+  and extensible additional_info (publications, patents, awards, etc.).
+- **New CV sections**: professional summary, core competencies, languages, hobbies
+  & causes (rendered only when confirmed items exist).
+- **`Core_Competency` skill category**: distinguishes soft skills and leadership
+  qualities from technical skills in the skill map.
+
+- **Zip session export** (R72.1, R72.2, R72.4, R72.5): a "Download session as zip"
+  button in the Memory phase and the Save & Exit sidebar produces a timestamped
+  `.zip` archive (`career-agent-YYYY-MM-DD.zip`) containing all Memory Store files
+  in their canonical directory structure plus the JSON snapshot at the root.
+- **Import from Welcome Page** (R72.3, R72.6, R72.7): an "Import a previous session"
+  action on the Welcome Page accepts `.zip` or `.json` files, restores the Memory
+  Store, and transitions to the Resume Screen. On failure the user stays on Welcome
+  with an error message (non-destructive).
+
+### Changed
+
+- **Markdown CV renderer now uses structured employment entries** (R71.7, R73.5):
+  the CV renders positions as grouped subsections (`### Title — Company (dates)`)
+  with technologies, achievements, and talking-point bullets placed underneath,
+  rather than a flat bullet list. Also renders professionalSummary, coreCompetencies,
+  languages, and hobbiesAndCauses from confirmed extraction items.
+
+### Fixed
+
+- **Duplicate locale keys in extraction review** (R41.8): both `locales/en.json` and
+  `locales/pt-BR.json` contained a duplicate `skillMap.extraction` JSON key — the
+  second block (missing `positionItem`, `dates`, `datesOngoing`) silently overwrote
+  the first, causing the UI to show raw locale key strings.
+- **AI CV tailoring incorrectly required a Target Opportunity** (R30.7): selecting
+  AI-assisted mode without providing a job posting caused silent fallback to
+  script-only generation. The AI path now runs whenever the user opts in, tailoring
+  toward the role alone when no posting is provided.
+
 - **Card-based navigation and AppShell** (R66–R69): the UI is restructured from a
   single scrolling page into a multi-view app with a persistent sidebar, phase
   stepper, and one-phase-at-a-time card layout.
@@ -92,6 +130,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Local provider "Test connection" appears to do nothing**: after a successful
+  connection test, the model-picker update immediately reset the status banner
+  from "Connection successful" back to idle, so the user never saw confirmation.
+  The success message now persists after the model list populates.
+- **Duplicate locale keys** in `locales/en.json` and `locales/pt-BR.json`
+  (duplicate `stepper`, `saveExit`, `shell` keys) that could cause raw keys
+  rendering in the UI.
 - **STAR questions blank-UI bug**: local models that ignored the `::` format
   returned zero suggestions (the parser dropped every line), causing the UI to
   silently bounce back to the same prompt with no error. Now any model's output

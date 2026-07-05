@@ -24,6 +24,8 @@ export interface AppShellProps {
   readonly onGoToSettings: () => void;
   /** Trigger Save & Exit. */
   readonly onSaveExit: () => void;
+  /** Trigger Save & Exit as zip (R72.4). */
+  readonly onSaveExitZip?: () => void;
   /** Save status text shown in the header. */
   readonly saveStatus: string;
   /** The main content (the current phase card). */
@@ -38,6 +40,7 @@ export function AppShell({
   onPhaseSelect,
   onGoToSettings,
   onSaveExit,
+  onSaveExitZip,
   saveStatus,
   children,
   t,
@@ -80,6 +83,7 @@ export function AppShell({
           onPhaseSelect={onPhaseSelect}
           onGoToSettings={onGoToSettings}
           onSaveExit={onSaveExit}
+          onSaveExitZip={onSaveExitZip}
           t={t}
         />
         <main

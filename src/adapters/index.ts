@@ -102,7 +102,9 @@ export type { FallbackPersistence } from './fallback-persistence';
 
 export {
   exportTreeToZip,
+  exportSessionZip,
   importZipToTree,
   MalformedArchiveError,
   ZIP_MIME_TYPE,
+  ZIP_SNAPSHOT_FILENAME,
 } from './memory-store-zip';

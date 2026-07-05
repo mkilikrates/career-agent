@@ -142,9 +142,11 @@ export const generateCv = async (
 ): Promise<CvBundle> => {
   const { transport, dest } = opts;
 
-  // Script-only when the user declined AI, gave no opportunity, or no transport/
+  // Script-only when the user declined AI, or no transport/
   // destination is available — a complete deterministic CV with zero calls (R30.7).
-  if (req.assist.mode === 'script-only' || !req.opportunity || !transport || !dest) {
+  // Note: a Target Opportunity is NOT required for AI tailoring — the AI can
+  // tailor toward the role alone when no opportunity is provided (R30.7).
+  if (req.assist.mode === 'script-only' || !transport || !dest) {
     return scriptOnlyBundle(buildCvModel(req.role, req.src));
   }
 

@@ -131,6 +131,28 @@ export interface CvEntry {
 }
 
 /**
+ * One employment position on the CV, with its confirmed talking points and
+ * accomplishments placed underneath (R71.7). Positions with no matching bullets
+ * still appear with their technologies listed.
+ */
+export interface CvEmploymentEntry {
+  readonly title: string;
+  readonly company: string;
+  readonly dateRange?: string; // "2019-01 – 2022-06" formatted
+  readonly technologies: readonly string[];
+  /** Per-position achievements from the extraction (R73.5). */
+  readonly achievements: readonly string[];
+  /** Talking points / accomplishments that belong to this position. */
+  readonly bullets: readonly CvBullet[];
+}
+
+/** A language entry on the CV with proficiency level (R73.5). */
+export interface CvLanguageEntry {
+  readonly language: string;
+  readonly proficiency: string;
+}
+
+/**
  * The single source of truth every CV format is rendered from (R32.5). It is the
  * confirmed-evidence subset, prioritised toward the target role (R30.1, R30.2).
  * Renderers may restyle but must not add, drop, or alter its content.
@@ -145,10 +167,20 @@ export interface CvModel {
   readonly header: CvHeader;
   /** Optional professional summary, supplied verbatim (never fabricated). */
   readonly summary?: string;
+  /** Professional summary from confirmed extraction (R73.5). */
+  readonly professionalSummary?: string;
+  /** Core competencies from confirmed extraction (R73.5). */
+  readonly coreCompetencies?: readonly string[];
+  /** Language proficiency entries from confirmed extraction (R73.5). */
+  readonly languages?: readonly CvLanguageEntry[];
+  /** Hobbies and causes combined from confirmed extraction (R73.5). */
+  readonly hobbiesAndCauses?: readonly string[];
   /** Confirmed skills, target-relevant first (R30.1, R30.2). */
   readonly skills: readonly CvSkill[];
   /** Experience bullets, prioritised toward the target role (R30.1–R30.4). */
   readonly experience: readonly CvBullet[];
+  /** Employment history grouped chronologically, most recent first (R71.7). */
+  readonly employmentEntries?: readonly CvEmploymentEntry[];
   /** Education entries, as available from confirmed items. */
   readonly education: readonly CvEntry[];
   /** Certification entries, as available from confirmed items. */
@@ -181,6 +213,159 @@ export interface ConfirmedEvidence {
   /** Optional professional summary, supplied verbatim. */
   readonly summary?: string;
 }
+
+// --- Employment grouping helpers (R71.7) -----------------------------------
+
+/** Parse a date field (YYYY-MM or YYYY) into a comparable numeric value (YYYYMM). */
+const parseYM = (value: unknown): number | undefined => {
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined;
+  const trimmed = value.trim();
+  // Match YYYY-MM or YYYY
+  const match = trimmed.match(/^(\d{4})(?:-(\d{1,2}))?/);
+  if (!match) return undefined;
+  const year = parseInt(match[1], 10);
+  const month = match[2] ? parseInt(match[2], 10) : 1;
+  return year * 100 + month;
+};
+
+/** Derive technologies from an employment item's fields. */
+const itemTechnologies = (item: ExtractedItem): string[] => {
+  const techs = item.fields.technologies;
+  if (Array.isArray(techs)) return techs.filter((t): t is string => typeof t === 'string');
+  return [];
+};
+
+/** Derive achievements from an employment item's fields (R73.5). */
+const itemAchievements = (item: ExtractedItem): string[] => {
+  const achievements = item.fields.achievements;
+  if (Array.isArray(achievements))
+    return achievements.filter((a): a is string => typeof a === 'string');
+  return [];
+};
+
+/** Format the date range for display from start/end fields. */
+const employmentDateRange = (item: ExtractedItem): string | undefined => {
+  const start = field(item, 'start', 'startedOn', 'from');
+  const end = field(item, 'end', 'finishedOn', 'to');
+  return dateRange(start, end);
+};
+
+/**
+ * Build employment entries from employment-type items and match bullets to them
+ * via (a) date overlap or (b) skill overlap with the position's technologies.
+ * Returns entries sorted chronologically, most recent first (R71.7).
+ */
+const buildEmploymentEntries = (
+  employmentItems: readonly ExtractedItem[],
+  bullets: readonly CvBullet[],
+  skillMap: SkillMap,
+): CvEmploymentEntry[] => {
+  // Build a map of skill name (lowercase) → skill id for matching technologies
+  // to confirmed skills.
+  const skillNameToId = new Map<string, string>();
+  for (const entry of skillMap.entries) {
+    skillNameToId.set(entry.name.toLowerCase(), asString(entry.id));
+  }
+
+  // For each employment item, compute its date range and its technology skill ids.
+  interface PositionInfo {
+    item: ExtractedItem;
+    title: string;
+    company: string;
+    dateRangeStr: string | undefined;
+    startYM: number | undefined;
+    endYM: number | undefined;
+    technologies: string[];
+    techSkillIds: Set<string>;
+    matchedBullets: CvBullet[];
+  }
+
+  const positions: PositionInfo[] = employmentItems.map((item) => {
+    const title = field(item, 'title', 'role', 'position') ?? 'Position';
+    const company = field(item, 'employer', 'company', 'org', 'organisation') ?? '';
+    const technologies = itemTechnologies(item);
+    const techSkillIds = new Set<string>();
+    for (const tech of technologies) {
+      const id = skillNameToId.get(tech.toLowerCase());
+      if (id !== undefined) techSkillIds.add(id);
+    }
+    return {
+      item,
+      title,
+      company,
+      dateRangeStr: employmentDateRange(item),
+      startYM: parseYM(item.fields.start ?? item.fields.startedOn ?? item.fields.from),
+      endYM: parseYM(item.fields.end ?? item.fields.finishedOn ?? item.fields.to),
+      technologies,
+      techSkillIds,
+      matchedBullets: [],
+    };
+  });
+
+  // Match each bullet to a position. Strategy:
+  // (a) Match by date: if a talking point or accomplishment evidences a skill that
+  //     appeared in a position's technology list AND the item has a date range, match
+  //     by checking if the position date range overlaps. Since bullets don't carry their
+  //     own dates, we match by skill overlap primarily.
+  // (b) Match by skill overlap: the bullet's skills intersect with the position's
+  //     technology skill ids.
+  const assigned = new Set<string>();
+
+  for (const bullet of bullets) {
+    let bestMatch: PositionInfo | undefined;
+    let bestOverlap = 0;
+
+    for (const pos of positions) {
+      if (pos.techSkillIds.size === 0) continue;
+      const overlap = bullet.skills.filter((s) => pos.techSkillIds.has(asString(s))).length;
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        bestMatch = pos;
+      }
+    }
+
+    if (bestMatch !== undefined) {
+      bestMatch.matchedBullets.push(bullet);
+      assigned.add(asString(bullet.id));
+    }
+  }
+
+  // Sort positions chronologically, most recent first (by end date, then start).
+  // Positions with no dates come last.
+  positions.sort((a, b) => {
+    const aEnd = a.endYM ?? (a.startYM !== undefined ? 999999 : 0); // ongoing = most recent
+    const bEnd = b.endYM ?? (b.startYM !== undefined ? 999999 : 0);
+    if (aEnd !== bEnd) return bEnd - aEnd; // descending
+    const aStart = a.startYM ?? 0;
+    const bStart = b.startYM ?? 0;
+    return bStart - aStart; // descending
+  });
+
+  // Build the CvEmploymentEntry list. Positions with no matching bullets still
+  // appear with their technologies listed (R71.7).
+  const entries: CvEmploymentEntry[] = positions.map((pos) => ({
+    title: pos.title,
+    company: pos.company,
+    ...(pos.dateRangeStr !== undefined ? { dateRange: pos.dateRangeStr } : {}),
+    technologies: pos.technologies,
+    achievements: itemAchievements(pos.item),
+    bullets: pos.matchedBullets,
+  }));
+
+  // If there are unmatched bullets, add a "General" entry.
+  const unmatched = bullets.filter((b) => !assigned.has(asString(b.id)));
+  if (unmatched.length > 0) {
+    entries.push({
+      title: 'General',
+      company: '',
+      technologies: [],
+      achievements: [],
+      bullets: unmatched,
+    });
+  }
+
+  return entries;
+};
 
 // --- Build -----------------------------------------------------------------
 
@@ -345,5 +530,70 @@ export const buildCvModel = (
   if (evidence.summary !== undefined && evidence.summary.trim().length > 0) {
     (model as { summary?: string }).summary = oneLine(evidence.summary);
   }
+
+  // 5. New CV sections from confirmed items (R73.5) — only included when
+  //    the user has explicitly confirmed items of each type.
+  const confirmedItems = (evidence.items ?? []).filter((i) => i.userConfirmed && !i.private);
+
+  // Professional summary — from confirmed professional_summary items
+  const summaryItems = confirmedItems.filter((i) => i.type === 'professional_summary');
+  if (summaryItems.length > 0) {
+    const text = summaryItems
+      .map((i) => (typeof i.fields.text === 'string' ? i.fields.text.trim() : ''))
+      .filter((t) => t.length > 0)
+      .join(' ');
+    if (text.length > 0) {
+      (model as { professionalSummary?: string }).professionalSummary = oneLine(text);
+    }
+  }
+
+  // Core competencies — from confirmed core_competency items
+  const competencyItems = confirmedItems.filter((i) => i.type === 'core_competency');
+  if (competencyItems.length > 0) {
+    const names = competencyItems
+      .map((i) => (typeof i.fields.name === 'string' ? i.fields.name.trim() : ''))
+      .filter((n) => n.length > 0);
+    if (names.length > 0) {
+      (model as { coreCompetencies?: readonly string[] }).coreCompetencies = names;
+    }
+  }
+
+  // Languages — from confirmed language_proficiency items
+  const languageItems = confirmedItems.filter((i) => i.type === 'language_proficiency');
+  if (languageItems.length > 0) {
+    const langs: CvLanguageEntry[] = languageItems
+      .map((i) => ({
+        language: typeof i.fields.language === 'string' ? i.fields.language.trim() : '',
+        proficiency: typeof i.fields.proficiency === 'string' ? i.fields.proficiency.trim() : '',
+      }))
+      .filter((l) => l.language.length > 0);
+    if (langs.length > 0) {
+      (model as { languages?: readonly CvLanguageEntry[] }).languages = langs;
+    }
+  }
+
+  // Hobbies and causes — combine confirmed hobby and cause items
+  const hobbyAndCauseItems = confirmedItems.filter(
+    (i) => i.type === 'hobby' || i.type === 'cause',
+  );
+  if (hobbyAndCauseItems.length > 0) {
+    const names = hobbyAndCauseItems
+      .map((i) => (typeof i.fields.name === 'string' ? i.fields.name.trim() : ''))
+      .filter((n) => n.length > 0);
+    if (names.length > 0) {
+      (model as { hobbiesAndCauses?: readonly string[] }).hobbiesAndCauses = names;
+    }
+  }
+
+  // 4. Employment entries — group bullets under their originating employment
+  //    position, using date overlap or skill overlap (R71.7).
+  const employmentItems = (evidence.items ?? []).filter((i) => i.type === 'employment');
+  if (employmentItems.length > 0) {
+    const entries = buildEmploymentEntries(employmentItems, experience, evidence.skillMap);
+    if (entries.length > 0) {
+      (model as { employmentEntries?: readonly CvEmploymentEntry[] }).employmentEntries = entries;
+    }
+  }
+
   return model;
 };

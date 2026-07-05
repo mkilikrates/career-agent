@@ -247,7 +247,7 @@ Clique em **Configurações** na barra lateral para acessar toda a configuraçã
 O Agente de Carreira conduz você por seis passos (ele salva seu progresso automaticamente, então você pode parar e voltar quando quiser):
 
 1. **Adicione seus documentos** — envie seu currículo, certificados ou exportação do LinkedIn, ou cole texto. Tudo é lido no seu computador. Você pode **pré-visualizar o texto convertido** de cada documento para verificar se ele veio corretamente; se um arquivo parecer corrompido, remova-o e cole o texto.
-2. **Mapa de Competências** — o Agente de Carreira monta uma lista das suas competências, cada uma ligada ao local onde encontrou a evidência. Você revisa e confirma.
+2. **Mapa de Competências** — o Agente de Carreira monta uma lista das suas competências, cada uma ligada ao local onde encontrou a evidência. Você revisa e confirma. Quando o modo IA está selecionado, a IA pode extrair um perfil estruturado e compatível com ATS a partir dos seus documentos — posições de emprego com empresas, localidades, descrições de cargo, conquistas quantificadas e tecnologias utilizadas; educação com instituições e habilidades adquiridas; um resumo profissional; competências essenciais (soft skills e qualidades de liderança distintas de habilidades técnicas); idiomas falados com níveis de proficiência; hobbies e interesses; causas e trabalho voluntário; e quaisquer categorias adicionais (publicações, patentes, prêmios, etc.). Essa extração estruturada é apresentada para sua revisão antes de entrar no mapa de competências, fornecendo contexto mais rico sobre onde e quando cada competência foi utilizada.
 3. **Descoberta de Funções** — receba funções sugeridas que combinam com suas competências, com as lacunas destacadas.
 4. **Treinamento para Entrevista** — pratique respostas STAR. Você pode **digitar**, **enviar um arquivo de áudio** ou **gravar a si mesmo** no navegador. A IA verifica se sua resposta está completa e faz perguntas de acompanhamento — usando apenas as suas próprias palavras.
 5. **Geração de Saída** — gere um currículo personalizado em Markdown, PDF e Word, além de sugestões consultivas do LinkedIn.
@@ -264,6 +264,18 @@ O Agente de Carreira conduz você por seis passos (ele salva seu progresso autom
 
 - **Chrome / Edge no desktop:** você pode escolher uma pasta real no seu computador, e o Agente de Carreira salva seu perfil ali como arquivos Markdown legíveis dos quais você é totalmente dono.
 - **Outros navegadores:** seus dados ficam armazenados dentro do navegador. Use o botão **Exportar** para salvar um backup `.zip`, e **Importar** para restaurá-lo depois ou movê-lo para outro computador.
+
+### Exportando e importando sessões
+
+O Agente de Carreira oferece dois formatos de exportação:
+
+- **Exportação JSON** ("Salvar e Sair" ou "Exportar Repositório de Memória (JSON)" na fase Memória) — um único arquivo `.json` contendo todo o estado da sua sessão.
+- **Exportação Zip** ("Baixar sessão como zip" na barra lateral ou na fase Memória) — um arquivo `.zip` com data no nome (ex.: `career-agent-2026-07-04.zip`) contendo todos os seus arquivos na estrutura original de pastas (`config/`, `profile/`, `interviews/`, `outputs/`, `log/`) para que você possa navegar neles com um explorador de arquivos comum, além do snapshot JSON na raiz para facilitar a reimportação.
+
+Para **importar uma sessão anterior**:
+
+- **Pela Página de Boas-vindas:** clique em "Importar uma sessão anterior", escolha seu arquivo `.zip` ou `.json`. O Agente de Carreira restaura seus dados e leva você à tela de Retomada. Se o arquivo for inválido, você permanece na página de Boas-vindas com uma mensagem de erro — nada é perdido.
+- **Pela fase Memória:** use o seletor de arquivos ao lado do rótulo "Importar um snapshot". Tanto arquivos `.zip` quanto `.json` são aceitos.
 
 ---
 

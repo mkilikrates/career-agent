@@ -49,6 +49,23 @@ export {
 } from './skill-discovery';
 export type { DiscoveryCorpusOptions } from './skill-discovery';
 
+// AI career extraction: structured timeline (R71.1, R71.2, R71.10).
+export {
+  buildCareerExtractionPrompt,
+  parseCareerExtraction,
+  mergeCareerExtractions,
+  careerExtractionToItems,
+  CAREER_EXTRACTION_INSTRUCTION,
+} from './career-extraction';
+export type {
+  CareerExtraction,
+  ExtractedPosition,
+  ExtractedEducation,
+  ExtractedStandaloneSkill,
+  ExtractedLanguage,
+  ExtractedAdditionalInfo,
+} from './career-extraction';
+
 // AI skill discovery wired to the shared opt-in-first AssistableOperation (25.2):
 // scriptOnly = deterministic evidence-only map (zero provider calls);
 // aiAssisted = same map + gate-routed, user-confirmable skill suggestions.
@@ -80,6 +97,10 @@ export type {
   MergeDecision,
   SelfAssessment,
 } from './review';
+
+// Post-extraction AI dedup suggestions (R15.4, Problem D).
+export { suggestAiDedups, stripParenthetical, stripVendorPrefix } from './ai-dedup';
+export type { DedupSuggestion } from './ai-dedup';
 
 // Skill-map persistence: serialize / parse / save `profile/skill_map.md`
 // (R14.4, R34.1, R34.2).

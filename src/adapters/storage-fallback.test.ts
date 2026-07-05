@@ -10,7 +10,9 @@ import { InMemoryPersistence } from './fallback-persistence';
 import {
   MalformedArchiveError,
   exportTreeToZip,
+  exportSessionZip,
   importZipToTree,
+  ZIP_SNAPSHOT_FILENAME,
 } from './memory-store-zip';
 
 const fixedClock = () => '2024-05-01T00:00:00.000Z';
@@ -200,6 +202,49 @@ describe('memory-store-zip codec (R3.3, R3.4)', () => {
     const blob = await exportTreeToZip(tree);
     const rebuilt = await importZipToTree(blob, { now: fixedClock });
 
+    expect(rebuilt.snapshot()).toEqual(tree.snapshot());
+  });
+});
+
+describe('exportSessionZip (R72.1, R72.2, R72.5)', () => {
+  it('produces a timestamped filename', async () => {
+    const tree = new MemoryTree();
+    tree.write('profile/skill_map.md', '# Skills');
+    const { filename } = await exportSessionZip(tree);
+    expect(filename).toMatch(/^career-agent-\d{4}-\d{2}-\d{2}\.zip$/);
+  });
+
+  it('includes canonical files and JSON snapshot at root', async () => {
+    const tree = new MemoryTree();
+    tree.write('profile/skill_map.md', '# Skills');
+    tree.write('config/locale.md', 'en');
+
+    const { blob } = await exportSessionZip(tree);
+    const archive = await JSZip.loadAsync(await blob.arrayBuffer());
+    const entries = Object.keys(archive.files).filter((n) => !archive.files[n].dir);
+
+    // Should contain canonical paths + the JSON snapshot
+    expect(entries).toContain(`${STORE_ROOT}/profile/skill_map.md`);
+    expect(entries).toContain(`${STORE_ROOT}/config/locale.md`);
+    expect(entries).toContain(ZIP_SNAPSHOT_FILENAME);
+
+    // JSON snapshot should be valid and parseable
+    const snapshotText = await archive.file(ZIP_SNAPSHOT_FILENAME)!.async('string');
+    const snapshot = JSON.parse(snapshotText);
+    expect(snapshot.root).toBe('career_agent');
+    expect(snapshot.files).toHaveLength(2);
+  });
+
+  it('round-trips through importZipToTree (snapshot at root is skipped)', async () => {
+    const tree = new MemoryTree({ now: fixedClock });
+    tree.write('profile/skill_map.md', '# My skills');
+    tree.logAction('test');
+
+    const { blob } = await exportSessionZip(tree);
+    const rebuilt = await importZipToTree(blob, { now: fixedClock });
+
+    // The import should contain only the canonical files, not the JSON snapshot
+    expect(rebuilt.paths()).toEqual(tree.paths());
     expect(rebuilt.snapshot()).toEqual(tree.snapshot());
   });
 });

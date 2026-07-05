@@ -181,4 +181,81 @@ describe('skill-map generate', () => {
     const ids = a.entries.map((e) => String(e.id));
     expect(ids).toEqual([...ids].sort());
   });
+
+  it('R71.4/R71.5: education items contribute skills dated by start date', () => {
+    const map = generate(
+      [
+        item('education', {
+          institution: 'MIT',
+          degree: 'MSc Computer Science',
+          start: '2018-09',
+          end: '2020-06',
+          skills: ['Machine Learning', 'Statistics'],
+        }),
+      ],
+      { asOf: AS_OF },
+    );
+
+    const ml = byName(map.entries, 'Machine Learning')!;
+    expect(ml).toBeDefined();
+    expect(ml.category).toBe('Technical');
+    // Education skills are dated by start (when the skill was first encountered).
+    expect(ml.evidence[0].when).toBe(asISODate('2018-09'));
+    expect(ml.since).toBe(asISODate('2018-09'));
+
+    const stats = byName(map.entries, 'Statistics')!;
+    expect(stats).toBeDefined();
+    expect(stats.evidence[0].when).toBe(asISODate('2018-09'));
+    expect(stats.since).toBe(asISODate('2018-09'));
+  });
+
+  it('R71.5: education start date used as since even when end date is present', () => {
+    // Education uses start date (when skill was first used), not end date.
+    const map = generate(
+      [
+        item('education', {
+          institution: 'Stanford',
+          degree: 'BSc',
+          start: '2015-09',
+          end: '2019-06',
+          skills: ['Python'],
+        }),
+        item('employment', {
+          employer: 'Acme',
+          title: 'Dev',
+          technologies: ['Python'],
+          start: '2019-07',
+          end: '2021-12',
+        }),
+      ],
+      { asOf: AS_OF },
+    );
+
+    const py = byName(map.entries, 'Python')!;
+    // since should be the earliest: education start (2015-09) vs employment end (2021-12)
+    expect(py.since).toBe(asISODate('2015-09'));
+  });
+
+  it('R73.4: core_competency items are categorized as Core_Competency', () => {
+    const map = generate(
+      [
+        item('core_competency', { name: 'Stakeholder Management' }),
+        item('core_competency', { name: 'Strategic Planning' }),
+        skill('Python'),
+      ],
+      { asOf: AS_OF },
+    );
+
+    const stakeholder = byName(map.entries, 'Stakeholder Management')!;
+    expect(stakeholder).toBeDefined();
+    expect(stakeholder.category).toBe('Core_Competency');
+
+    const strategic = byName(map.entries, 'Strategic Planning')!;
+    expect(strategic).toBeDefined();
+    expect(strategic.category).toBe('Core_Competency');
+
+    // Regular technical skill still uses the keyword-based categoriser.
+    const py = byName(map.entries, 'Python')!;
+    expect(py.category).toBe('Technical');
+  });
 });

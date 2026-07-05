@@ -33,6 +33,7 @@ export type {
   MatchScore,
   RoleSuggestion,
   SuggestRolesOptions,
+  ScoreMatchOptions,
 } from './role-suggestion';
 
 // Role discovery wired to the shared opt-in-first AssistableOperation (25.2):

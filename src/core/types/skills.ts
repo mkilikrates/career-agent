@@ -13,13 +13,14 @@ export interface MergeRecord {
   reversible: true;
 }
 
-/** Category bucket for a skill-map entry (R14.1). */
+/** Category bucket for a skill-map entry (R14.1, R73.4). */
 export type SkillCategory =
   | 'Technical'
   | 'Leadership'
   | 'Communication'
   | 'Domain'
-  | 'Tools';
+  | 'Tools'
+  | 'Core_Competency';
 
 /** A dated, sourced piece of evidence backing a skill (R14.1, R18.2). */
 export interface SkillEvidence {

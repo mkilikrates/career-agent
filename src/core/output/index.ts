@@ -20,6 +20,8 @@ export type {
   CvBullet,
   CvBulletSource,
   CvEntry,
+  CvEmploymentEntry,
+  CvLanguageEntry,
   ConfirmedEvidence,
 } from './cv-model';
 

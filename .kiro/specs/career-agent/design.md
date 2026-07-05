@@ -1573,3 +1573,160 @@ Used in:
 | `src/ui/SkillMapScreen.tsx` | Add "Since" editable field per skill |
 | `locales/en.json`, `locales/pt-BR.json` | "Since" / "Experience" labels |
 | All tests referencing `recency` | Update to use `since` |
+
+
+### Structured AI Career Extraction — Foundation Map (R71, R73)
+
+The current AI skill-discovery prompt asks for a flat comma-separated list of skill names. The enhanced extraction asks for a **rich, ATS-compatible structured JSON career profile** that captures positions, education, skills with per-position mapping, core competencies, hobbies, causes, languages, and any other CV-relevant information — so the skill map becomes a rich graph and CV generation has maximum evidence.
+
+#### AI extraction prompt strategy
+
+A single prompt (or chunked, for large documents) asks the model to extract structured data in a rich ATS-compatible JSON schema:
+
+```
+You are analysing a person's career documents. Extract a comprehensive,
+ATS-compatible structured career profile in JSON format. Return ONLY a JSON
+object with the following structure:
+
+{
+  "professional_summary": "A concise 2-3 sentence professional profile statement",
+  "positions": [
+    {
+      "title": "Senior DevOps Engineer",
+      "company": "Company B",
+      "start": "2018-03",
+      "end": "2023-01",
+      "location": "Berlin, Germany",
+      "description": "Brief role summary if evident from the documents",
+      "skills": ["Kubernetes", "Terraform", "AWS", "CI/CD"],
+      "achievements": ["Reduced deployment time by 60%"]
+    }
+  ],
+  "education": [
+    {
+      "degree": "MBA",
+      "institution": "University X",
+      "start": "2015",
+      "end": "2017",
+      "skills": ["Leadership", "Strategy", "Project Management"]
+    }
+  ],
+  "technical_skills": ["Python", "Docker"],
+  "core_competencies": ["Leadership", "Stakeholder Management", "Strategic Planning"],
+  "languages": [
+    { "language": "English", "proficiency": "Native" },
+    { "language": "Portuguese", "proficiency": "Fluent" }
+  ],
+  "hobbies": ["Open source contribution", "Mountain biking"],
+  "causes": ["Cloud native mentoring", "Diversity in tech"],
+  "additional_info": [
+    { "category": "Publications", "items": ["Article on Kubernetes patterns"] }
+  ]
+}
+
+Rules:
+- Extract ONLY what the documents state — do not invent dates, companies, or
+  skills not present in the text.
+- For each position, list the skills/technologies that were USED in that role
+  and any quantified achievements mentioned.
+- For education, list skills GAINED from that course/degree.
+- "technical_skills" is for skills mentioned but not tied to a specific
+  position or education.
+- "core_competencies" is for soft skills, leadership qualities, and
+  professional competencies — distinct from technical skills.
+- "languages" is for spoken/written language proficiency.
+- "hobbies" and "causes" capture interests, volunteering, and community
+  involvement mentioned in the documents.
+- "additional_info" captures any other CV-relevant categories you identify
+  (publications, certifications not in education, awards, etc.).
+- Use ISO date format (YYYY-MM or YYYY-MM-DD) when dates are available.
+- When a date or field cannot be determined, omit that field entirely.
+```
+
+#### Parsing the response
+
+A tolerant JSON parser (same strategy as STAR questions: locate JSON anywhere in the reply, tolerate fences/preamble) extracts the structured response into:
+- `employment`-type `ExtractedItem`s with `fields: { title, employer, start, end, location, description, technologies, achievements }`
+- `education`-type `ExtractedItem`s with `fields: { degree, institution, start, end, skills }`
+- `skill`-type `ExtractedItem`s for standalone technical skills
+- `core_competency`-type `ExtractedItem`s for soft skills / competencies
+- `hobby`-type `ExtractedItem`s for hobbies and interests
+- `cause`-type `ExtractedItem`s for volunteering, causes, community
+- `language_proficiency`-type `ExtractedItem`s with `fields: { language, proficiency }`
+- `professional_summary`-type `ExtractedItem` for the profile statement
+- `additional_info`-type `ExtractedItem`s for anything else the model surfaces
+
+All items tagged `confidence: 'Medium'` (user must confirm). The schema is extensible: any unrecognised top-level key with array content is parsed as `additional_info` items.
+
+#### Skill map linkage
+
+Each `SkillMapEntry` gains evidence entries referencing the position/education that used it, with the position's date as the evidence `when`. The `since` derivation then naturally picks the earliest position/education start date. Core competencies are stored as skills with `category: 'core_competency'` so they appear in a distinct section.
+
+#### CV model enhancement
+
+`buildCvModel()` gains:
+- An employment-section builder that groups positions by company/date with achievements and talking points slotted under the relevant position
+- A core-competencies section (distinct from technical skills)
+- Optional sections for languages, hobbies, causes, and additional info — each only rendered if the user has confirmed items in that category
+
+```
+## Professional Summary
+[Profile statement]
+
+## Core Competencies
+Leadership · Stakeholder Management · Strategic Planning
+
+## Experience
+
+### Senior DevOps Engineer — Company B (Mar 2018 – Jan 2023)
+- [Talking point about Kubernetes migration]
+- [Achievement: Reduced deployment time by 60%]
+
+### Network Engineer — Company A (Jan 2010 – Feb 2018)
+- [Talking point about network design]
+
+## Education
+...
+
+## Languages
+English (Native) · Portuguese (Fluent)
+
+## Interests & Community
+Mountain biking · Cloud native mentoring
+```
+
+When no talking points exist for a position, the position still appears (with its title/company/dates) and any technologies/achievements listed.
+
+#### Integration with existing flow
+
+- In **AI-only mode**: the structured extraction replaces the flat skill-name discovery; all employment/education/skill/competency items come from the AI
+- In **Both mode**: the structured extraction supplements the deterministic parser's results
+- In **Script-only mode**: only `extractFromText()` runs (limited, but that's the user's choice)
+- The user **reviews everything** before it enters the map — same confirm/edit/delete UI extended with new categories
+- The existing extraction result schema is **replaced** (no backward compat); previously-persisted extraction data will be re-extracted on next AI-assist run
+
+### Zip Export with Session Import (R72)
+
+#### Export
+
+The existing "Save & Exit" produces only a JSON snapshot. The new "Download session" action uses JSZip (already a dependency) to build a `.zip` containing:
+- Each Memory Store file as a real Markdown file at its canonical path (`config/locale.md`, `profile/skill_map.md`, etc.)
+- The JSON snapshot at the root (`career-agent-memory-store.json`)
+- Any generated output files (`outputs/cv_*.md`, etc.)
+
+Filename: `career-agent-YYYY-MM-DD.zip` (timestamp of export).
+
+#### Import from Welcome
+
+The Welcome Page gains a second action: "Import a previous session" — a file-picker accepting `.zip` or `.json`. On import:
+1. Parse the file (zip → extract files into MemoryTree; JSON → `store.importSnapshot()`)
+2. Hydrate pipeline state from the restored store (same as `hydrateFromStore()`)
+3. Transition to the Resume Screen (R69) — "Welcome back, you were at [phase]"
+
+The import is non-destructive: if it fails (corrupt file, wrong format), the app stays on the Welcome Page with an error message and no data is lost.
+
+#### Accessible from
+
+- **Welcome Page**: "Import a previous session" (first-run / fresh browser)
+- **Memory phase**: "Download session as zip" + "Import session" (existing import path)
+- **Save & Exit flow**: option to download zip instead of just JSON

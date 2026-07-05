@@ -13,6 +13,7 @@
 
 import { useState } from 'react';
 import { MemoryTree } from '@core/storage';
+import { exportSessionZip } from '../adapters/memory-store-zip';
 import { Button, Row, EmptyState, ErrorState, Banner } from './design-system';
 
 export interface MemoryScreenProps {
@@ -42,11 +43,34 @@ export function MemoryScreen({ store, onChanged, t }: MemoryScreenProps) {
     setStatus(t('memory.exported'));
   };
 
+  const handleExportZip = async () => {
+    try {
+      const { blob, filename } = await exportSessionZip(store);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setError('');
+      setStatus(t('memory.exportedZip'));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleImport = async (file: File | undefined) => {
     if (!file) return;
     try {
-      const text = await file.text();
-      store.loadSnapshot(JSON.parse(text));
+      if (file.name.endsWith('.zip') || file.type === 'application/zip') {
+        const { importZipToTree } = await import('../adapters/memory-store-zip');
+        const blob = new Blob([await file.arrayBuffer()], { type: 'application/zip' });
+        const importedTree = await importZipToTree(blob);
+        store.loadSnapshot(importedTree.snapshot());
+      } else {
+        const text = await file.text();
+        store.loadSnapshot(JSON.parse(text));
+      }
       onChanged();
       setError('');
       setStatus(t('memory.imported', { count: store.paths().length }));
@@ -64,12 +88,13 @@ export function MemoryScreen({ store, onChanged, t }: MemoryScreenProps) {
 
       <Row>
         <Button onClick={handleExport}>{t('memory.export')}</Button>
+        <Button onClick={() => void handleExportZip()}>{t('memory.exportZip')}</Button>
         <label>
           {t('memory.import')}{' '}
           <input
             type="file"
             aria-label={t('memory.import')}
-            accept=".json,application/json"
+            accept=".json,application/json,.zip,application/zip"
             onChange={(e) => {
               void handleImport(e.target.files?.[0]);
               e.target.value = '';

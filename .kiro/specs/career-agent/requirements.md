@@ -224,6 +224,7 @@ The product's defining promise is trust: user files never leave the device, and 
 4. WHEN the user confirms the skill map, THE Skill_Mapper SHALL save the skill map to the Memory Store before advancing.
 5. BEFORE the Skill_Mapper generates the skill map, THE Skill_Mapper SHALL present the opt-in-first choice defined in Requirement 47 for the user to select either script-only extraction or script extraction with additional AI assist.
 6. WHERE the user selects script-only extraction, THE Skill_Mapper SHALL generate the complete skill map using deterministic extraction alone and SHALL make no provider call.
+7. WHERE the user selects AI-assisted or AI-only extraction, THE Skill_Mapper SHALL use the structured career extraction defined in Requirement 71 to produce employment, education, and skill items that link each skill to the positions and courses where it was used.
 
 ### Requirement 15: Conservative Skill Normalisation
 
@@ -291,6 +292,7 @@ The product's defining promise is trust: user files never leave the device, and 
 4. BEFORE the Role_Matcher generates suggested roles, THE Role_Matcher SHALL present an opt-in-first choice for the user to select either script-only role discovery or role discovery with additional AI assist.
 5. WHERE the user selects script-only role discovery, THE Role_Matcher SHALL generate suggested roles using deterministic matching alone and SHALL make no provider call.
 6. WHERE the user opts in to AI assist for role discovery, THE Role_Matcher SHALL build the role-discovery payload from the skill map, SHALL exclude every employer and company name from the payload, and SHALL include the approximate duration of experience for each skill so the chosen model can infer a level of experience.
+7. WHEN computing match scores for user-added roles, THE Role_Matcher SHALL use the structured employment data from Requirement 71 (skills per position, experience duration) to compute meaningful matched/gap skill sets, rather than leaving them empty.
 
 ### Requirement 21: Role Preference Capture
 
@@ -417,6 +419,7 @@ The product's defining promise is trust: user files never leave the device, and 
 5. WHEN the user requests a CV, THE Output_Engine SHALL first ask the user whether the user has a Target Opportunity to tailor the CV toward.
 6. WHERE the user indicates a Target Opportunity, THE Output_Engine SHALL allow the user to upload or paste the job posting details and SHALL offer AI-assisted tailoring of the CV to that Target Opportunity using only confirmed evidence from the confirmed skill map and interview files.
 7. WHERE the user declines a Target Opportunity, declines AI assistance, or the AI tailoring request fails, THE Output_Engine SHALL generate the CV using script-only generation from the confirmed evidence and SHALL indicate that script-only generation was used.
+8. THE Output_Engine SHALL structure the CV experience section using the employment positions extracted per Requirement 71, grouping accomplishments and talking points under the relevant position (by date range or skill overlap), so the output reads as a chronological work history rather than a flat list of bullets.
 8. WHEN AI-assisted tailoring is performed, THE Output_Engine SHALL exclude any skill, metric, date, title, or employer name not present in confirmed evidence, including any such item appearing only in the Target Opportunity text, consistent with the No-Fabrication Rule in Requirement 37.
 9. WHEN the user supplies a Target Opportunity, THE Output_Engine SHALL pass the Target Opportunity text through the Egress Gate with PII pre-screening as defined in Requirement 6, and SHALL treat the Target Opportunity text only as a tailoring target and never as a claim source.
 10. WHERE the destination is a keyed cloud (third-party) provider, THE Output_Engine SHALL exclude every item marked private from the payload, consistent with Requirement 46.4.
@@ -615,6 +618,7 @@ The product's defining promise is trust: user files never leave the device, and 
 6. WHEN the user confirms an AI-discovered skill, THE Career_Agent SHALL record the skill with user-confirmation provenance, consistent with the No-Fabrication Rule.
 7. BEFORE the deterministic skill extraction runs during skill mapping, THE Skill_Mapper SHALL present an opt-in-first choice for the user to select either script-only extraction or script extraction with additional AI assist.
 8. WHERE the user selects script-only extraction, THE Skill_Mapper SHALL produce a complete skill map using deterministic extraction alone and SHALL make no provider call for skill discovery, preserving a complete script-only path.
+9. WHERE the user selects AI-assisted or AI-only extraction, THE AI discovery SHALL use the structured career extraction defined in Requirement 71, extracting employment, education, and skills as a structured timeline rather than a flat skill-name list.
 
 ### Requirement 48: Six-Phase Wizard Interface and Phase Status
 
@@ -862,6 +866,7 @@ The product's defining promise is trust: user files never leave the device, and 
 6. THE Welcome Page SHALL provide a single "Get started" action that advances the user to provider setup.
 7. ON subsequent visits (a persisted session exists), THE Career_Agent SHALL skip the Welcome Page and proceed directly to the resume/continue screen per Requirement 69.
 8. THE Welcome Page SHALL be presented in the Session Language the user confirmed in Requirement 41, so the page is fully localised.
+9. THE Welcome Page SHALL provide an "Import a previous session" action that allows the user to upload a previously-exported zip or JSON file and restore their session, per Requirement 72.6.
 
 ### Requirement 67: Card-Based Phase Navigation
 
@@ -915,3 +920,53 @@ The product's defining promise is trust: user files never leave the device, and 
 5. WHERE the skill map is loaded from a previously-saved Memory Store that contains a `recency` field but no `since` field, THE Skill_Mapper SHALL migrate the entry by using the earliest evidence date (or the `recency` value if no evidence exists) as the initial `since` value, so that existing user data is preserved without loss.
 6. THE Interview_Coach SHALL use the experience duration (years computed from `since`) in the candidate profile sent with the STAR question prompt, so that the model calibrates question depth to actual experience rather than document recency.
 7. THE Role_Matcher SHALL use the experience duration (computed from `since`) when building the role-discovery payload, so that approximate years of experience are correctly conveyed to the model for level inference.
+
+
+### Requirement 71: Structured AI Career Extraction (Foundation Map)
+
+**User Story:** As a user, I want the AI to understand my full career documents and extract a structured timeline — positions (with company, title, dates, skills used), education (with institution, degree, dates, skills gained), and standalone skills — so that the skill map is a rich foundation linking each skill to where and when I used it, enabling accurate role matching, coaching calibration, and CV generation.
+
+#### Acceptance Criteria
+
+1. WHEN the user uploads documents and selects AI-only or AI-assisted mode, THE Career_Agent SHALL send the full document text to the AI and request extraction of a structured career timeline, not merely a flat list of skill names.
+2. THE AI extraction prompt SHALL request: (a) employment positions with title, company, start date, end date, and skills/technologies used in each position; (b) education entries with institution, degree/course, start date, end date, and skills gained; (c) standalone skills not tied to a specific position or course.
+3. THE Career_Agent SHALL parse the AI response into structured `ExtractedItem` objects of types `employment`, `education`, and `skill`, each carrying the appropriate fields (dates, employer/institution, technologies/skills used).
+4. THE Skill_Mapper SHALL link each skill in the skill map to the positions and education entries where it was used, so the user can see for any skill which jobs and courses evidenced it.
+5. THE Skill_Mapper SHALL derive the `since` date for each skill from the earliest position or education start date in which that skill appears, replacing the current flat date derivation.
+6. THE Career_Agent SHALL present the structured extraction (positions, education, skills) to the user for review and correction before it enters the skill map, consistent with Requirement 12.
+7. THE CV generation SHALL use the extracted employment structure (positions with company, title, dates) as the CV skeleton, placing confirmed talking points and accomplishments under the appropriate position, rather than generating a flat list of bullets.
+8. THE role-discovery scoring SHALL use the structured employment data (skills per position, experience duration per skill) to compute meaningful match scores and level inference, replacing the current 0% fallback when roles are user-added.
+9. WHEN the AI cannot determine a date or field from the document, THE Career_Agent SHALL leave that field empty and allow the user to fill it in during review (R70.3 principle).
+10. THE AI extraction SHALL be tolerant of varied document formats and languages, and SHALL extract what it can determine from the evidence without inventing information not present in the source (No-Fabrication Rule, R37).
+
+### Requirement 72: Zip Export with All Session Files
+
+**User Story:** As a user who may lose browser data or want to continue on another computer, I want to download my full session as a zip file containing the JSON snapshot and all individual Markdown files, so that I have a complete portable backup I can re-import anywhere.
+
+#### Acceptance Criteria
+
+1. THE Career_Agent SHALL offer a "Download session" action (in addition to the existing JSON-only "Save & Exit") that produces a `.zip` archive containing all Memory Store files as individual Markdown files in their canonical directory structure, plus the `career-agent-memory-store.json` snapshot at the root.
+2. THE zip archive SHALL preserve the canonical directory structure (`config/`, `profile/`, `interviews/`, `outputs/`, `log/`) so the files are human-browseable outside the app.
+3. THE Career_Agent SHALL allow importing a previously-exported `.zip` archive or JSON snapshot to restore the full session, consistent with the existing Requirement 3.4 import mechanism.
+4. THE "Download session" action SHALL be accessible from the Memory phase and from the Save & Exit flow so the user can obtain the zip at any time.
+5. THE zip archive SHALL be named with a timestamp (e.g. `career-agent-2026-07-04.zip`) so multiple exports don't overwrite each other.
+6. THE Welcome Page SHALL offer an "Import a previous session" action alongside "Get started", so a user who has a previously-exported zip or JSON file can restore their session without starting from scratch.
+7. WHEN the user imports a session from the Welcome Page, THE Career_Agent SHALL restore the Memory Store from the imported file and proceed to the Resume Screen (R69) as if the session had been persisted in the browser.
+
+
+### Requirement 73: Rich ATS-Compatible Career Extraction Schema
+
+**User Story:** As a user, I want the AI extraction to return a richer, ATS-compatible JSON structure that captures not only positions, education, and technical skills, but also core competencies, per-position skill mapping, hobbies, causes, and any other CV-relevant information the model can surface from my documents, so that CV generation has the richest possible evidence base.
+
+#### Acceptance Criteria
+
+1. THE AI extraction prompt SHALL request a response conforming to an ATS-compatible JSON schema that includes, in addition to the fields in Requirement 71.2: (a) core competencies / soft skills (e.g. leadership, stakeholder management, strategic planning) distinct from technical skills; (b) per-position skill mapping that explicitly lists which skills were used in each position; (c) hobbies and interests; (d) causes, volunteering, and community involvement; (e) languages spoken with proficiency level; (f) professional summary / profile statement; (g) any other CV-relevant information the model identifies in the source documents.
+2. THE Career_Agent SHALL parse the AI response into structured `ExtractedItem` objects for each new category (`core_competency`, `hobby`, `cause`, `language_proficiency`, `professional_summary`), in addition to the existing `employment`, `education`, and `skill` types.
+3. THE Career_Agent SHALL present all extracted categories to the user for review and explicit confirmation before any item enters the knowledge base, consistent with the confirm-before-entry pattern in Requirements 12 and 47.3.
+4. THE Skill_Mapper SHALL distinguish core competencies from technical skills in the skill map, preserving the distinction in the persisted `skill_map.md` so CV generation can render them in separate sections.
+5. THE Output_Engine SHALL use the additional extracted categories (hobbies, causes, languages, professional summary) when generating a CV, placing them in appropriate ATS-standard sections, but SHALL include each category only when the user has confirmed its items.
+6. THE extraction schema SHALL be extensible so that if the AI surfaces additional CV-relevant categories not explicitly listed, those items are captured under a generic `additional_info` type and presented for user review rather than silently discarded.
+7. THE extraction prompt SHALL instruct the model to map each skill (technical and core competency) to the specific positions where it was demonstrated, so the skill map carries per-position provenance.
+8. THE Career_Agent SHALL NOT include any extracted item from the new categories in any output unless the user has explicitly confirmed it, consistent with the No-Fabrication Rule in Requirement 37.
+9. WHERE the model cannot determine a category or field from the document, THE Career_Agent SHALL leave that field empty and allow the user to fill it in during review, consistent with Requirement 71.9.
+10. THE extraction schema evolution SHALL replace the existing Requirement 71 schema freely (no backward compatibility with previous extraction results required), and any previously-persisted extraction data SHALL be re-extracted on the next AI-assist run.

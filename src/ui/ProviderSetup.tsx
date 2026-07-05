@@ -238,7 +238,9 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
         const prior = localCfg.model;
         const pick = result.models.includes(prior) ? prior : result.models[0];
         setSelectedModel(pick);
-        updateLocalField({ model: pick });
+        // Persist the model without resetting the success status.
+        setLocalCfg((prev) => ({ ...prev, model: pick }));
+        setLocalConfig({ model: pick });
       }
     } catch (error) {
       setStatus({ kind: 'error', reason: error instanceof Error ? error.message : String(error) });

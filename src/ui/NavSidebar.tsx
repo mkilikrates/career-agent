@@ -23,6 +23,8 @@ export interface NavSidebarProps {
   readonly onGoToSettings: () => void;
   /** Trigger Save & Exit (Memory Store export). */
   readonly onSaveExit: () => void;
+  /** Trigger Save & Exit as zip (R72.4). */
+  readonly onSaveExitZip?: () => void;
   /** Bound i18n translator. */
   readonly t: (key: string, options?: Record<string, unknown>) => string;
 }
@@ -33,6 +35,7 @@ export function NavSidebar({
   onPhaseSelect,
   onGoToSettings,
   onSaveExit,
+  onSaveExitZip,
   t,
 }: NavSidebarProps) {
   return (
@@ -63,6 +66,11 @@ export function NavSidebar({
         <Button variant="secondary" onClick={onSaveExit} style={{ width: '100%' }}>
           💾 {t('saveExit.button')}
         </Button>
+        {onSaveExitZip && (
+          <Button variant="secondary" onClick={onSaveExitZip} style={{ width: '100%' }}>
+            📦 {t('saveExit.downloadZip')}
+          </Button>
+        )}
       </div>
     </aside>
   );
