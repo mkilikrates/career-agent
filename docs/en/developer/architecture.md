@@ -97,6 +97,43 @@ The chosen mode is a single pipeline-wide preference, surfaced up front on Inges
 
 The executable backbone of the No-Fabrication Rule: a CI suite over a fixture library (including sparse and adversarial profiles) that extracts every factual claim from generated output, resolves each against the provenance index, and fails the build on any unresolved claim or invented skill/tool. New output paths must be covered by it.
 
+## Transparency principles
+
+Career Agent is built around full transparency of automated decisions. Nothing the system does to your data is hidden — every outbound request and every post-processing transformation is surfaced in the UI so you can inspect, verify, and override.
+
+### Egress Transparency
+
+Every outbound request through the Egress Gate is fully transparent to the user:
+
+- **Egress logging.** Every prompt sent and response received — regardless of provider type (cloud or local) — is persisted to `log/egress_log.md` in the Memory Store. Each `EgressLogEntry` contains:
+  - Timestamp (ISO 8601)
+  - Provider destination (e.g. `openai`, `anthropic`, `local`)
+  - Operation kind (e.g. `chat`, `stt`, `skill-discovery`, `role-discovery`, `star-questions`, `coaching-loop`, `cv-tailoring`)
+  - Full prompt text sent
+  - Full response text received
+
+  Entries are stored in a machine-readable Markdown format (one section per entry). For very large payloads (>10KB), the in-UI display truncates but the persisted log always contains the full text. The log is viewable from the Memory & Maintenance phase screen as a read-only chronological view.
+
+- **Prompt preview for all providers.** For keyed cloud providers the Payload Preview gate shows the exact outbound text before transmission and the user can edit or cancel. For keyless local providers an informational (non-blocking) preview shows the same text with a "this stays on your device" label, so users can always inspect what the model sees regardless of provider type.
+
+- **Operation labelling.** Every provider call is labelled in the UI before it runs — either as a "third-party network call" (cloud) or a "local on-device call" (local) — so the user always knows where their data is going.
+
+### Inference Transparency
+
+Every automated post-processing decision is surfaced in the review UI:
+
+- **Date normalisation annotations.** When `normalizeDate()` converts a natural-language date to ISO format (e.g. "March 2020" → "2020-03"), the Skill Map review screen shows the original value alongside the normalised result in a "Post-processing" section. Each transformation is also logged to the session log.
+
+- **Compound skill splitting annotations.** When `splitCompoundSkills()` expands a compound entry (e.g. "AWS SAM (Python, Lambda)" → "AWS SAM", "Python", "Lambda"), the review screen displays what was split so the user can verify and override.
+
+- **Editable skill categories.** Each skill's regex-assigned category (Technical, Leadership, Communication, Domain, Tools, Core Competency) is shown in the Skill Map review with a dropdown to override it. The user has the final word on how their skills are categorised.
+
+- **Merge rationale display.** When the Skill Mapper normalises two terms (e.g. "k8s" → "Kubernetes"), the merge rationale is surfaced in the review UI showing what was merged and why. The user can reject any merge with a one-click undo.
+
+- **Bullet-to-position matching rationale.** In the Output screen, each CV bullet can be expanded to show why it was placed under a given position — the matching is based on skill overlap between the bullet's evidence links and the position's technologies (e.g. "Matched via skill overlap: Kubernetes, Docker").
+
+- **AI-only mode clarity.** When the user selects AI-only mode, the UI clearly labels what is happening at each phase: the Skill Map explains that it is building from AI-extracted career data, the Output screen explains that CV structure comes from confirmed evidence with AI tailoring as advisory suggestions, and Role Discovery explains that suggestions are AI-generated from the confirmed skill map.
+
 ## Storage tiers
 
 A single `Storage_Adapter` interface with two capability-detected tiers:

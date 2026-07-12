@@ -174,6 +174,20 @@
     "experienceYears": "~{{years}} anos",
     "save": "Salvar mapa de competências",
     "saved": "Mapa de competências salvo no Repositório de Memória.",
+    "category": {
+      "label": "Categoria",
+      "Technical": "Técnica",
+      "Leadership": "Liderança",
+      "Communication": "Comunicação",
+      "Domain": "Domínio",
+      "Tools": "Ferramentas",
+      "Core_Competency": "Competência Essencial"
+    },
+    "merge": {
+      "heading": "Justificativa da mesclagem",
+      "merged": "Mesclado: {{from}} → \"{{into}}\"",
+      "revert": "Desfazer mesclagem"
+    },
     "ai": {
       "optIn": "Usar IA para sugerir mais competências (opcional)",
       "note": "Opcional: apenas itens não privados são enviados, PII é verificada antes, e seus dados não são usados para treinamento a menos que você consinta. As sugestões precisam da sua confirmação para valer.",
@@ -187,6 +201,7 @@
       "added": "{{count}} competência(s) confirmada(s) adicionada(s). Gere o mapa novamente para incluí-las.",
       "none": "A IA não sugeriu novas competências."
     },
+    "aiOnlyLabel": "Construindo seu mapa de competências a partir de dados de carreira extraídos pela IA.",
     "extraction": {
       "heading": "Extração estruturada de carreira",
       "review": "Revise a extração estruturada da sua linha do tempo profissional feita pela IA antes de entrar no mapa de competências.",
@@ -224,6 +239,14 @@
         "intro": "As seguintes competências parecem ser duplicatas. Você pode mesclá-las ou mantê-las separadas.",
         "merge": "Mesclar",
         "keep": "Manter separadas"
+      },
+      "postProcessing": {
+        "heading": "Pós-processamento",
+        "intro": "Os seguintes valores foram normalizados durante a extração. Datas foram padronizadas para formato ISO e competências compostas foram separadas em entradas individuais.",
+        "dateLabel": "Data normalizada",
+        "splitLabel": "Competência separada",
+        "dateLog": "Pós-processamento: data normalizada \"{{original}}\" → \"{{normalized}}\"",
+        "splitLog": "Pós-processamento: competência composta separada \"{{original}}\" → \"{{normalized}}\""
       }
     }
   },
@@ -260,7 +283,8 @@
       "duplicate": "\"{{title}}\" já está nas suas vagas.",
       "advisory": "Estas são sugestões da IA. As vagas adicionadas são pontuadas em relação às suas competências reais; nada é inventado nas suas saídas.",
       "none": "A IA não recomendou nenhuma vaga."
-    }
+    },
+    "aiOnlyLabel": "Sugestões de vagas são geradas pela IA a partir do seu mapa de competências confirmado."
   },
   "coaching": {
     "heading": "Treino de entrevista",
@@ -379,6 +403,8 @@
     "linkedInHeading": "Relatório de melhoria do LinkedIn (consultivo)",
     "save": "Salvar saídas no Repositório de Memória",
     "saved": "Seu currículo e relatório do LinkedIn foram salvos no Repositório de Memória.",
+    "autoSaved": "Currículo salvo automaticamente no Repositório de Memória.",
+    "autoSaveFailed": "Falha ao salvar automaticamente — use o botão Salvar para tentar novamente.",
     "scriptOnlyUsed": "A geração foi feita apenas por script — seu currículo foi montado de forma determinística a partir das suas evidências confirmadas, sem chamada de IA.",
     "aiTailoredUsed": "A personalização assistida por IA foi usada. Seu currículo continua sendo montado apenas a partir das suas evidências confirmadas; as notas da IA abaixo são orientativas.",
     "opportunity": {
@@ -405,6 +431,14 @@
       "working": "Perguntando à IA…",
       "heading": "Sugestões de personalização da IA (orientativas)",
       "advisory": "Estas são sugestões orientativas da IA. Seu currículo é montado apenas a partir das evidências confirmadas; nada aqui o altera, a menos que você aplique."
+    },
+    "aiOnlyLabel": "Estrutura do currículo construída a partir das suas evidências confirmadas; a personalização por IA fornece sugestões orientativas.",
+    "matchRationale": {
+      "heading": "Detalhes do vínculo bullet–cargo",
+      "description": "Cada bullet abaixo é colocado sob seu cargo com base na sobreposição de competências entre os vínculos de evidência do bullet e as tecnologias do cargo.",
+      "position": "Cargo: {{title}} em {{company}}",
+      "noRationale": "Sem justificativa de vínculo (bullet sem correspondência)",
+      "toggleLabel": "Mostrar justificativa de vínculo"
     }
   },
   "memory": {
@@ -420,6 +454,12 @@
     "noFiles": "Nenhum arquivo armazenado ainda.",
     "logHeading": "Registro da sessão",
     "noLog": "Nenhuma atividade de sessão registrada ainda.",
+    "egressLogHeading": "Registro de saída (egress)",
+    "noEgressLog": "Nenhuma atividade de saída registrada ainda.",
+    "egressRedacted": "redigido",
+    "egressDetails": "Mostrar prompt e resposta",
+    "egressPromptLabel": "Prompt",
+    "egressResponseLabel": "Resposta",
     "error": "Não foi possível importar esse snapshot: {{reason}}.",
     "errorRecovery": "Verifique se o arquivo é um snapshot válido do Agente de Carreira e tente importar novamente. Seu Repositório de Memória atual permanece inalterado."
   },
@@ -437,10 +477,14 @@
   },
   "payloadPreview": {
     "heading": "Revise o que será enviado",
+    "headingLocal": "Pré-visualização: prompt enviado ao provedor local",
     "intro": "Antes que este texto seja enviado para {{provider}}, revise-o abaixo. Você pode editar ou remover qualquer conteúdo que não queira transmitir. Apenas o texto que você aprovar será enviado — e ele ainda passa pela filtragem de PII antes de sair do seu dispositivo.",
+    "introLocal": "Este é o texto sendo enviado para {{provider}} no seu dispositivo. Você pode revisá-lo abaixo para transparência.",
+    "localLabel": "Isto permanece no seu dispositivo — nenhum dado é enviado a terceiros.",
     "textareaLabel": "Texto a ser enviado",
     "approve": "Aprovar e enviar",
-    "cancel": "Cancelar — não enviar nada"
+    "cancel": "Cancelar — não enviar nada",
+    "dismiss": "OK"
   },
   "messages": {
     "saved": "Salvo.",

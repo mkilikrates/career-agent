@@ -17,15 +17,19 @@ import {
   asISODate,
   asItemId,
   experienceYears,
+  SKILL_CATEGORIES,
   type ExtractedItem,
+  type RolePreference,
+  type SkillCategory,
 } from '@core/types';
 import { trailOf, userConfirmation } from '@core/provenance';
 import { MemoryTree } from '@core/storage';
 import {
   generate,
   saveSkillMap,
+  splitMerge,
   buildCareerExtractionPrompt,
-  parseCareerExtraction,
+  parseCareerExtractionWithTracking,
   mergeCareerExtractions,
   careerExtractionToItems,
   suggestAiDedups,
@@ -34,7 +38,9 @@ import {
   type SkillMap,
   type CareerExtraction,
   type DedupSuggestion,
+  type PostProcessingTransformation,
 } from '@core/skills';
+import { rescorePreferences, saveRolePreferences } from '@core/role-matcher';
 import { type AssistMode, type EgressDestination } from '@core/assist';
 import { AssistChoice } from './AssistChoice';
 import {
@@ -44,6 +50,7 @@ import {
   Card,
   EmptyState,
   LoadingIndicator,
+  Select,
   Stack,
   TextArea,
   tokens,
@@ -56,6 +63,10 @@ export interface SkillMapScreenProps {
   /** Append user-confirmed items (e.g. AI-suggested, user-accepted skills). */
   readonly onAddExtractions: (added: ExtractedItem[]) => void;
   readonly store: MemoryTree;
+  /** Current role preferences for re-scoring when the skill map changes (R77.1). */
+  readonly rolePrefs?: readonly RolePreference[];
+  /** Update role preferences after re-scoring (R77.1). */
+  readonly onRolePrefs?: (prefs: RolePreference[]) => void;
   /** Whether an AI provider key is configured (opt-in assist, R42.1). */
   readonly aiAvailable: boolean;
   /** Routes a prompt through the Egress Gate; returns the model's text. */
@@ -112,6 +123,8 @@ export function SkillMapScreen({
   onSkillMap,
   onAddExtractions,
   store,
+  rolePrefs,
+  onRolePrefs,
   aiAvailable,
   aiAssist,
   chatProvider = null,
@@ -137,6 +150,8 @@ export function SkillMapScreen({
   const [extractionSelected, setExtractionSelected] = useState<Set<string>>(new Set());
   const [dedupSuggestions, setDedupSuggestions] = useState<DedupSuggestion[]>([]);
   const [dedupDecisions, setDedupDecisions] = useState<Map<string, 'merge' | 'keep'>>(new Map());
+  // Post-processing transformation records (R75.1, R75.2, R75.6).
+  const [postProcessing, setPostProcessing] = useState<PostProcessingTransformation[]>([]);
 
   const handleGenerate = () => {
     // The reviewed list that feeds the map depends on the discovery mode:
@@ -186,6 +201,12 @@ export function SkillMapScreen({
       await saveSkillMap(store, skillMap);
       store.logConfirmation(`Saved skill map (${skillMap.entries.length} skills).`);
       setStatus(t('skillMap.saved'));
+      // Re-score role preferences against the updated skill map (R77.1, R77.2).
+      if (rolePrefs && rolePrefs.length > 0 && onRolePrefs) {
+        const rescored = rescorePreferences(rolePrefs, skillMap);
+        onRolePrefs(rescored);
+        await saveRolePreferences(store, rescored);
+      }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     }
@@ -214,10 +235,13 @@ export function SkillMapScreen({
 
       // Run the extraction prompt on each chunk and merge results.
       const chunkExtractions: CareerExtraction[] = [];
+      const allTransformations: PostProcessingTransformation[] = [];
       for (const chunk of chunks) {
         const prompt = buildCareerExtractionPrompt(chunk);
         const reply = await aiAssist(prompt);
-        chunkExtractions.push(parseCareerExtraction(reply));
+        const { extraction: chunkExtraction, transformations } = parseCareerExtractionWithTracking(reply);
+        chunkExtractions.push(chunkExtraction);
+        allTransformations.push(...transformations);
       }
       const merged = mergeCareerExtractions(chunkExtractions);
       const items = careerExtractionToItems(merged);
@@ -236,6 +260,15 @@ export function SkillMapScreen({
         setExtractionSelected(new Set(items.map((it) => it.id as unknown as string)));
         setDedupSuggestions(dedups);
         setDedupDecisions(new Map());
+        // Store post-processing transformations for display (R75.1, R75.2, R75.6).
+        setPostProcessing(allTransformations);
+        // Log each transformation to the session log (R75.6).
+        for (const tx of allTransformations) {
+          const label = tx.kind === 'date-normalisation'
+            ? t('skillMap.extraction.postProcessing.dateLog', { original: tx.original, normalized: tx.normalized })
+            : t('skillMap.extraction.postProcessing.splitLog', { original: tx.original, normalized: tx.normalized });
+          store.logAction(label);
+        }
       }
     } catch (error) {
       setAiError(error instanceof Error ? error.message : String(error));
@@ -278,6 +311,7 @@ export function SkillMapScreen({
     setCareerExtraction(null);
     setExtractionItems([]);
     setDedupSuggestions([]);
+    setPostProcessing([]);
   };
 
   const toggleSuggestion = (name: string) =>
@@ -666,6 +700,30 @@ export function SkillMapScreen({
                 </>
               ) : null}
 
+              {postProcessing.length > 0 ? (
+                <>
+                  <h5>{t('skillMap.extraction.postProcessing.heading')}</h5>
+                  <p><small>{t('skillMap.extraction.postProcessing.intro')}</small></p>
+                  <ul>
+                    {postProcessing.map((tx, i) => (
+                      <li key={`pp-${i}`}>
+                        <Badge>{tx.kind === 'date-normalisation'
+                          ? t('skillMap.extraction.postProcessing.dateLabel')
+                          : t('skillMap.extraction.postProcessing.splitLabel')}</Badge>{' '}
+                        <small>
+                          {tx.original} → {tx.normalized}
+                        </small>
+                        {tx.context ? (
+                          <small style={{ color: tokens.colour.muted, marginLeft: tokens.spacing.xs }}>
+                            ({tx.context})
+                          </small>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+
               <Button onClick={handleConfirmExtraction}>
                 {t('skillMap.extraction.confirm')}
               </Button>
@@ -722,6 +780,11 @@ export function SkillMapScreen({
           {/* Step 2 — FINALISE. Build the reviewed list into the skill map used
               by the next stages. Placed AFTER discovery so the user finalises
               once the candidate list is reviewed. */}
+          {assistMode === 'ai-only' ? (
+            <Banner role="status" data-ai-only-label>
+              <small>{t('skillMap.aiOnlyLabel')}</small>
+            </Banner>
+          ) : null}
           <p style={{ marginTop: tokens.spacing.md }}>
             <Button onClick={handleGenerate}>{t('skillMap.generate')}</Button>
           </p>
@@ -747,11 +810,50 @@ export function SkillMapScreen({
                     : t('skillMap.experienceYears', { years });
               return (
                 <li key={entry.id as unknown as string}>
-                  <strong>{entry.name}</strong> <Badge>{entry.category}</Badge>
+                  <strong>{entry.name}</strong>{' '}
+                  <Select
+                    label={t('skillMap.category.label')}
+                    hideLabel
+                    value={entry.category}
+                    onChange={(e) => {
+                      const updated = skillMap.entries.map((sk) =>
+                        sk.id === entry.id
+                          ? { ...sk, category: e.target.value as SkillCategory }
+                          : sk,
+                      );
+                      onSkillMap({ ...skillMap, entries: updated });
+                    }}
+                    fieldStyle={{ display: 'inline-block', verticalAlign: 'middle' }}
+                    style={{ fontSize: tokens.typography.scale.sm, padding: '2px 4px' }}
+                  >
+                    {SKILL_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {t(`skillMap.category.${cat}`)}
+                      </option>
+                    ))}
+                  </Select>
                   <br />
                   <small>{entry.proficiencySignal}</small>
                   <br />
                   <small>{t('skillMap.evidenceCount', { count: entry.evidence.length })}</small>
+                  {entry.mergeRecord ? (
+                    <div style={{ marginTop: tokens.spacing.xs, padding: tokens.spacing.xs, background: tokens.colour.surface, borderRadius: '4px' }}>
+                      <small><strong>{t('skillMap.merge.heading')}</strong></small>
+                      <br />
+                      <small>{entry.mergeRecord.rationale}</small>
+                      <br />
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          splitMerge(skillMap, entry.id);
+                          onSkillMap({ ...skillMap, entries: [...skillMap.entries] });
+                        }}
+                        style={{ fontSize: tokens.typography.scale.sm, padding: '2px 6px', marginTop: tokens.spacing.xs }}
+                      >
+                        {t('skillMap.merge.revert')}
+                      </Button>
+                    </div>
+                  ) : null}
                   <br />
                   <label style={{ fontSize: tokens.typography.scale.sm, display: 'flex', alignItems: 'center', gap: tokens.spacing.xs, marginTop: tokens.spacing.xs }}>
                     {t('skillMap.since')}{' '}

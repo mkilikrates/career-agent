@@ -23,6 +23,21 @@ import { sourceLine, trailOf } from '@core/provenance';
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * A record of a post-processing transformation made by normalizeDate or
+ * splitCompoundSkills during extraction normalisation (R75.1, R75.2).
+ */
+export interface PostProcessingTransformation {
+  /** Which normalisation step produced this transformation. */
+  readonly kind: 'date-normalisation' | 'skill-split';
+  /** The raw value before normalisation. */
+  readonly original: string;
+  /** The normalised value(s) after transformation. */
+  readonly normalized: string;
+  /** Context: which position/education/skill this transformation relates to. */
+  readonly context?: string;
+}
+
 /** An employment position extracted from a career document (R71.2a, R73.1). */
 export interface ExtractedPosition {
   readonly title: string;
@@ -116,7 +131,10 @@ export const CAREER_EXTRACTION_INSTRUCTION =
   '- For positions: extract title, company, location (city/region when present), start/end dates, a brief role description, quantified achievements (use numbers where possible), and technologies/skills used in that role. Map skills and technologies to each specific position where they were used.\n' +
   '- For education: extract institution, degree/course, start/end dates, and skills gained.\n' +
   '- For technical_skills: list standalone technical skills not tied to a specific position or course. Include an approximate start year if determinable.\n' +
-  '- For core_competencies: list soft skills, leadership skills, and domain competencies distinct from technical skills.\n' +
+  '- For core_competencies: INFER behavioural competencies from career patterns and achievements, not only literal keywords. ' +
+  'Look at role progression, scope of responsibility, cross-team work, and quantified outcomes to identify competencies the candidate demonstrates even if they are not explicitly named. ' +
+  'Examples of competencies to look for: Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost Optimization, Technical Vision, Team Building, Process Improvement. ' +
+  'Include both explicitly stated and pattern-inferred competencies distinct from technical skills.\n' +
   '- For languages: list spoken/written languages with proficiency levels (e.g. "Native", "Fluent", "Professional", "Intermediate", "Basic").\n' +
   '- For hobbies: list hobbies and interests if mentioned.\n' +
   '- For causes: list causes, volunteering, or community involvement if mentioned.\n' +
@@ -148,6 +166,20 @@ export function parseCareerExtraction(reply: string): CareerExtraction {
   const parsed = locateJson(reply);
   if (!parsed) return EMPTY_EXTRACTION;
   return normaliseExtraction(parsed);
+}
+
+/**
+ * Parse and normalise a career extraction reply, additionally collecting all
+ * post-processing transformations performed by normalizeDate and splitCompoundSkills.
+ * Returns both the normalised extraction and the list of transformations (R75.1, R75.2).
+ */
+export function parseCareerExtractionWithTracking(reply: string): {
+  extraction: CareerExtraction;
+  transformations: PostProcessingTransformation[];
+} {
+  const parsed = locateJson(reply);
+  if (!parsed) return { extraction: EMPTY_EXTRACTION, transformations: [] };
+  return normaliseExtractionWithTracking(parsed);
 }
 
 /** Sentinel empty extraction — returned on unparseable replies. */
@@ -193,6 +225,112 @@ function locateJson(reply: string): unknown | null {
 }
 
 // ---------------------------------------------------------------------------
+// Compound skill splitting (R71.11, R71.12)
+// ---------------------------------------------------------------------------
+
+/**
+ * Known compound names that contain `/` or other split-triggering characters
+ * but must NOT be split. Case-insensitive matching is used.
+ */
+const COMPOUND_ALLOWLIST: readonly string[] = [
+  'CI/CD',
+  'TCP/IP',
+  'IDS/IPS',
+  'Node.js',
+  'C#',
+  'C++',
+  '.NET',
+  'GitLab CI/CD',
+];
+
+/** Pre-computed lowercase allowlist for matching. */
+const COMPOUND_ALLOWLIST_LOWER = COMPOUND_ALLOWLIST.map((s) => s.toLowerCase());
+
+/**
+ * Expand compound skill entries:
+ *   - Parenthetical: `"AWS SAM (Python, Lambda)"` → `["AWS SAM", "Python", "Lambda"]`
+ *   - Slash-separated: `"Terraform/Terragrunt"` → `["Terraform", "Terragrunt"]`
+ *
+ * Entries in the allowlist (CI/CD, TCP/IP, etc.) are preserved as-is.
+ * Results are trimmed and deduplicated (case-insensitive).
+ */
+export function splitCompoundSkills(technologies: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const tech of technologies) {
+    const expanded = expandSingleEntry(tech.trim());
+    for (const item of expanded) {
+      const trimmed = item.trim();
+      if (trimmed.length === 0) continue;
+      const key = trimmed.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(trimmed);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Expand a single technology string into one or more entries.
+ */
+function expandSingleEntry(entry: string): string[] {
+  if (entry.length === 0) return [];
+
+  // Check if the whole entry is in the allowlist — if so, don't split at all.
+  if (isAllowlisted(entry)) return [entry];
+
+  const parts: string[] = [];
+
+  // 1. Handle parenthetical expansion: "AWS SAM (Python, Lambda)" → ["AWS SAM", "Python", "Lambda"]
+  const parenMatch = entry.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+  if (parenMatch) {
+    const prefix = parenMatch[1].trim();
+    const inner = parenMatch[2];
+    if (prefix.length > 0) parts.push(prefix);
+    // Split the parenthetical contents by comma
+    const innerParts = inner.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    parts.push(...innerParts);
+    return parts;
+  }
+
+  // 2. Handle slash-separated entries: "Terraform/Terragrunt" → ["Terraform", "Terragrunt"]
+  if (entry.includes('/')) {
+    const slashParts = entry.split('/');
+    // Only split if none of the resulting parts would break an allowlisted compound
+    // AND none of the sub-expressions form an allowlisted term when recombined.
+    // Check if the entry contains any allowlisted substring (e.g. "GitLab CI/CD" contains "CI/CD").
+    if (containsAllowlistedSubstring(entry)) {
+      return [entry];
+    }
+    const expanded = slashParts.map((s) => s.trim()).filter((s) => s.length > 0);
+    return expanded.length > 0 ? expanded : [entry];
+  }
+
+  // 3. No expansion needed.
+  return [entry];
+}
+
+/** Check if an entry exactly matches an allowlisted term (case-insensitive). */
+function isAllowlisted(entry: string): boolean {
+  return COMPOUND_ALLOWLIST_LOWER.includes(entry.toLowerCase());
+}
+
+/** Check if the entry contains an allowlisted term as a substring (for slash-containing allowlist items). */
+function containsAllowlistedSubstring(entry: string): boolean {
+  const lower = entry.toLowerCase();
+  for (const allowed of COMPOUND_ALLOWLIST_LOWER) {
+    if (allowed.includes('/') && lower.includes(allowed)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Normalisation helpers — tolerant of missing/malformed fields
 // ---------------------------------------------------------------------------
 
@@ -214,6 +352,203 @@ function normaliseExtraction(raw: unknown): CareerExtraction {
     hobbies: stringArray(obj['hobbies']),
     causes: stringArray(obj['causes']),
     additionalInfo: normaliseAdditionalInfo(obj['additional_info'] ?? obj['additionalInfo']),
+  };
+}
+
+/**
+ * Normalise the extraction and collect all post-processing transformations
+ * made by normalizeDate and splitCompoundSkills (R75.1, R75.2, R75.6).
+ */
+function normaliseExtractionWithTracking(raw: unknown): {
+  extraction: CareerExtraction;
+  transformations: PostProcessingTransformation[];
+} {
+  if (raw === null || typeof raw !== 'object') {
+    return { extraction: EMPTY_EXTRACTION, transformations: [] };
+  }
+  const obj = raw as Record<string, unknown>;
+  const transformations: PostProcessingTransformation[] = [];
+
+  // Track position normalisation (dates and skill splits).
+  const positions = normalisePositionsWithTracking(obj['positions'], transformations);
+
+  // Track education date normalisation.
+  const education = normaliseEducationWithTracking(obj['education'], transformations);
+
+  // Track standalone skill date normalisation.
+  const trackedSkills = normaliseStandaloneSkillsWithTracking(
+    obj['technical_skills'] ?? obj['technicalSkills'] ?? obj['skills'],
+    transformations,
+  );
+
+  const extraction: CareerExtraction = {
+    professionalSummary: optionalString(obj['professional_summary'] ?? obj['professionalSummary']),
+    positions,
+    education,
+    skills: trackedSkills,
+    technicalSkills: trackedSkills,
+    coreCompetencies: stringArray(obj['core_competencies'] ?? obj['coreCompetencies']),
+    languages: normaliseLanguages(obj['languages']),
+    hobbies: stringArray(obj['hobbies']),
+    causes: stringArray(obj['causes']),
+    additionalInfo: normaliseAdditionalInfo(obj['additional_info'] ?? obj['additionalInfo']),
+  };
+
+  return { extraction, transformations };
+}
+
+/** Track date normalisation: returns the normalised value and appends to transformations if changed. */
+function trackDateNormalisation(
+  raw: unknown,
+  transformations: PostProcessingTransformation[],
+  context?: string,
+): string | undefined {
+  if (raw === null || raw === undefined || raw === '') return undefined;
+  const s = String(raw).trim();
+  if (s.length === 0 || s.toLowerCase() === 'null') return undefined;
+  const result = normalizeDate(s);
+  // Only record a transformation if the output differs from the input (i.e. actual normalisation happened).
+  if (result !== undefined && result !== s) {
+    transformations.push({
+      kind: 'date-normalisation',
+      original: s,
+      normalized: result,
+      context,
+    });
+  }
+  return result;
+}
+
+/** Track compound skill splitting: returns the split list and appends to transformations for each split. */
+function trackSkillSplit(
+  technologies: string[],
+  transformations: PostProcessingTransformation[],
+  context?: string,
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  for (const tech of technologies) {
+    const trimmed = tech.trim();
+    if (trimmed.length === 0) continue;
+    const expanded = expandSingleEntry(trimmed);
+    // Record a transformation if the entry was actually split (produced > 1 result or a different value).
+    if (expanded.length > 1 || (expanded.length === 1 && expanded[0].trim() !== trimmed)) {
+      transformations.push({
+        kind: 'skill-split',
+        original: trimmed,
+        normalized: expanded.map((e) => e.trim()).filter((e) => e.length > 0).join(', '),
+        context,
+      });
+    }
+    for (const item of expanded) {
+      const t = item.trim();
+      if (t.length === 0) continue;
+      const key = t.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(t);
+      }
+    }
+  }
+
+  return result;
+}
+
+function normalisePositionsWithTracking(
+  raw: unknown,
+  transformations: PostProcessingTransformation[],
+): ExtractedPosition[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ExtractedPosition[] = [];
+  for (const item of raw) {
+    const pos = normalisePositionWithTracking(item, transformations);
+    if (pos) out.push(pos);
+  }
+  return out;
+}
+
+function normalisePositionWithTracking(
+  raw: unknown,
+  transformations: PostProcessingTransformation[],
+): ExtractedPosition | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const title = stringOrEmpty(obj['title']);
+  const company = stringOrEmpty(obj['company'] ?? obj['employer'] ?? obj['organization']);
+  if (!title && !company) return null;
+  const context = `${title} at ${company}`;
+  const rawTechnologies = stringArray(
+    obj['technologies'] ?? obj['skills'] ?? obj['tech'] ?? obj['tools'],
+  );
+  return {
+    title,
+    company,
+    location: optionalString(obj['location'] ?? obj['city']),
+    start: trackDateNormalisation(obj['start'] ?? obj['startDate'] ?? obj['start_date'], transformations, context),
+    end: trackDateNormalisation(obj['end'] ?? obj['endDate'] ?? obj['end_date'], transformations, context),
+    description: optionalString(obj['description'] ?? obj['summary'] ?? obj['role_description']),
+    achievements: optionalStringArray(obj['achievements'] ?? obj['accomplishments']),
+    technologies: trackSkillSplit(rawTechnologies, transformations, context),
+  };
+}
+
+function normaliseEducationWithTracking(
+  raw: unknown,
+  transformations: PostProcessingTransformation[],
+): ExtractedEducation[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ExtractedEducation[] = [];
+  for (const item of raw) {
+    const edu = normaliseEducationEntryWithTracking(item, transformations);
+    if (edu) out.push(edu);
+  }
+  return out;
+}
+
+function normaliseEducationEntryWithTracking(
+  raw: unknown,
+  transformations: PostProcessingTransformation[],
+): ExtractedEducation | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const institution = stringOrEmpty(obj['institution'] ?? obj['school'] ?? obj['university']);
+  const degree = stringOrEmpty(obj['degree'] ?? obj['course'] ?? obj['program'] ?? obj['qualification']);
+  if (!institution && !degree) return null;
+  const context = `${degree} at ${institution}`;
+  return {
+    institution,
+    degree,
+    start: trackDateNormalisation(obj['start'] ?? obj['startDate'] ?? obj['start_date'], transformations, context),
+    end: trackDateNormalisation(obj['end'] ?? obj['endDate'] ?? obj['end_date'], transformations, context),
+    skills: stringArray(obj['skills'] ?? obj['technologies'] ?? obj['subjects']),
+  };
+}
+
+function normaliseStandaloneSkillsWithTracking(
+  raw: unknown,
+  transformations: PostProcessingTransformation[],
+): ExtractedStandaloneSkill[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ExtractedStandaloneSkill[] = [];
+  for (const item of raw) {
+    const skill = normaliseStandaloneSkillWithTracking(item, transformations);
+    if (skill) out.push(skill);
+  }
+  return out;
+}
+
+function normaliseStandaloneSkillWithTracking(
+  raw: unknown,
+  transformations: PostProcessingTransformation[],
+): ExtractedStandaloneSkill | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const name = stringOrEmpty(obj['name'] ?? obj['skill']);
+  if (!name) return null;
+  return {
+    name,
+    since: trackDateNormalisation(obj['since'] ?? obj['start'] ?? obj['year'], transformations, `skill: ${name}`),
   };
 }
 
@@ -242,9 +577,9 @@ function normalisePosition(raw: unknown): ExtractedPosition | null {
     end: optionalDateString(obj['end'] ?? obj['endDate'] ?? obj['end_date']),
     description: optionalString(obj['description'] ?? obj['summary'] ?? obj['role_description']),
     achievements: optionalStringArray(obj['achievements'] ?? obj['accomplishments']),
-    technologies: stringArray(
+    technologies: splitCompoundSkills(stringArray(
       obj['technologies'] ?? obj['skills'] ?? obj['tech'] ?? obj['tools'],
-    ),
+    )),
   };
 }
 
@@ -307,10 +642,127 @@ function optionalDateString(v: unknown): string | undefined {
   if (v === null || v === undefined || v === '') return undefined;
   const s = String(v).trim();
   // Accept anything that looks like a year or date fragment.
-  if (s.length === 0 || s.toLowerCase() === 'null' || s.toLowerCase() === 'present') {
+  if (s.length === 0 || s.toLowerCase() === 'null') {
     return undefined;
   }
-  return s;
+  return normalizeDate(s);
+}
+
+// ---------------------------------------------------------------------------
+// Date normalisation (R71.8, R71.9, R70.1, R70.2)
+// ---------------------------------------------------------------------------
+
+/** Month name → 1-based index mappings for English and Portuguese. */
+const MONTH_MAP: Record<string, number> = {
+  // English
+  january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
+  july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+  jan: 1, feb: 2, mar: 3, apr: 4, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+  // Portuguese
+  janeiro: 1, fevereiro: 2, março: 3, marco: 3, abril: 4, maio: 5, junho: 6,
+  julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12,
+  // Portuguese abbreviations
+  fev: 2, abr: 4, mai: 5, ago: 8, set: 9, out: 10, dez: 12,
+};
+
+/**
+ * Normalise a raw date string into ISO format (`YYYY-MM` or `YYYY`).
+ *
+ * Handles:
+ * - Written month names (English, Portuguese): "March 2020" → "2020-03"
+ * - Date ranges (extract start only): "Jan 2020 - Dec 2022" → "2020-01"
+ * - "Present", "current", "atual", null/undefined/empty → undefined
+ * - Already-ISO passthrough: "2020-03" → "2020-03", "2020" → "2020"
+ * - Numeric month/year formats: "01/2020" → "2020-01", "03.2019" → "2019-03"
+ *
+ * @returns ISO date string (YYYY-MM or YYYY) or undefined when the value
+ *          represents an ongoing/missing date.
+ */
+export function normalizeDate(raw: string): string | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return undefined;
+
+  // "Present", "current", "atual" (PT), "now", "ongoing" → undefined
+  const lower = trimmed.toLowerCase();
+  if (/^(present|current|atual|atualmente|now|ongoing|em andamento)$/i.test(lower)) {
+    return undefined;
+  }
+
+  // For date ranges (contains " - ", " – ", " — ", " to "), extract the start part only.
+  const rangeSep = trimmed.match(/\s+[-–—]\s+|\s+to\s+/i);
+  const candidate = rangeSep ? trimmed.slice(0, rangeSep.index!).trim() : trimmed;
+
+  return parseSingleDate(candidate);
+}
+
+/**
+ * Parse a single date fragment (not a range) into YYYY-MM or YYYY.
+ */
+function parseSingleDate(input: string): string | undefined {
+  const s = input.trim();
+  if (s.length === 0) return undefined;
+
+  // Already ISO: YYYY-MM or YYYY-MM-DD → return YYYY-MM
+  const isoFull = s.match(/^(\d{4})-(\d{2})(?:-\d{2})?$/);
+  if (isoFull) {
+    const month = parseInt(isoFull[2], 10);
+    if (month >= 1 && month <= 12) return `${isoFull[1]}-${isoFull[2]}`;
+  }
+
+  // Year only: "2020"
+  if (/^\d{4}$/.test(s)) return s;
+
+  // Numeric MM/YYYY or MM.YYYY
+  const numericMonthYear = s.match(/^(\d{1,2})[/.](\d{4})$/);
+  if (numericMonthYear) {
+    const month = parseInt(numericMonthYear[1], 10);
+    const year = numericMonthYear[2];
+    if (month >= 1 && month <= 12) return `${year}-${String(month).padStart(2, '0')}`;
+  }
+
+  // Written month + year: "March 2020", "Mar 2020", "Março 2020", "2020 March"
+  const monthYearMatch = s.match(/^([a-záàâãéêíóôõúç]+)\s+(\d{4})$/i)
+    || s.match(/^(\d{4})\s+([a-záàâãéêíóôõúç]+)$/i);
+  if (monthYearMatch) {
+    const [, first, second] = monthYearMatch;
+    // Determine which part is the month name and which is the year.
+    const monthName = /^\d{4}$/.test(first) ? second : first;
+    const year = /^\d{4}$/.test(first) ? first : second;
+    const monthNum = MONTH_MAP[monthName.toLowerCase()];
+    if (monthNum && /^\d{4}$/.test(year)) {
+      return `${year}-${String(monthNum).padStart(2, '0')}`;
+    }
+  }
+
+  // Month/Year with punctuation: "Mar. 2020", "Set. 2019"
+  const monthDotYear = s.match(/^([a-záàâãéêíóôõúç]+)\.\s*(\d{4})$/i);
+  if (monthDotYear) {
+    const monthNum = MONTH_MAP[monthDotYear[1].toLowerCase()];
+    if (monthNum) return `${monthDotYear[2]}-${String(monthNum).padStart(2, '0')}`;
+  }
+
+  // Day Month Year: "15 March 2020", "1 Jan 2019"
+  const dayMonthYear = s.match(/^(\d{1,2})\s+([a-záàâãéêíóôõúç]+)\s+(\d{4})$/i);
+  if (dayMonthYear) {
+    const monthNum = MONTH_MAP[dayMonthYear[2].toLowerCase()];
+    if (monthNum) return `${dayMonthYear[3]}-${String(monthNum).padStart(2, '0')}`;
+  }
+
+  // Month Day, Year: "March 15, 2020"
+  const monthDayYear = s.match(/^([a-záàâãéêíóôõúç]+)\s+\d{1,2},?\s+(\d{4})$/i);
+  if (monthDayYear) {
+    const monthNum = MONTH_MAP[monthDayYear[1].toLowerCase()];
+    if (monthNum) return `${monthDayYear[2]}-${String(monthNum).padStart(2, '0')}`;
+  }
+
+  // If it contains a 4-digit year somewhere, extract just the year as fallback.
+  const yearFallback = s.match(/\b(\d{4})\b/);
+  if (yearFallback) return yearFallback[1];
+
+  // Unrecognised → undefined (don't keep garbage data).
+  return undefined;
 }
 
 /** Coerce to a string array, filtering out non-strings and empties. */

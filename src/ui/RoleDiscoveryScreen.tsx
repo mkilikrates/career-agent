@@ -270,6 +270,11 @@ export function RoleDiscoveryScreen({
           destination network/privacy label, surfaced before the operation. */}
       {effectiveMap ? (
         <Stack gap="sm" style={{ marginTop: tokens.spacing.sm, marginBottom: tokens.spacing.sm }}>
+          {assistMode === 'ai-only' ? (
+            <Banner role="status" data-ai-only-label>
+              <small>{t('roles.aiOnlyLabel')}</small>
+            </Banner>
+          ) : null}
           <AssistChoice
             mode={assistMode}
             onMode={onAssistMode}

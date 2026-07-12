@@ -99,11 +99,12 @@ export default function App() {
   const labelChannel = useMemo(() => createNetworkLabelChannel(), []);
   const [networkLabels, setNetworkLabels] = useState<readonly NetworkOperationLabel[]>([]);
 
-  // Pending Outbound Payload Preview (R65): when the Egress Gate is about to send
-  // a text payload to a third-party provider it calls `previewPayload`, which the
+  // Pending Outbound Payload Preview (R65, R74.4): when the Egress Gate is about
+  // to send a text payload to a provider it calls `previewPayload`, which the
   // shell fulfils by opening the modal below and parking the gate's promise here
   // until the user approves (resolve the edited text) or cancels (resolve null →
-  // gate fails closed, R65.4).
+  // gate fails closed, R65.4). For Local Providers the preview is informational
+  // (non-blocking) — the gate fires it as fire-and-forget (R74.4).
   const [pendingPreview, setPendingPreview] = useState<{
     readonly preview: PayloadPreview;
     readonly resolve: (value: string | null) => void;
@@ -136,8 +137,8 @@ export default function App() {
                   `(${proposal.categories.join(', ')}). Redact and proceed?`,
               )
             : false,
-        // Outbound Payload Preview before a third-party send (R65). Delegates to
-        // the stable ref so the runtime is built once yet always opens the modal
+        // Outbound Payload Preview before a provider send (R65, R74.4). Delegates
+        // to the stable ref so the runtime is built once yet always opens the modal
         // against current shell state.
         previewPayload: (preview: PayloadPreview) => previewPromptRef.current(preview),
       }),
@@ -451,6 +452,8 @@ export default function App() {
             onSkillMap={setSkillMap}
             onAddExtractions={(added) => setExtractions([...extractions, ...added])}
             store={store}
+            rolePrefs={rolePrefs}
+            onRolePrefs={setRolePrefs}
             aiAvailable={aiAvailable}
             aiAssist={aiAssist}
             chatProvider={chatProvider}
@@ -484,6 +487,7 @@ export default function App() {
             skillMap={effectiveSkillMap}
             onSkillMap={setSkillMap}
             rolePrefs={rolePrefs}
+            onRolePrefs={setRolePrefs}
             talkingPoints={talkingPoints}
             onTalkingPoints={setTalkingPoints}
             idRegistry={idRegistry}

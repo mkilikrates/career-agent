@@ -1575,7 +1575,7 @@ Used in:
 | All tests referencing `recency` | Update to use `since` |
 
 
-### Structured AI Career Extraction — Foundation Map (R71, R73)
+### Structured AI Career Extraction — Foundation Map (R71)
 
 The current AI skill-discovery prompt asks for a flat comma-separated list of skill names. The enhanced extraction asks for a **rich, ATS-compatible structured JSON career profile** that captures positions, education, skills with per-position mapping, core competencies, hobbies, causes, languages, and any other CV-relevant information — so the skill map becomes a rich graph and CV generation has maximum evidence.
 
@@ -1705,6 +1705,66 @@ When no talking points exist for a position, the position still appears (with it
 - The user **reviews everything** before it enters the map — same confirm/edit/delete UI extended with new categories
 - The existing extraction result schema is **replaced** (no backward compat); previously-persisted extraction data will be re-extracted on next AI-assist run
 
+### Extraction Post-Processing Quality (R71.8–R71.12, R71.20–R71.21)
+
+The raw AI extraction output requires normalization before it enters the skill map. Three post-processing passes run after `parseCareerExtraction()` returns and before items are presented for user review:
+
+#### 1. Date normalization (R71.8, R71.9)
+
+A `normalizeDate(raw: string): string | undefined` utility converts any date-like string to ISO format:
+
+| Input | Output |
+|---|---|
+| `"January 2025"` | `"2025-01"` |
+| `"April 2022 - May 2024"` | `"2022-04"` (start only) |
+| `"2024-11"` | `"2024-11"` (already ISO) |
+| `"Present"` / `"current"` / `null` | `undefined` |
+| `"2019"` | `"2019"` (year only, valid) |
+
+Applied to: position `start`/`end`, education `start`/`end`, standalone skill `since`, and all evidence `when` values before they flow into `SkillMapEntry.since`.
+
+#### 2. Compound skill splitting (R71.11, R71.12)
+
+A `splitCompoundSkills(technologies: string[]): string[]` utility expands parenthetical and slash-separated entries:
+
+| Input | Output |
+|---|---|
+| `"AWS SAM (Python, Lambda, Step Functions)"` | `["AWS SAM", "Python", "Lambda", "Step Functions"]` |
+| `"Terraform/Terragrunt"` | `["Terraform", "Terragrunt"]` |
+| `"GitLab CI/CD"` | `["GitLab CI/CD"]` (known compound name, not split) |
+| `"CDK (TypeScript)"` | `["CDK", "TypeScript"]` |
+| `"Node.js"` | `["Node.js"]` (not a parenthetical) |
+
+A small allowlist of known compound names (`CI/CD`, `TCP/IP`, `IDS/IPS`, `Node.js`, `C#`, `C++`, `.NET`) prevents false splits. Applied to each position's `technologies` array before `careerExtractionToItems()` creates skill entries.
+
+#### 3. Core competency inference guidance (R71.5, R71.6)
+
+The extraction prompt is strengthened to explicitly instruct the model to **infer** behavioural competencies from career patterns, not just extract literal keywords. The prompt now includes:
+
+```
+For core_competencies: INFER soft skills, leadership qualities, and behavioural
+strengths demonstrated by the person's career pattern, achievements, and
+education. Do not limit yourself to explicitly stated keywords — look at what
+the career history DEMONSTRATES. Examples include (but are not limited to):
+Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic
+Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost
+Optimization, Technical Vision, Team Building, Process Improvement, Agile
+Transformation, Communication, Problem Solving.
+```
+
+This addresses the observed gap where local models return an empty `core_competencies` array because competencies are demonstrated (e.g. a crisis rescue STAR answer) rather than literally named.
+
+#### 4. Role match scoring for user-added roles (R71.21, R71.20)
+
+When a user adds a role (R21.1), `scoreMatch()` currently returns 0% with empty matched/gap sets because user-added roles have no structured `requiredSkills` spec. The fix:
+
+- Parse the role's description field (which the AI populates with context like "experience in cloud management platforms like AWS, CDK, and Terraform") to extract mentioned skills
+- Match those against the user's confirmed skill map entries using ontological matching (R17.2)
+- Populate `matchedSkills` and `gapSkills` from the overlap and difference
+- Compute a percentage score from `matchedSkills.length / (matchedSkills.length + gapSkills.length)`
+
+This makes user-added and AI-suggested roles comparable in the UI.
+
 ### Zip Export with Session Import (R72)
 
 #### Export
@@ -1730,3 +1790,86 @@ The import is non-destructive: if it fails (corrupt file, wrong format), the app
 - **Welcome Page**: "Import a previous session" (first-run / fresh browser)
 - **Memory phase**: "Download session as zip" + "Import session" (existing import path)
 - **Save & Exit flow**: option to download zip instead of just JSON
+
+### Egress Transparency and LLM Logging (R74)
+
+The Egress Gate gains a `logEntry()` callback injected at construction (alongside the existing `confirmRedactAndProceed`, `notifyLabel`, and `previewPayload` callbacks). Every `request()` and `requestIngestion()` call logs a structured entry after the provider responds:
+
+```typescript
+interface EgressLogEntry {
+  timestamp: string;           // ISO 8601
+  provider: ProviderId;        // destination provider
+  operation: EgressOperation;  // 'chat' | 'stt' | 'skill-discovery' | 'role-discovery' | 'star-questions' | 'coaching-loop' | 'cv-tailoring'
+  promptText: string;          // full prompt sent (truncated at 10KB for display, with "see full in log" note)
+  responseText: string;        // full response received
+}
+
+type LogEntryCallback = (entry: EgressLogEntry) => void;
+```
+
+- Persisted to `log/egress_log.md` in a machine-readable Markdown format (one H2 section per entry with YAML-like frontmatter metadata).
+- Viewable from the Memory & Maintenance screen as a read-only chronological log.
+- Local Provider calls are logged identically to cloud calls — the log captures what was sent regardless of destination.
+- For very large payloads (>10KB), the in-UI display truncates with a "see full entry in egress log" link; the persisted log always contains the full text.
+- The `logEntry` callback is wired in `runtime.ts` to persist entries via `MemoryTree.write('log/egress_log.md', ...)`.
+
+The Payload Preview (R65) is extended: for keyless Local Provider requests, an informational prompt preview is shown (with a "this stays on your device" label) rather than blocking. This allows the user to inspect what is being sent regardless of provider type (R74.4).
+
+### Inference Transparency (R75)
+
+All automated post-processing decisions are surfaced to the user rather than applied silently:
+
+**Date normalisation.** When `normalizeDate()` transforms a value, the review UI shows a "Post-processing" annotation with the transformation: `"March 2020" → "2020-03"`. The original value is preserved in the `ExtractedItem` alongside the normalised result so the review screen can display both.
+
+**Skill splitting.** When `splitCompoundSkills()` expands a compound entry, the review UI shows the original compound and the resulting individual items: `"AWS SAM (Python, Lambda)" → "AWS SAM", "Python", "Lambda"`. The user can reject individual splits.
+
+**Category assignment.** The skill-map review adds an editable category dropdown next to each skill entry. The regex-assigned category is the default; the user can override it and the override persists.
+
+**Merge decisions.** When `normalise()` merges two terms, the review UI surfaces the merge with its rationale (e.g. "Merged: 'k8s' → 'Kubernetes' (abbreviation)"). The user can reject the merge with one click, consistent with R15.2 reversibility.
+
+**Bullet-to-position matching.** In the OutputScreen CV view, each bullet carries the matching rationale (e.g. "Matched via skill overlap: Kubernetes, Docker" or "Matched via date overlap: 2021-03 to 2023-06"). An expandable detail section shows why each bullet appears under its position.
+
+**Session log fallback.** Any decision not directly displayed (e.g. applied during a batch operation) is logged to the session log, satisfying R75.6.
+
+### Employment Deduplication (R76)
+
+`deduplicateEmployment()` runs inside `buildCvModel()` after all extraction merging and before `buildEmploymentEntries()` renders the CV:
+
+```typescript
+function deduplicateEmployment(items: ExtractedItem[]): ExtractedItem[] {
+  // Key: (company.toLowerCase(), title.toLowerCase(), startYM)
+  // where startYM is the normalised YYYY-MM start date
+  // When two entries share the same key, keep the richest:
+  //   richness = technologies.length + description.length + achievements.length
+  // Title cleaning: strip company name when it appears as prefix or suffix pattern
+  //   e.g. "Acme Corp — Senior Engineer" → "Senior Engineer"
+  //   e.g. "Senior Engineer at Acme Corp" → "Senior Engineer"
+}
+```
+
+This ensures the user sees a clean CV regardless of how many source documents described the same role or how many extraction chunks produced overlapping entries.
+
+### Role Re-Scoring (R77)
+
+A pure function `rescorePreferences(prefs, map, taxonomy)` recomputes match scores for all saved role preferences:
+
+```typescript
+function rescorePreferences(
+  prefs: RolePreference[],
+  map: SkillMap,
+  taxonomy: Taxonomy
+): RolePreference[] {
+  return prefs.map(p => ({
+    ...p,
+    ...scoreMatch(p.spec, map, taxonomy) // recomputes matchScore, matchedSkills, gapSkills
+  }));
+}
+```
+
+Called in two places:
+1. After skill map confirmation in the orchestrator (when `SkillMapScreen` saves).
+2. After interview skill-sync adds new skills (`Coach.syncSkillMap()` → orchestrator re-scores).
+
+**`fromAddedRole` fix:** The `(added.requiredSkills?.length ?? 0) > 0` guard is removed. When `options.map` is defined, `scoreMatch(spec, map, taxonomy)` is always called — for user-added roles with no structured `requiredSkills`, it parses skills from the description field and matches them against the confirmed skill map using ontological matching (R77.3, R71.21).
+
+Updated scores are persisted to `role_preferences.md` after re-scoring.

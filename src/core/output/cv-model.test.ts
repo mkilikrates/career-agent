@@ -18,7 +18,7 @@ import {
 import { sourceLine, trailOf } from '@core/provenance';
 import { buildReferenceGraph } from '@core/registry';
 import type { SkillMap } from '@core/skills';
-import { buildCvModel, NEEDS_METRIC_NOTE } from './cv-model';
+import { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, NEEDS_METRIC_NOTE } from './cv-model';
 
 const doc = asDocId('cv.md');
 
@@ -598,5 +598,334 @@ describe('@core/output — buildCvModel new sections from confirmed items (R73.5
     expect(cv.coreCompetencies).toBeUndefined();
     expect(cv.languages).toBeUndefined();
     expect(cv.hobbiesAndCauses).toBeUndefined();
+  });
+});
+
+describe('@core/output — buildCvModel bullet-to-position matching rationale (R75.5)', () => {
+  it('annotates matched bullets with skill overlap rationale', () => {
+    const react = skill('SKILL-react', 'React');
+    const node = skill('SKILL-node', 'Node.js');
+    const map = skillMapOf([react, node]);
+    const emp = item('I-emp1', 'employment', {
+      title: 'Frontend Dev',
+      employer: 'Alpha',
+      start: '2020-01',
+      end: '2022-06',
+      technologies: ['React'],
+    });
+    const reactBullet = accomplishment('BULLET-01', 'Built the React UI.', [react.id]);
+    const cv = buildCvModel(role([react.id]), {
+      skillMap: map,
+      accomplishments: [reactBullet],
+      items: [emp],
+    });
+    expect(cv.employmentEntries).toBeDefined();
+    const entry = cv.employmentEntries!.find((e) => e.title === 'Frontend Dev');
+    expect(entry).toBeDefined();
+    expect(entry!.bullets.length).toBe(1);
+    expect(entry!.bullets[0].matchRationale).toBe('Skill overlap: React');
+  });
+
+  it('lists multiple overlapping skills in the rationale', () => {
+    const react = skill('SKILL-react', 'React');
+    const ts = skill('SKILL-ts', 'TypeScript');
+    const map = skillMapOf([react, ts]);
+    const emp = item('I-emp1', 'employment', {
+      title: 'Frontend Dev',
+      employer: 'Alpha',
+      start: '2020-01',
+      end: '2022-06',
+      technologies: ['React', 'TypeScript'],
+    });
+    const bullet = accomplishment('BULLET-01', 'Shipped the TS + React rewrite.', [
+      react.id,
+      ts.id,
+    ]);
+    const cv = buildCvModel(role([react.id, ts.id]), {
+      skillMap: map,
+      accomplishments: [bullet],
+      items: [emp],
+    });
+    expect(cv.employmentEntries).toBeDefined();
+    const entry = cv.employmentEntries!.find((e) => e.title === 'Frontend Dev');
+    expect(entry).toBeDefined();
+    expect(entry!.bullets[0].matchRationale).toContain('React');
+    expect(entry!.bullets[0].matchRationale).toContain('TypeScript');
+    expect(entry!.bullets[0].matchRationale).toMatch(/^Skill overlap: /);
+  });
+
+  it('does not set matchRationale on unmatched bullets in the General entry', () => {
+    const react = skill('SKILL-react', 'React');
+    const cobol = skill('SKILL-cobol', 'COBOL');
+    const map = skillMapOf([react, cobol]);
+    const emp = item('I-emp1', 'employment', {
+      title: 'Frontend Dev',
+      employer: 'Alpha',
+      start: '2020-01',
+      end: '2022-06',
+      technologies: ['React'],
+    });
+    // COBOL bullet doesn't match any position's technologies
+    const cobolBullet = accomplishment('BULLET-01', 'Maintained legacy COBOL.', [cobol.id]);
+    const cv = buildCvModel(role([]), {
+      skillMap: map,
+      accomplishments: [cobolBullet],
+      items: [emp],
+    });
+    expect(cv.employmentEntries).toBeDefined();
+    const general = cv.employmentEntries!.find((e) => e.title === 'General');
+    expect(general).toBeDefined();
+    expect(general!.bullets[0].matchRationale).toBeUndefined();
+  });
+
+  it('flat experience list bullets do not carry matchRationale', () => {
+    const react = skill('SKILL-react', 'React');
+    const map = skillMapOf([react]);
+    const bullet = accomplishment('BULLET-01', 'Built the React UI.', [react.id]);
+    const cv = buildCvModel(role([react.id]), {
+      skillMap: map,
+      accomplishments: [bullet],
+    });
+    // No employment items → flat list only, no rationale
+    expect(cv.employmentEntries).toBeUndefined();
+    expect(cv.experience[0].matchRationale).toBeUndefined();
+  });
+});
+
+describe('@core/output — deduplicateEmployment (R76.1, R76.2)', () => {
+  it('deduplicates entries sharing same (company, title, start) case-insensitively', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'Acme Corp',
+        title: 'Senior Engineer',
+        start: '2020-01',
+        technologies: ['React', 'TypeScript'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'acme corp',
+        title: 'senior engineer',
+        start: '2020-01',
+        technologies: ['React'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(1);
+  });
+
+  it('keeps the richest entry when duplicates exist', () => {
+    const sparse = item('I-emp1', 'employment', {
+      employer: 'Acme Corp',
+      title: 'Senior Engineer',
+      start: '2020-01',
+      technologies: ['React'],
+    });
+    const rich = item('I-emp2', 'employment', {
+      employer: 'Acme Corp',
+      title: 'Senior Engineer',
+      start: '2020-01',
+      technologies: ['React', 'TypeScript', 'Node.js'],
+      achievements: ['Led team of 5', 'Shipped v2.0'],
+      description: 'Full-stack development of the primary product.',
+    });
+    const result = deduplicateEmployment([sparse, rich]);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(rich.id);
+  });
+
+  it('preserves entries with different companies', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'Acme Corp',
+        title: 'Engineer',
+        start: '2020-01',
+        technologies: ['React'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'Beta Inc',
+        title: 'Engineer',
+        start: '2020-01',
+        technologies: ['Vue'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(2);
+  });
+
+  it('preserves entries with different start dates', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'Acme Corp',
+        title: 'Engineer',
+        start: '2020-01',
+        technologies: ['React'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'Acme Corp',
+        title: 'Engineer',
+        start: '2022-03',
+        technologies: ['React'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(2);
+  });
+
+  it('preserves entries with different titles', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'Acme Corp',
+        title: 'Junior Engineer',
+        start: '2020-01',
+        technologies: ['React'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'Acme Corp',
+        title: 'Senior Engineer',
+        start: '2020-01',
+        technologies: ['React'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(2);
+  });
+
+  it('no-ops on already-unique items', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'Alpha',
+        title: 'Dev',
+        start: '2018-01',
+        technologies: ['Python'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'Beta',
+        title: 'Lead',
+        start: '2020-06',
+        technologies: ['Java'],
+      }),
+      item('I-emp3', 'employment', {
+        employer: 'Gamma',
+        title: 'Architect',
+        start: '2022-01',
+        technologies: ['Go'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(3);
+  });
+
+  it('returns empty array for empty input', () => {
+    expect(deduplicateEmployment([])).toEqual([]);
+  });
+});
+
+describe('@core/output — cleanEmploymentTitle (R76.3)', () => {
+  it('strips company name when it appears as a prefix with separator', () => {
+    expect(cleanEmploymentTitle('Acme Corp — Senior Engineer', 'Acme Corp')).toBe(
+      'Senior Engineer',
+    );
+    expect(cleanEmploymentTitle('Acme Corp - Senior Engineer', 'Acme Corp')).toBe(
+      'Senior Engineer',
+    );
+  });
+
+  it('strips company name when it appears as a suffix with "at"', () => {
+    expect(cleanEmploymentTitle('Senior Engineer at Acme Corp', 'Acme Corp')).toBe(
+      'Senior Engineer',
+    );
+  });
+
+  it('strips company name when it appears as a suffix with separator', () => {
+    expect(cleanEmploymentTitle('Senior Engineer — Acme Corp', 'Acme Corp')).toBe(
+      'Senior Engineer',
+    );
+    expect(cleanEmploymentTitle('Senior Engineer - Acme Corp', 'Acme Corp')).toBe(
+      'Senior Engineer',
+    );
+  });
+
+  it('strips company name when it appears as a direct prefix', () => {
+    expect(cleanEmploymentTitle('Acme Corp Software Engineer', 'Acme Corp')).toBe(
+      'Software Engineer',
+    );
+  });
+
+  it('strips company name when it appears as a direct suffix', () => {
+    expect(cleanEmploymentTitle('Software Engineer Acme Corp', 'Acme Corp')).toBe(
+      'Software Engineer',
+    );
+  });
+
+  it('is case-insensitive', () => {
+    expect(cleanEmploymentTitle('ACME CORP Senior Engineer', 'Acme Corp')).toBe(
+      'Senior Engineer',
+    );
+    expect(cleanEmploymentTitle('Senior Engineer at acme corp', 'Acme Corp')).toBe(
+      'Senior Engineer',
+    );
+  });
+
+  it('returns title unchanged when company does not appear', () => {
+    expect(cleanEmploymentTitle('Senior Engineer', 'Acme Corp')).toBe('Senior Engineer');
+  });
+
+  it('returns title unchanged when company is empty', () => {
+    expect(cleanEmploymentTitle('Senior Engineer', '')).toBe('Senior Engineer');
+  });
+
+  it('returns title unchanged when title is empty', () => {
+    expect(cleanEmploymentTitle('', 'Acme Corp')).toBe('');
+  });
+
+  it('does not strip when it would leave an empty title', () => {
+    expect(cleanEmploymentTitle('Acme Corp', 'Acme Corp')).toBe('Acme Corp');
+  });
+});
+
+describe('@core/output — deduplication is applied in buildCvModel (R76.4)', () => {
+  it('deduplicates employment items before building entries', () => {
+    const react = skill('SKILL-react', 'React');
+    const map = skillMapOf([react]);
+    const emp1 = item('I-emp1', 'employment', {
+      title: 'Senior Engineer',
+      employer: 'Acme Corp',
+      start: '2020-01',
+      end: '2022-06',
+      technologies: ['React'],
+    });
+    const emp2 = item('I-emp2', 'employment', {
+      title: 'senior engineer',
+      employer: 'acme corp',
+      start: '2020-01',
+      end: '2022-06',
+      technologies: ['React', 'TypeScript'],
+      achievements: ['Shipped v2'],
+    });
+    const cv = buildCvModel(role([react.id]), { skillMap: map, items: [emp1, emp2] });
+    expect(cv.employmentEntries).toBeDefined();
+    // Should produce only one employment entry (deduplicated), not two
+    const acmeEntries = cv.employmentEntries!.filter((e) =>
+      e.company.toLowerCase() === 'acme corp',
+    );
+    expect(acmeEntries).toHaveLength(1);
+    // The richer one was kept (has TypeScript and achievements)
+    expect(acmeEntries[0].technologies).toContain('TypeScript');
+    expect(acmeEntries[0].achievements).toContain('Shipped v2');
+  });
+
+  it('cleans title in employment entries via deduplication', () => {
+    const react = skill('SKILL-react', 'React');
+    const map = skillMapOf([react]);
+    const emp = item('I-emp1', 'employment', {
+      title: 'Senior Engineer at Acme Corp',
+      employer: 'Acme Corp',
+      start: '2020-01',
+      end: '2022-06',
+      technologies: ['React'],
+    });
+    const cv = buildCvModel(role([react.id]), { skillMap: map, items: [emp] });
+    expect(cv.employmentEntries).toBeDefined();
+    const entry = cv.employmentEntries![0];
+    expect(entry.title).toBe('Senior Engineer');
   });
 });

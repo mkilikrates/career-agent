@@ -134,8 +134,11 @@ const fromAddedRole = (
   const description = added.description ?? '';
 
   // Score the added role against the user's verified skills when possible, so
-  // matched/gap skills are honest (R20.2, R20.3); never invent a fit.
-  if (options.map !== undefined && (added.requiredSkills?.length ?? 0) > 0) {
+  // matched/gap skills are honest (R20.2, R20.3, R77.3); never invent a fit.
+  // Always call scoreMatch when a skill map is available — for roles without
+  // explicit requiredSkills, scoreMatch parses skills from the description
+  // field using ontological matching (R77.3, R71.21).
+  if (options.map !== undefined) {
     const taxonomy =
       options.taxonomy ?? loadTaxonomyFromYaml(DEFAULT_TAXONOMY_YAML);
     const spec: RoleSpec = {
@@ -245,4 +248,45 @@ export const capturePreferences = (
   kept.sort((a, b) => (a.sortRank !== b.sortRank ? a.sortRank - b.sortRank : a.order - b.order));
 
   return kept.map((k, i) => ({ ...k.base, rank: i + 1 }));
+};
+
+// --- Re-scoring (R77) -------------------------------------------------------
+
+/**
+ * Recompute the match score, matched skills, and gap skills for every saved role
+ * preference against the current skill map (R77.1). Pure and deterministic: the
+ * same preferences + map + taxonomy always yield the same output. Preserves rank
+ * and tag (the user's ordering intent) — only scoring fields are updated.
+ *
+ * For roles that have no explicit requiredSkills (typical of user-added roles),
+ * `scoreMatch` extracts skills from the description field via ontological
+ * matching (R77.3, R71.21), so scores are honest rather than stuck at 0%.
+ *
+ * Call this after any event that changes the skill map (skill map confirmation,
+ * interview skill-sync) and persist the result via `saveRolePreferences` (R77.2).
+ */
+export const rescorePreferences = (
+  prefs: ReadonlyArray<RolePreference>,
+  map: SkillMap,
+  taxonomy?: Taxonomy,
+): RolePreference[] => {
+  const tax = taxonomy ?? loadTaxonomyFromYaml(DEFAULT_TAXONOMY_YAML);
+  return prefs.map((p) => {
+    const spec: RoleSpec = {
+      slug: asString(p.slug),
+      title: p.title,
+      description: p.description,
+      roleType: 'employed', // roleType is not persisted on RolePreference; default for scoring
+      requiredSkills: [], // let scoreMatch infer from description (R77.3, R71.21)
+      preferredSkills: [],
+    };
+    const score = scoreMatch(spec, map, tax);
+    return {
+      ...p,
+      matchScore: score.score,
+      matchedSkills: score.matchedSkills,
+      gapSkills: score.gapSkills,
+      rationale: score.rationale,
+    };
+  });
 };

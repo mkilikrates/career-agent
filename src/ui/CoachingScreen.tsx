@@ -84,6 +84,7 @@ import {
   type PerQuestionSummary,
   type ConfirmedTranscript,
 } from '@core/interview';
+import { rescorePreferences, saveRolePreferences } from '@core/role-matcher';
 import { RecordAnswer } from './RecordAnswer';
 import {
   createBrowserAudioRecorderPort,
@@ -95,6 +96,8 @@ export interface CoachingScreenProps {
   readonly skillMap: SkillMap | null;
   readonly onSkillMap: (map: SkillMap) => void;
   readonly rolePrefs: RolePreference[];
+  /** Update role preferences after re-scoring (R77.1). */
+  readonly onRolePrefs?: (prefs: RolePreference[]) => void;
   readonly talkingPoints: TalkingPoint[];
   readonly onTalkingPoints: (next: TalkingPoint[]) => void;
   readonly idRegistry: IdRegistry;
@@ -143,6 +146,7 @@ export function CoachingScreen({
   skillMap,
   onSkillMap,
   rolePrefs,
+  onRolePrefs,
   talkingPoints,
   onTalkingPoints,
   idRegistry,
@@ -456,6 +460,12 @@ export function CoachingScreen({
       const added = applySkillDelta(skillMap, delta, confirmations, { registry: idRegistry });
       onSkillMap({ entries: [...skillMap.entries], graph: skillMap.graph });
       void saveSkillMap(store, skillMap);
+      // Re-score role preferences against the updated skill map (R77.1, R77.2).
+      if (added.length > 0 && rolePrefs.length > 0 && onRolePrefs) {
+        const rescored = rescorePreferences(rolePrefs, skillMap);
+        onRolePrefs(rescored);
+        void saveRolePreferences(store, rescored);
+      }
       setStatus(t('coaching.sync.added', { count: added.length }));
       setDelta(null);
     } catch (error) {

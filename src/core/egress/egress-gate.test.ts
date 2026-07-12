@@ -12,12 +12,15 @@ import {
   DefaultEgressGate,
   EgressDeclinedError,
   EgressMisconfiguredError,
+  EgressPreviewCancelledError,
   EgressScreeningError,
   EgressSendControlNotConfirmedError,
   createEgressGate,
   type EgressIntent,
   type LabelNotifier,
   type NetworkOperationLabel,
+  type PayloadPreview,
+  type PayloadPreviewPrompt,
   type RedactAndProceedPrompt,
 } from './egress-gate';
 import { toSensitiveDetections, type SendControlDecision } from './send-control';
@@ -650,6 +653,132 @@ describe('DefaultEgressGate.transcribe — STT audio path (R26.2)', () => {
       gate.transcribe({ provider: PROVIDER, audio: AUDIO }),
     ).rejects.toBeInstanceOf(EgressScreeningError);
     expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe('DefaultEgressGate — Payload Preview (R65, R74.4)', () => {
+  it('fires a blocking preview for a third-party llm-chat send (R65)', async () => {
+    const scanner = makeScanner(() => []);
+    const provider = makeRegistryProviderManager([{ id: 'openai' }]);
+    const previewPayload: PayloadPreviewPrompt = vi.fn(async (preview) => {
+      expect(preview.informational).toBeFalsy();
+      return preview.text; // approve as-is
+    });
+    const gate = new DefaultEgressGate({
+      scanner,
+      providerManager: provider,
+      notifyLabel: vi.fn(),
+      confirmRedactAndProceed: vi.fn(async () => true),
+      previewPayload,
+    });
+
+    await gate.request({ provider: 'openai', text: 'hello', operation: 'llm-chat' });
+
+    expect(previewPayload).toHaveBeenCalledTimes(1);
+    expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires an informational (non-blocking) preview for a local provider llm-chat send (R74.4)', async () => {
+    const scanner = makeScanner(() => []);
+    const provider = makeRegistryProviderManager([{ id: 'local', keyless: true }]);
+    let capturedPreview: PayloadPreview | undefined;
+    // The callback is a never-resolving promise to prove the gate does NOT await it.
+    const previewPayload: PayloadPreviewPrompt = vi.fn(
+      (preview) =>
+        new Promise<string | null>(() => {
+          capturedPreview = preview;
+          // Never resolves — gate must not block on this.
+        }),
+    );
+    const gate = new DefaultEgressGate({
+      scanner,
+      providerManager: provider,
+      notifyLabel: vi.fn(),
+      confirmRedactAndProceed: vi.fn(async () => true),
+      previewPayload,
+    });
+
+    // The request should complete immediately despite the preview never resolving.
+    await gate.request({ provider: 'local', text: 'local prompt', operation: 'llm-chat' });
+
+    expect(previewPayload).toHaveBeenCalledTimes(1);
+    expect(capturedPreview).toBeDefined();
+    expect(capturedPreview!.informational).toBe(true);
+    expect(capturedPreview!.text).toBe('local prompt');
+    expect(capturedPreview!.provider).toBe('local');
+    // The full text is sent even though the preview never resolved.
+    expect(provider.send).toHaveBeenCalledTimes(1);
+    const sent = provider.send.mock.calls[0][1] as RedactedPayload;
+    expect(sent.text).toBe('local prompt');
+  });
+
+  it('does not fire the preview callback for non-llm-chat operations on local providers', async () => {
+    const scanner = makeScanner(() => []);
+    const provider = makeRegistryProviderManager([{ id: 'local', keyless: true }]);
+    const previewPayload: PayloadPreviewPrompt = vi.fn(async () => 'edited');
+    const gate = new DefaultEgressGate({
+      scanner,
+      providerManager: provider,
+      notifyLabel: vi.fn(),
+      confirmRedactAndProceed: vi.fn(async () => true),
+      previewPayload,
+    });
+
+    await gate.request({ provider: 'local', text: 'audio', operation: 'stt-transcribe' });
+
+    expect(previewPayload).not.toHaveBeenCalled();
+  });
+
+  it('uses the user-approved edited text for the third-party send (R65.2)', async () => {
+    const scanner = makeScanner(() => []);
+    const provider = makeRegistryProviderManager([{ id: 'openai' }]);
+    const previewPayload: PayloadPreviewPrompt = vi.fn(async () => 'user-edited text');
+    const gate = new DefaultEgressGate({
+      scanner,
+      providerManager: provider,
+      notifyLabel: vi.fn(),
+      confirmRedactAndProceed: vi.fn(async () => true),
+      previewPayload,
+    });
+
+    await gate.request({ provider: 'openai', text: 'original text', operation: 'llm-chat' });
+
+    const sent = provider.send.mock.calls[0][1] as RedactedPayload;
+    expect(sent.text).toBe('user-edited text');
+  });
+
+  it('fails closed when user cancels a third-party preview (R65.4)', async () => {
+    const scanner = makeScanner(() => []);
+    const provider = makeRegistryProviderManager([{ id: 'openai' }]);
+    const previewPayload: PayloadPreviewPrompt = vi.fn(async () => null);
+    const gate = new DefaultEgressGate({
+      scanner,
+      providerManager: provider,
+      notifyLabel: vi.fn(),
+      confirmRedactAndProceed: vi.fn(async () => true),
+      previewPayload,
+    });
+
+    await expect(
+      gate.request({ provider: 'openai', text: 'hi', operation: 'llm-chat' }),
+    ).rejects.toBeInstanceOf(EgressPreviewCancelledError);
+    expect(provider.send).not.toHaveBeenCalled();
+  });
+
+  it('skips preview entirely when no callback is provided (backward compat)', async () => {
+    const scanner = makeScanner(() => []);
+    const provider = makeRegistryProviderManager([{ id: 'local', keyless: true }]);
+    const gate = new DefaultEgressGate({
+      scanner,
+      providerManager: provider,
+      notifyLabel: vi.fn(),
+      confirmRedactAndProceed: vi.fn(async () => true),
+      // No previewPayload provided
+    });
+
+    await gate.request({ provider: 'local', text: 'hello', operation: 'llm-chat' });
+
+    expect(provider.send).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -63,6 +63,132 @@ const ELEMENT_LABEL: Readonly<Record<StarElement, string>> = {
   result: 'Result',
 };
 
+// --- Talking-point polishing validation & fallback (R28.3, task 39.5) -------
+
+/**
+ * Common AI filler prefixes that indicate the model just prepended boilerplate
+ * to the raw user input rather than genuinely polishing it. Case-insensitive.
+ */
+const AI_FILLER_PREFIXES: readonly RegExp[] = [
+  /^(?:here(?:'s| is) (?:a |the |my |your )?(?:polished|refined|improved|rewritten|summarized|summarised|revised|concise) (?:version|summary|recap|talking point|text)[:\s]*)/i,
+  /^(?:sure[,!.]?\s*(?:here(?:'s| is)[:\s]*))/i,
+  /^(?:certainly[,!.]?\s*(?:here(?:'s| is)[:\s]*))/i,
+  /^(?:the (?:polished|refined|improved) (?:version|summary|talking point) (?:is|would be)[:\s]*)/i,
+];
+
+/** Maximum sentence count for a polished talking point (conciseness bound). */
+const MAX_POLISHED_SENTENCES = 4;
+
+/** Maximum character length for a polished talking point. */
+const MAX_POLISHED_LENGTH = 500;
+
+/**
+ * Similarity ratio between two strings (0 = identical, 1 = completely different).
+ * Uses a quick token-overlap heuristic: the fraction of unique tokens in `a`
+ * that also appear in `b`. When ≥ 0.85 of a's tokens are in b (or vice versa),
+ * the strings are effectively the same content.
+ */
+function tokenOverlap(a: string, b: string): number {
+  const tokensA = new Set(a.toLowerCase().split(/\s+/).filter((t) => t.length > 1));
+  const tokensB = new Set(b.toLowerCase().split(/\s+/).filter((t) => t.length > 1));
+  if (tokensA.size === 0 || tokensB.size === 0) return 0;
+  let shared = 0;
+  for (const t of tokensA) if (tokensB.has(t)) shared++;
+  return shared / tokensA.size;
+}
+
+/**
+ * Validate whether an AI-produced polished text actually meets the quality bar
+ * for a concise, first-person, past-tense talking-point summary (R28.3):
+ *
+ *   1. Not empty.
+ *   2. Does not start with a common AI filler prefix (the model just echoed).
+ *   3. Contains a first-person marker ("I").
+ *   4. Is concise (≤ {@link MAX_POLISHED_SENTENCES} sentences, ≤ {@link MAX_POLISHED_LENGTH} chars).
+ *   5. Is not excessively similar to the raw input (token overlap < 0.85 or the
+ *      polished is significantly shorter), indicating genuine summarisation.
+ *
+ * Returns `true` when the polished text passes all checks.
+ */
+export function isPolishedQuality(polished: string, rawInput: string): boolean {
+  const trimmed = polished.trim();
+  if (trimmed.length === 0) return false;
+
+  // Check for AI filler prefixes.
+  for (const re of AI_FILLER_PREFIXES) {
+    if (re.test(trimmed)) return false;
+  }
+
+  // Must contain first-person marker.
+  if (!/\bI\b/.test(trimmed)) return false;
+
+  // Conciseness: sentence count.
+  const sentences = trimmed.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+  if (sentences.length > MAX_POLISHED_SENTENCES) return false;
+
+  // Conciseness: character length.
+  if (trimmed.length > MAX_POLISHED_LENGTH) return false;
+
+  // Similarity check: if the polished text uses ≥85% of the same tokens as the
+  // raw input AND is not meaningfully shorter, it was not genuinely polished.
+  const overlap = tokenOverlap(trimmed, rawInput);
+  const significantlyShorter = trimmed.length < rawInput.length * 0.7;
+  if (overlap >= 0.85 && !significantlyShorter) return false;
+
+  return true;
+}
+
+/**
+ * Deterministic sentence-trimming fallback for when the AI fails to produce a
+ * quality polished talking point (R28.3, task 39.5). Takes the user's raw answer
+ * text and produces a concise first-person past-tense summary by:
+ *
+ *   1. Splitting into sentences.
+ *   2. Keeping at most 3 sentences.
+ *   3. Prepending a first-person past-tense frame ("I" + past-tense verb).
+ *   4. Trimming trailing whitespace.
+ *
+ * The result uses ONLY the user's own words (No-Fabrication): the scaffold is a
+ * fixed structural connective, never an invented fact.
+ */
+export function deterministicSentenceTrim(rawInput: string): string {
+  const trimmed = rawInput.trim();
+  if (trimmed.length === 0) return '';
+
+  // Split on sentence boundaries (period, exclamation, question mark followed
+  // by whitespace or end of string). Keep non-empty sentences.
+  const sentences = trimmed
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  if (sentences.length === 0) return '';
+
+  // Take at most 3 sentences.
+  const kept = sentences.slice(0, 3);
+  let result = kept.join(' ');
+
+  // Ensure it ends with a period.
+  if (!/[.!?]$/.test(result)) result += '.';
+
+  // If the text already starts with "I " in first person, return as-is.
+  if (/^\s*I\s/i.test(result)) return result;
+
+  // Prepend a first-person past-tense frame.
+  return `I ${result.charAt(0).toLowerCase()}${result.slice(1)}`;
+}
+
+/**
+ * Validate and optionally fix an AI-produced polished talking-point summary
+ * (R28.3, task 39.5). If the AI output passes {@link isPolishedQuality}, it is
+ * returned unchanged; otherwise the deterministic {@link deterministicSentenceTrim}
+ * fallback is applied to the raw input.
+ */
+export function ensurePolishedQuality(polished: string, rawInput: string): string {
+  if (isPolishedQuality(polished, rawInput)) return polished.trim();
+  return deterministicSentenceTrim(rawInput);
+}
+
 // --- The polished talking-point frame (no fabrication, R28.3) ---------------
 
 /**

@@ -247,7 +247,7 @@ Clique em **Configurações** na barra lateral para acessar toda a configuraçã
 O Agente de Carreira conduz você por seis passos (ele salva seu progresso automaticamente, então você pode parar e voltar quando quiser):
 
 1. **Adicione seus documentos** — envie seu currículo, certificados ou exportação do LinkedIn, ou cole texto. Tudo é lido no seu computador. Você pode **pré-visualizar o texto convertido** de cada documento para verificar se ele veio corretamente; se um arquivo parecer corrompido, remova-o e cole o texto.
-2. **Mapa de Competências** — o Agente de Carreira monta uma lista das suas competências, cada uma ligada ao local onde encontrou a evidência. Você revisa e confirma. Quando o modo IA está selecionado, a IA pode extrair um perfil estruturado e compatível com ATS a partir dos seus documentos — posições de emprego com empresas, localidades, descrições de cargo, conquistas quantificadas e tecnologias utilizadas; educação com instituições e habilidades adquiridas; um resumo profissional; competências essenciais (soft skills e qualidades de liderança distintas de habilidades técnicas); idiomas falados com níveis de proficiência; hobbies e interesses; causas e trabalho voluntário; e quaisquer categorias adicionais (publicações, patentes, prêmios, etc.). Essa extração estruturada é apresentada para sua revisão antes de entrar no mapa de competências, fornecendo contexto mais rico sobre onde e quando cada competência foi utilizada.
+2. **Mapa de Competências** — o Agente de Carreira monta uma lista das suas competências, cada uma ligada ao local onde encontrou a evidência. Você revisa e confirma. Quando o modo IA está selecionado, a IA pode extrair um perfil estruturado e compatível com ATS a partir dos seus documentos — posições de emprego com empresas, localidades, descrições de cargo, conquistas quantificadas e tecnologias utilizadas; educação com instituições e habilidades adquiridas; um resumo profissional; competências essenciais (qualidades comportamentais e de liderança inferidas a partir de padrões de carreira e conquistas, não apenas palavras-chave literais — ex.: Liderança, Planejamento Estratégico, Colaboração Multifuncional); idiomas falados com níveis de proficiência; hobbies e interesses; causas e trabalho voluntário; e quaisquer categorias adicionais (publicações, patentes, prêmios, etc.). As datas são automaticamente normalizadas para formato ISO e entradas compostas de competências são expandidas em itens individuais. Essa extração estruturada é apresentada para sua revisão antes de entrar no mapa de competências, fornecendo contexto mais rico sobre onde e quando cada competência foi utilizada.
 3. **Descoberta de Funções** — receba funções sugeridas que combinam com suas competências, com as lacunas destacadas.
 4. **Treinamento para Entrevista** — pratique respostas STAR. Você pode **digitar**, **enviar um arquivo de áudio** ou **gravar a si mesmo** no navegador. A IA verifica se sua resposta está completa e faz perguntas de acompanhamento — usando apenas as suas próprias palavras.
 5. **Geração de Saída** — gere um currículo personalizado em Markdown, PDF e Word, além de sugestões consultivas do LinkedIn.
@@ -259,6 +259,22 @@ O Agente de Carreira conduz você por seis passos (ele salva seu progresso autom
 - Você pode **pré-visualizar o texto exato** prestes a ser enviado e editar ou excluir qualquer conteúdo que não queira compartilhar antes que ele saia.
 - Qualquer coisa que você marcar como **privada** nunca é enviada a um provedor na nuvem.
 - Com um modelo local selecionado, o app informa que está **totalmente offline**.
+
+### Transparência e decisões automatizadas
+
+O Agente de Carreira exibe todas as decisões automatizadas que toma sobre seus dados, para que nada aconteça pelas suas costas:
+
+- **Log de saída (Egress log).** Cada requisição enviada ao seu provedor de IA (nuvem ou local) e sua resposta são registradas em um log que você pode consultar na tela de **Memória e Manutenção**. Isso permite ver exatamente o que foi perguntado e o que retornou — transparência total de cada interação com IA.
+- **Pré-visualização de prompt.** Antes de qualquer coisa ser enviada a um provedor na nuvem, você vê o texto exato e pode editá-lo ou cancelar. Para um provedor local, a mesma pré-visualização aparece como informativa apenas — com um rótulo "isto permanece no seu dispositivo" — para que você possa inspecionar o que o modelo recebe sem nenhuma etapa bloqueante.
+- **Normalização de datas.** Quando uma data como "Março 2020" é normalizada para "2020-03", a tela de revisão mostra o original ao lado do resultado para que você possa verificar.
+- **Divisão de competências.** Quando uma entrada composta como "AWS SAM (Python, Lambda)" é expandida em competências individuais, a tela de revisão mostra o que foi dividido e permite que você reverta.
+- **Atribuição de categoria.** A categoria atribuída a cada competência (ex.: "Técnica", "Liderança") é exibida na revisão e você pode alterá-la com um dropdown.
+- **Decisões de mesclagem.** Quando dois nomes de competência semelhantes são mesclados (ex.: "k8s" → "Kubernetes"), você vê a justificativa e pode rejeitar a mesclagem com um clique.
+- **Correspondência bullet–cargo.** Na tela de Saída, cada bullet do currículo pode ser expandido para mostrar por que foi colocado sob um determinado cargo — com base na sobreposição de competências entre suas evidências e as tecnologias do cargo.
+- **Deduplicação de empregos.** Entradas de emprego duplicadas (mesma empresa, cargo e data de início) são automaticamente removidas na geração do currículo, mantendo a entrada mais rica. Nomes de empresa redundantes em títulos de cargo também são limpos.
+- **Rótulos do modo AI-only.** Quando você escolhe o modo Somente IA, cada fase rotula claramente o que está acontecendo — por exemplo, o Mapa de Competências diz "Construindo seu mapa de competências a partir de dados de carreira extraídos pela IA" e a tela de Saída distingue entre a estrutura do currículo (das suas evidências confirmadas) e as sugestões de personalização por IA (orientativas).
+
+Esses recursos de transparência funcionam da mesma forma independentemente de você usar um provedor de IA na nuvem ou local.
 
 ### Onde seus dados são salvos
 

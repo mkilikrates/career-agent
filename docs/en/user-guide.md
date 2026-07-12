@@ -247,7 +247,7 @@ Click **Settings** in the sidebar to access all configuration in one place:
 Career Agent walks you through six steps (it saves your progress automatically, so you can stop and come back any time):
 
 1. **Add your documents** — upload your CV, certificates, or LinkedIn export, or paste text. Everything is read on your computer. You can **preview the converted text** of each document to check it came through correctly; if a file looks garbled, remove it and paste the text instead.
-2. **Skill Map** — Career Agent builds a list of your skills, each linked to where it found the evidence. You review and confirm. When AI mode is selected, the AI can extract a rich, ATS-compatible structured profile from your documents — employment positions with companies, locations, role descriptions, quantified achievements, and technologies used; education entries with institutions and skills gained; a professional summary; core competencies (soft skills and leadership qualities distinct from technical skills); spoken languages with proficiency levels; hobbies and interests; causes and volunteering; and any additional categories (publications, patents, awards, etc.). This structured extraction is presented for your review before it enters the skill map, giving it richer context about where and when each skill was used.
+2. **Skill Map** — Career Agent builds a list of your skills, each linked to where it found the evidence. You review and confirm. When AI mode is selected, the AI can extract a rich, ATS-compatible structured profile from your documents — employment positions with companies, locations, role descriptions, quantified achievements, and technologies used; education entries with institutions and skills gained; a professional summary; core competencies (behavioural and leadership qualities inferred from career patterns and achievements, not only literal keywords — e.g. Leadership, Strategic Planning, Cross-functional Collaboration); spoken languages with proficiency levels; hobbies and interests; causes and volunteering; and any additional categories (publications, patents, awards, etc.). Dates are automatically normalized to ISO format and compound skill entries are expanded into individual items. This structured extraction is presented for your review before it enters the skill map, giving it richer context about where and when each skill was used.
 3. **Role Discovery** — get suggested roles that match your skills, with the gaps called out.
 4. **Interview Coaching** — practise STAR answers. You can **type**, **upload an audio file**, or **record yourself** in the browser. The AI checks whether your answer is complete and asks follow-up questions — using only your own words.
 5. **Output** — generate a tailored CV in Markdown, PDF, and Word, plus advisory LinkedIn suggestions.
@@ -259,6 +259,22 @@ Career Agent walks you through six steps (it saves your progress automatically, 
 - You can **preview the exact text** about to be sent and edit or delete anything you don't want to share before it goes.
 - Anything you mark **private** is never sent to a cloud provider.
 - With a local model selected, the app tells you it is **fully offline**.
+
+### Transparency and automated decisions
+
+Career Agent surfaces every automated decision it makes about your data, so nothing happens behind your back:
+
+- **Egress log.** Every request sent to your AI provider (cloud or local) and its response are recorded in a log you can browse from the **Memory & Maintenance** screen. This lets you see exactly what was asked and what came back — full transparency of every AI interaction.
+- **Prompt preview.** Before anything is sent to a cloud provider you see the exact text and can edit or cancel it. For a local provider the same preview appears as informational only — with a "this stays on your device" label — so you can still inspect what the model receives without any blocking step.
+- **Date normalisation.** When a date like "March 2020" is normalised to "2020-03", the review screen shows the original alongside the result so you can verify.
+- **Skill splitting.** When a compound entry like "AWS SAM (Python, Lambda)" is expanded into individual skills, the review screen shows what was split and lets you override.
+- **Category assignment.** Each skill's assigned category (e.g. "Technical", "Leadership") is shown in the review and you can change it with a dropdown.
+- **Merge decisions.** When two similar skill names are merged (e.g. "k8s" → "Kubernetes"), you see the rationale and can reject the merge with one click.
+- **Bullet-to-position matching.** In the Output screen, each CV bullet can be expanded to show why it was placed under a particular position — based on skill overlap between your evidence and the position's technologies.
+- **Employment deduplication.** Duplicate employment entries (same company, title, and start date) are automatically removed in CV generation, keeping the richest entry. Redundant company names in job titles are cleaned as well.
+- **AI-only mode labels.** When you choose the AI-only mode, each phase clearly labels what is happening — for instance, the Skill Map says "Building your skill map from AI-extracted career data" and the Output screen distinguishes between the CV structure (from your confirmed evidence) and AI tailoring suggestions (advisory).
+
+These transparency features work the same way regardless of whether you use a cloud or local AI provider.
 
 ### Where your data is saved
 

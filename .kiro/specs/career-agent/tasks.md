@@ -842,7 +842,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Export produces a valid zip with canonical paths + JSON; import from zip restores full state; import from JSON still works; corrupt file shows error without data loss
     - _Requirements: 72_
 
-- [x] 37. Fix duplicate locale keys in extraction review (Bug) + Rich ATS extraction schema (R73)
+- [x] 37. Fix duplicate locale keys in extraction review (Bug) + Rich ATS extraction schema (R71)
   - [x] 37.1 Fix the duplicate `extraction` key bug in locale files
     - The `skillMap.extraction` object was duplicated in both `locales/en.json` and `locales/pt-BR.json`; the second block (missing `positionItem`, `dates`, `datesOngoing`) silently overwrote the first in JSON parsing, causing the UI to render raw locale keys
     - Merge into a single `extraction` block that contains ALL keys used by `SkillMapScreen.tsx`: `positionItem`, `dates`, `datesOngoing`, `noPositions`, `noEducation`, `noSkills`, `at`, `technologies`, `skillsGained`, plus the existing `heading`, `review`, `positions`, `education`, `skills`, `confirm`, `since`, and `dedup.*`
@@ -851,37 +851,37 @@ These tasks were added after the original plan. Section 30 records work already 
   - [x] 37.2 Evolve the AI extraction prompt to the rich ATS-compatible schema
     - Update `buildCareerExtractionPrompt` in `@core/skills/career-extraction.ts` to request the full ATS schema: `professional_summary`, `positions` (with `location`, `description`, `achievements`), `education`, `technical_skills`, `core_competencies`, `languages`, `hobbies`, `causes`, `additional_info`
     - Instruct the model to map skills per-position and to surface any other CV-relevant categories under `additional_info`
-    - _Requirements: 73.1, 73.7_
+    - _Requirements: 71.2, 71.13_
   - [x] 37.3 Extend `ExtractedItem` types for new categories
     - Add new item types to `@core/types`: `core_competency`, `hobby`, `cause`, `language_proficiency`, `professional_summary`, `additional_info`
     - Each carries appropriate fields (e.g. `language_proficiency` has `{ language, proficiency }`)
-    - _Requirements: 73.2_
+    - _Requirements: 71.3_
   - [x] 37.4 Update `parseCareerExtraction` for the rich schema
     - Parse the new JSON fields into the corresponding `ExtractedItem` types
     - Handle the extensible `additional_info` array (any unrecognised key with array content → `additional_info` items)
     - All new items tagged `confidence: 'Medium'` (user must confirm)
-    - _Requirements: 73.2, 73.6, 73.9_
+    - _Requirements: 71.3, 71.4, 71.10_
   - [x] 37.5 Update the extraction review UI to display new categories
     - In `SkillMapScreen.tsx`, add sections for core competencies, languages, hobbies, causes, professional summary, and additional info with the same checkbox-confirm pattern
     - Add all new user-facing strings to `locales/en.json` and `locales/pt-BR.json`
-    - _Requirements: 73.3, 73.8_
+    - _Requirements: 71.16, 71.17_
   - [x] 37.6 Distinguish core competencies from technical skills in the skill map
     - Extend `SkillMapEntry` with a `category` field that can be `'technical'` or `'core_competency'`
     - Persist the distinction in `skill_map.md` serialization
-    - _Requirements: 73.4_
+    - _Requirements: 71.7_
   - [x] 37.7 Extend `buildCvModel` with new sections
     - Add professional summary, core competencies section, languages section, hobbies/causes section to the CV model
     - Each section renders only if the user has confirmed items in that category
     - Use per-position achievements from the extraction when available
-    - _Requirements: 73.5_
+    - _Requirements: 71.19_
   - [x] 37.8 Update docs, prompts.md, CHANGELOG
     - Update `docs/prompts.md` with the new extraction prompt
     - Update user-guide docs (both languages) describing the richer extraction
     - Add CHANGELOG entry for bug fix and enhancement
-    - _Requirements: 73_
+    - _Requirements: 71_
   - [ ]* 37.9 Tests for the rich ATS extraction
     - JSON parse tolerance for new schema; new item types mapping; core competency distinction in skill map; CV model renders new sections only when confirmed; extensible `additional_info` capture
-    - _Requirements: 73_
+    - _Requirements: 71_
 
 - [x] 38. Fix CV generation: AI tailoring without Target Opportunity + ATS Markdown renderer (Bugs)
   - [x] 38.1 Fix AI CV tailoring falling back to script-only when no Target Opportunity is provided
@@ -891,6 +891,94 @@ These tasks were added after the original plan. Section 30 records work already 
   - [x] 38.2 Fix Markdown renderer to produce ATS-formatted CV using structured employment entries
     - The `renderMarkdown` function only rendered the flat `experience` bullet list and ignored `employmentEntries` (grouped positions with company, dates, technologies, achievements), `professionalSummary`, `coreCompetencies`, `languages`, and `hobbiesAndCauses` — all of which `buildCvModel` already populates from confirmed extraction items
     - Updated `renderExperience` to prefer `employmentEntries` when available, rendering each position as a `### Title — Company (dates)` subsection with technologies, achievements, and matched talking-point bullets underneath
-    - Added `renderCoreCompetencies`, `renderLanguages`, `renderHobbiesAndCauses` sections and updated `renderSummary` to prefer `professionalSummary` from confirmed R73 extraction items
+    - Added `renderCoreCompetencies`, `renderLanguages`, `renderHobbiesAndCauses` sections and updated `renderSummary` to prefer `professionalSummary` from confirmed R71 extraction items
     - The CV now renders as a proper ATS-formatted document with structured employment history rather than just a flat skill list
-    - _Requirements: 71.7, 73.5, 32.1, 32.4_
+    - _Requirements: 71.18, 71.19, 32.1, 32.4_
+
+- [x] 39. Extraction post-processing quality: date normalization, skill splitting, competency inference, role scoring (R71)
+  - [x] 39.1 Implement date normalization utility
+    - Add `normalizeDate(raw: string): string | undefined` to `@core/skills/career-extraction.ts` that converts natural-language dates to ISO format (`YYYY-MM` or `YYYY`): handle written month names (English, Portuguese), date ranges (extract start only), "Present"/"current"/null → undefined, already-ISO passthrough
+    - Apply `normalizeDate` to position `start`/`end`, education `start`/`end`, standalone skill `since` fields in `normalisePosition`, `normaliseEducationEntry`, `normaliseStandaloneSkill`
+    - Apply to evidence `when` values before they flow into `SkillMapEntry.since` derivation
+    - _Requirements: 71.8, 71.9, 70.1, 70.2_
+  - [x] 39.2 Implement compound skill splitting utility
+    - Add `splitCompoundSkills(technologies: string[]): string[]` that expands parenthetical entries (`"AWS SAM (Python, Lambda)"` → `["AWS SAM", "Python", "Lambda"]`) and slash-separated entries (`"Terraform/Terragrunt"` → `["Terraform", "Terragrunt"]`)
+    - Maintain an allowlist of known compound names (`CI/CD`, `TCP/IP`, `IDS/IPS`, `Node.js`, `C#`, `C++`, `.NET`, `GitLab CI/CD`) that are NOT split
+    - Apply to each position's `technologies` array in `normalisePosition` before the data flows into `careerExtractionToItems`
+    - _Requirements: 71.11, 71.12_
+  - [x] 39.3 Strengthen the core competency extraction prompt
+    - Update `CAREER_EXTRACTION_INSTRUCTION` to explicitly instruct the model to INFER behavioural competencies from career patterns and achievements, not only literal keywords
+    - Add example competencies in the prompt: Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost Optimization, Technical Vision, Team Building, Process Improvement
+    - _Requirements: 71.5, 71.6, 71.2_
+  - [x] 39.4 Fix role match scoring for user-added roles
+    - In `@core/role-matcher`, when computing `scoreMatch` for a user-added role (which has no structured `requiredSkills`), parse mentioned skills from the role's description field and match against the confirmed skill map using ontological matching
+    - Populate `matchedSkills` and `gapSkills` from the overlap/difference; compute percentage score rather than returning 0%
+    - _Requirements: 71.21, 71.20, 20.2, 20.3_
+  - [x] 39.5 Fix talking-point polishing in AI coaching
+    - When the AI coaching summary produces a talking point, verify the `polished` field is actually a concise first-person past-tense summary (not just the raw user input prefixed with filler); if the AI fails to produce a polished version, fall back to a deterministic sentence-trimming of the user's answer
+    - _Requirements: 28.3_
+  - [x] 39.6 Update locale strings and docs
+    - Add any new locale strings for date-normalized display
+    - Update `docs/prompts.md` with the strengthened core-competency extraction instruction
+    - Add CHANGELOG entries
+    - _Requirements: 74, 41.8_
+  - [ ]* 39.7 Tests for post-processing quality
+    - `normalizeDate`: month names (en/pt-BR), ranges, "Present", ISO passthrough, year-only
+    - `splitCompoundSkills`: parenthetical, slash, allowlist preservation
+    - Role scoring: user-added role with description matches skills, computes >0%
+    - Core competency inference: prompt contains example competencies
+    - _Requirements: 74_
+
+- [x] 40. Transparency, dedup, and scoring fixes (R74, R75, R76, R77)
+  - [x] 40.1 Implement Egress logging infrastructure
+    - Add `EgressLogEntry` type and `log/egress_log.md` serializer/parser to `@core/egress`
+    - Add a `logEntry` callback to the Egress Gate constructor, called after every `request()` and `requestIngestion()` with full prompt + response text
+    - Wire the callback in `runtime.ts` to persist entries to the Memory Store via `MemoryTree`
+    - Show the egress log in the Memory & Maintenance screen (read-only view)
+    - _Requirements: 74.1, 74.2, 74.3, 74.5_
+  - [x] 40.2 Show prompt preview for Local Provider requests
+    - Extend the PayloadPreview gate callback to fire for ALL destinations (not just keyed cloud)
+    - For Local Provider: show the preview as informational (with a "this stays on your device" label) rather than blocking
+    - _Requirements: 74.4_
+  - [x] 40.3 Surface date normalisation and skill splitting in the review UI
+    - In SkillMapScreen, when rendering AI-extracted items, show a "Post-processing" annotation where normalizeDate or splitCompoundSkills altered the original value (show "March 2020 → 2020-03" or "AWS SAM (Python, Lambda) → AWS SAM, Python, Lambda")
+    - Log each normalisation/split decision to the session log
+    - _Requirements: 75.1, 75.2, 75.6_
+  - [x] 40.4 Make skill category editable and surface merge rationale
+    - In SkillMapScreen review, add a category dropdown next to each skill entry so the user can override the regex-assigned category
+    - Surface merge decisions (when normalise() merges two terms) in the review UI with the rationale
+    - _Requirements: 75.3, 75.4_
+  - [x] 40.5 Surface bullet-to-position matching rationale in CV output
+    - In the OutputScreen CV view, annotate each bullet with the matching rationale (e.g. "Matched to this position via skill overlap: Kubernetes, Docker")
+    - Or provide an expandable detail section showing why each bullet is under each position
+    - _Requirements: 75.5_
+  - [x] 40.6 Implement employment deduplication in CV builder
+    - Add `deduplicateEmployment(items: ExtractedItem[]): ExtractedItem[]` to `@core/output/cv-model.ts` that deduplicates by (company_lower, title_lower, startYM), keeping the richest entry
+    - Add title-cleaning: strip company name from the title field when it appears as a prefix or suffix
+    - Call before `buildEmploymentEntries()` in `buildCvModel()`
+    - Add tests for dedup and title cleaning
+    - _Requirements: 76.1, 76.2, 76.3, 76.4_
+  - [x] 40.7 Fix role scoring — remove requiredSkills guard and implement re-scoring
+    - In `fromAddedRole()`, remove the `(added.requiredSkills?.length ?? 0) > 0` condition; always call `scoreMatch(spec, map, taxonomy)` when `options.map` is defined
+    - Implement `rescorePreferences(prefs, map, taxonomy): RolePreference[]` that recomputes matchScore/matchedSkills/gapSkills for every preference
+    - Call `rescorePreferences` after skill map confirmation (in the orchestrator or SkillMapScreen save flow) and after interview skill-sync
+    - Persist updated scores to `role_preferences.md`
+    - Add tests for re-scoring
+    - _Requirements: 77.1, 77.2, 77.3_
+  - [x] 40.8 Auto-save CV on generation
+    - In OutputScreen, after `applyBundle()` succeeds, automatically call `store.write(cvPath(...))` without requiring the user to click Save
+    - Keep the explicit Save button for re-saving after manual edits
+    - _Requirements: 33.4_
+  - [x] 40.9 Add AI-only mode clarity labels in phase UIs
+    - In SkillMapScreen, when assistMode is 'ai-only' and generate() runs on AI items, show a label explaining "Building your skill map from AI-extracted career data"
+    - In OutputScreen, show a label explaining "CV structure built from your confirmed evidence; AI tailoring provides advisory suggestions"
+    - In RoleDiscoveryScreen, show appropriate labels for what's happening
+    - _Requirements: 60.11, 60.12_
+  - [x] 40.10 Update locale strings and documentation
+    - Add locale strings (en + pt-BR) for all new labels, log views, and transparency annotations
+    - Update docs/en/developer/architecture.md with Egress Transparency and Inference Transparency sections
+    - Update docs/pt-BR/developer/architecture.md with the same
+    - Update docs/en/user-guide.md with transparency features
+    - Update docs/pt-BR/user-guide.md with the same
+    - Update CHANGELOG.md
+    - _Requirements: 74, 75, 76, 77, 41.8_

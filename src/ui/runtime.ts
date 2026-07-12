@@ -21,10 +21,14 @@ import {
   type RedactProposal,
   type EgressGate,
   type PayloadPreview,
+  type EgressLogCallbackData,
+  type EgressLogEntry,
+  renderEgressLog,
+  parseEgressLog,
 } from '@core/egress';
 import { type NetworkLabelChannel } from '@core/privacy';
 import { ProvenanceIndex } from '@core/provenance';
-import { MemoryTree } from '@core/storage';
+import { MemoryTree, CANONICAL_FILES } from '@core/storage';
 import { createPiiScanner, type PiiScanner } from '@adapters/pii';
 import {
   DefaultProviderManager,
@@ -56,10 +60,12 @@ import type { TraceLookup } from './source-trace-inspector';
 export type ConfirmRedactAndProceed = (proposal: RedactProposal) => boolean | Promise<boolean>;
 
 /**
- * Surfaces the exact outbound text for review/editing before a third-party send
- * (R65). Resolving a string transmits THAT user-approved text; resolving `null`
- * cancels (fail-closed — nothing is transmitted, R65.4). Optional: when omitted
- * the gate performs no Payload Preview and behaves exactly as before.
+ * Surfaces the exact outbound text for review/editing before a send (R65, R74.4).
+ * For third-party providers: resolving a string transmits THAT user-approved text;
+ * resolving `null` cancels (fail-closed — nothing is transmitted, R65.4).
+ * For Local Providers: the preview is informational (non-blocking) with a "this
+ * stays on your device" label (R74.4). Optional: when omitted the gate performs
+ * no Payload Preview and behaves exactly as before.
  */
 export type PreviewPayload = (preview: PayloadPreview) => Promise<string | null>;
 
@@ -75,10 +81,12 @@ export interface CareerAgentRuntimeOptions {
   /** Redact-and-proceed prompt presented on PII detection (R6.3). */
   readonly confirmRedactAndProceed: ConfirmRedactAndProceed;
   /**
-   * OPTIONAL Payload Preview prompt presented before a third-party `llm-chat`
-   * send (R65). The shell wires this to a modal that shows the exact outbound
-   * text for free editing/removal. Omitting it disables the preview (the gate
-   * behaves exactly as before).
+   * OPTIONAL Payload Preview prompt presented before a provider `llm-chat`
+   * send (R65, R74.4). For third-party providers, the shell wires this to a
+   * blocking modal that shows the exact outbound text for free editing/removal.
+   * For Local Providers, the gate fires the callback as informational
+   * (non-blocking) with a "this stays on your device" label. Omitting it
+   * disables the preview (the gate behaves exactly as before).
    */
   readonly previewPayload?: PreviewPayload;
   /**
@@ -182,10 +190,38 @@ export function createCareerAgentRuntime(
     providerManager,
     notifyLabel: labelChannel.notify,
     confirmRedactAndProceed,
-    // OPTIONAL Payload Preview seam (R65): present the exact outbound text for
-    // review/editing before a third-party `llm-chat` send. When omitted, the
-    // gate performs no preview.
+    // OPTIONAL Payload Preview seam (R65, R74.4): present the exact outbound
+    // text for review/editing before a provider `llm-chat` send. For third-party
+    // providers this is blocking; for Local Providers it is informational
+    // (non-blocking). When omitted, the gate performs no preview.
     previewPayload,
+    // OPTIONAL Egress Log callback (R74.1, R74.2): persist every completed
+    // request/response pair to `log/egress_log.md` in the Memory Store so the
+    // user can inspect what was sent and received via the Memory & Maintenance
+    // screen.
+    logEntry: (data: EgressLogCallbackData) => {
+      try {
+        // Extract response text from the opaque ProviderResponse (at runtime it
+        // carries a `.text` field from the LLM HTTP adapter).
+        const resp = data.response as { text?: unknown };
+        const responseText = typeof resp?.text === 'string' ? resp.text : '';
+        const entry: EgressLogEntry = {
+          at: data.at,
+          operation: data.operation,
+          provider: data.provider,
+          promptText: data.promptText,
+          responseText,
+          redacted: data.redacted,
+        };
+        const existing = store.has(CANONICAL_FILES.egressLog)
+          ? parseEgressLog(store.readText(CANONICAL_FILES.egressLog))
+          : [];
+        existing.push(entry);
+        store.write(CANONICAL_FILES.egressLog, renderEgressLog(existing));
+      } catch {
+        // Logging must never break the egress hot path — swallow silently.
+      }
+    },
   });
 
   // The orchestrator holds the Egress Gate and the Memory Store resume reader;

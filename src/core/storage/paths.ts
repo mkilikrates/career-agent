@@ -121,6 +121,7 @@ export const CANONICAL_FILES = {
   confusables: asMemoryPath('config/confusables.yaml'),
   taxonomy: asMemoryPath('config/taxonomy.yaml'),
   sessionLog: asMemoryPath('log/session_log.md'),
+  egressLog: asMemoryPath('log/egress_log.md'),
   linkedinRecommendations: asMemoryPath('outputs/linkedin_recommendations.md'),
 } as const;
 

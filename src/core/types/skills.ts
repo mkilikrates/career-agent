@@ -22,6 +22,16 @@ export type SkillCategory =
   | 'Tools'
   | 'Core_Competency';
 
+/** All valid skill categories as a runtime-iterable array (R75.3). */
+export const SKILL_CATEGORIES: readonly SkillCategory[] = [
+  'Technical',
+  'Leadership',
+  'Communication',
+  'Domain',
+  'Tools',
+  'Core_Competency',
+] as const;
+
 /** A dated, sourced piece of evidence backing a skill (R14.1, R18.2). */
 export interface SkillEvidence {
   ref: DocId | StarId | BulletId;

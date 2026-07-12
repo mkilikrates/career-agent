@@ -97,6 +97,43 @@ O modo escolhido é uma única preferência válida para todo o pipeline, aprese
 
 O esqueleto executável da Regra de Não Fabricação: uma suíte de CI sobre uma biblioteca de fixtures (incluindo perfis esparsos e adversariais) que extrai toda afirmação factual da saída gerada, resolve cada uma contra o índice de proveniência e quebra o build em qualquer afirmação não resolvida ou competência/ferramenta inventada. Novos caminhos de saída devem ser cobertos por ela.
 
+## Princípios de transparência
+
+O Agente de Carreira é construído em torno da transparência total das decisões automatizadas. Nada que o sistema faz com seus dados é oculto — cada requisição de saída e cada transformação de pós-processamento é exibida na UI para que você possa inspecionar, verificar e substituir.
+
+### Transparência de Saída (Egress Transparency)
+
+Toda requisição de saída pelo Portão de Saída é totalmente transparente para o usuário:
+
+- **Registro de saída (Egress logging).** Todo prompt enviado e resposta recebida — independentemente do tipo de provedor (nuvem ou local) — é persistido em `log/egress_log.md` no Repositório de Memória. Cada `EgressLogEntry` contém:
+  - Timestamp (ISO 8601)
+  - Destino do provedor (ex.: `openai`, `anthropic`, `local`)
+  - Tipo de operação (ex.: `chat`, `stt`, `skill-discovery`, `role-discovery`, `star-questions`, `coaching-loop`, `cv-tailoring`)
+  - Texto completo do prompt enviado
+  - Texto completo da resposta recebida
+
+  As entradas são armazenadas em formato Markdown legível por máquina (uma seção por entrada). Para cargas muito grandes (>10KB), a exibição na UI trunca, mas o log persistido sempre contém o texto completo. O log é visualizável na tela da fase Memória e Manutenção como uma visualização cronológica somente leitura.
+
+- **Pré-visualização de prompt para todos os provedores.** Para provedores na nuvem com chave, a pré-visualização da carga (Payload Preview) mostra o texto exato de saída antes da transmissão e o usuário pode editar ou cancelar. Para provedores locais sem chave, uma pré-visualização informativa (não bloqueante) mostra o mesmo texto com um rótulo "isto permanece no seu dispositivo", para que os usuários possam sempre inspecionar o que o modelo vê, independentemente do tipo de provedor.
+
+- **Rotulagem de operação.** Toda chamada a provedor é rotulada na UI antes de rodar — seja como "chamada de rede de terceiros" (nuvem) ou "chamada local no dispositivo" (local) — para que o usuário sempre saiba para onde seus dados estão indo.
+
+### Transparência de Inferência (Inference Transparency)
+
+Toda decisão automatizada de pós-processamento é exibida na UI de revisão:
+
+- **Anotações de normalização de datas.** Quando `normalizeDate()` converte uma data em linguagem natural para formato ISO (ex.: "Março 2020" → "2020-03"), a tela de revisão do Mapa de Competências mostra o valor original ao lado do resultado normalizado em uma seção "Pós-processamento". Cada transformação também é registrada no log da sessão.
+
+- **Anotações de divisão de competências compostas.** Quando `splitCompoundSkills()` expande uma entrada composta (ex.: "AWS SAM (Python, Lambda)" → "AWS SAM", "Python", "Lambda"), a tela de revisão exibe o que foi dividido para que o usuário possa verificar e substituir.
+
+- **Categorias de competência editáveis.** A categoria atribuída por regex a cada competência (Técnica, Liderança, Comunicação, Domínio, Ferramentas, Competência Essencial) é exibida na revisão do Mapa de Competências com um dropdown para substituí-la. O usuário tem a palavra final sobre como suas competências são categorizadas.
+
+- **Exibição da justificativa de mesclagem.** Quando o Mapeador de Competências normaliza dois termos (ex.: "k8s" → "Kubernetes"), a justificativa da mesclagem é exibida na UI de revisão mostrando o que foi mesclado e por quê. O usuário pode rejeitar qualquer mesclagem com um clique para desfazer.
+
+- **Justificativa de correspondência bullet–cargo.** Na tela de Saída, cada bullet do currículo pode ser expandido para mostrar por que foi colocado sob um determinado cargo — a correspondência é baseada na sobreposição de competências entre os vínculos de evidência do bullet e as tecnologias do cargo (ex.: "Correspondido via sobreposição de competências: Kubernetes, Docker").
+
+- **Clareza do modo AI-only.** Quando o usuário seleciona o modo Somente IA, a UI rotula claramente o que está acontecendo em cada fase: o Mapa de Competências explica que está construindo a partir de dados de carreira extraídos pela IA, a tela de Saída explica que a estrutura do currículo vem de evidências confirmadas com personalização por IA como sugestões orientativas, e a Descoberta de Funções explica que as sugestões são geradas pela IA a partir do mapa de competências confirmado.
+
 ## Camadas de armazenamento
 
 Uma única interface `Storage_Adapter` com duas camadas detectadas por capacidade:

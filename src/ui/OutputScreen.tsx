@@ -20,6 +20,7 @@ import {
   generateCv,
   targetOpportunity,
   type ConfirmedEvidence,
+  type CvEmploymentEntry,
   type CvModel,
   type CvRequest,
   type TypstCompiler,
@@ -86,6 +87,7 @@ export function OutputScreen({
   const [linkedIn, setLinkedIn] = useState<string>('');
   const [status, setStatus] = useState<string>('');
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [showRationale, setShowRationale] = useState(false);
 
   // Opt-in-first AI CV tailoring (R30.7): the pipeline-wide choice surfaced by
   // <AssistChoice>, plus advisory AI tailoring notes that never alter the
@@ -133,7 +135,8 @@ export function OutputScreen({
       ? targetOpportunity(oppSource, oppText)
       : undefined;
 
-  /** Apply a generated CvBundle to the screen, surfacing the generation mode (R30.7). */
+  /** Apply a generated CvBundle to the screen, surfacing the generation mode (R30.7).
+   *  Auto-saves to the Memory Store on successful generation (R33.4). */
   const applyBundle = (
     model: CvModel,
     scriptOnly: boolean,
@@ -141,11 +144,32 @@ export function OutputScreen({
     fallbackReason?: string,
   ) => {
     setCvModel(model);
-    setCvMarkdown(renderMarkdown(model));
-    if (evidence) setLinkedIn(renderLinkedInReportMarkdown(buildLinkedInReport(evidence)));
+    const md = renderMarkdown(model);
+    setCvMarkdown(md);
+    const linkedInMd = evidence
+      ? renderLinkedInReportMarkdown(buildLinkedInReport(evidence))
+      : '';
+    if (linkedInMd) setLinkedIn(linkedInMd);
     setAiNotes([...notes]);
     setGenNote(scriptOnly ? t('output.scriptOnlyUsed') : t('output.aiTailoredUsed'));
     setAiError(fallbackReason ? t('assist.fallback', { reason: fallbackReason }) : '');
+
+    // Auto-save CV on generation (R33.4): persist immediately without requiring
+    // the user to click Save. The explicit Save button remains for re-saving
+    // after manual edits.
+    if (role && md.length > 0) {
+      try {
+        store.write(cvPath(role.slug, 1, 'md'), md);
+        if (linkedInMd.length > 0) {
+          store.write(CANONICAL_FILES.linkedinRecommendations, linkedInMd);
+        }
+        store.logAction(`Generated CV + LinkedIn report for "${role.title}".`);
+        setStatus(t('output.autoSaved'));
+      } catch {
+        // Auto-save failure is non-fatal; user can still manually save.
+        setStatus(t('output.autoSaveFailed'));
+      }
+    }
   };
 
   // Deterministic, script-only generation: a complete CV from confirmed evidence
@@ -367,6 +391,11 @@ export function OutputScreen({
           destination network/privacy label, surfaced before the operation.
           AI notes are advisory and never alter the deterministic CV (R22.6). */}
       <div style={{ margin: `${tokens.spacing.sm} 0` }}>
+        {assistMode === 'ai-only' ? (
+          <Banner role="status" data-ai-only-label>
+            <small>{t('output.aiOnlyLabel')}</small>
+          </Banner>
+        ) : null}
         <AssistChoice
           mode={assistMode}
           onMode={onAssistMode}
@@ -446,6 +475,52 @@ export function OutputScreen({
           >
             {cvMarkdown}
           </pre>
+
+          {/* Bullet-to-position matching rationale (R75.5) */}
+          {cvModel?.employmentEntries && cvModel.employmentEntries.length > 0 ? (
+            <details
+              open={showRationale}
+              onToggle={(e) => setShowRationale((e.target as HTMLDetailsElement).open)}
+              style={{ margin: `${tokens.spacing.sm} 0` }}
+              data-match-rationale
+            >
+              <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+                {t('output.matchRationale.toggleLabel')}
+              </summary>
+              <p><small>{t('output.matchRationale.description')}</small></p>
+              {cvModel.employmentEntries.map((entry: CvEmploymentEntry) => (
+                <div
+                  key={`${entry.title}-${entry.company}`}
+                  style={{
+                    marginBottom: tokens.spacing.sm,
+                    paddingLeft: tokens.spacing.md,
+                    borderLeft: `2px solid ${tokens.colour.border}`,
+                  }}
+                >
+                  <strong>
+                    {t('output.matchRationale.position', {
+                      title: entry.title,
+                      company: entry.company || '—',
+                    })}
+                  </strong>
+                  {entry.bullets.length > 0 ? (
+                    <ul style={{ listStyle: 'disc', paddingLeft: '1.2em' }}>
+                      {entry.bullets.map((bullet) => (
+                        <li key={bullet.id as unknown as string} style={{ marginBottom: '0.25rem' }}>
+                          <span>{bullet.text}</span>
+                          <br />
+                          <small style={{ color: tokens.colour.muted }}>
+                            {bullet.matchRationale ?? t('output.matchRationale.noRationale')}
+                          </small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ))}
+            </details>
+          ) : null}
+
           <h4>{t('output.linkedInHeading')}</h4>
           <pre
             style={{

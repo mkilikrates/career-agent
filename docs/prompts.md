@@ -158,8 +158,15 @@ Rules:
   gained.
 - For technical_skills: list standalone technical skills not tied to a specific
   position or course. Include an approximate start year if determinable.
-- For core_competencies: list soft skills, leadership skills, and domain
-  competencies distinct from technical skills.
+- For core_competencies: INFER behavioural competencies from career patterns
+  and achievements, not only literal keywords. Look at role progression, scope
+  of responsibility, cross-team work, and quantified outcomes to identify
+  competencies the candidate demonstrates even if they are not explicitly named.
+  Examples of competencies to look for: Leadership, Innovation, Stakeholder
+  Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional
+  Collaboration, Change Management, Cost Optimization, Technical Vision, Team
+  Building, Process Improvement. Include both explicitly stated and
+  pattern-inferred competencies distinct from technical skills.
 - For languages: list spoken/written languages with proficiency levels (e.g.
   "Native", "Fluent", "Professional", "Intermediate", "Basic").
 - For hobbies: list hobbies and interests if mentioned.
@@ -212,6 +219,18 @@ Followed by `DOCUMENT CONTENT:` and the corpus chunk.
   - Languages: de-duplicated by language name (case-insensitive).
   - Hobbies, causes: merged and de-duplicated case-insensitively.
   - Additional info: de-duplicated by (category + value).
+- **Post-processing** (applied during normalisation, before merge/conversion):
+  - **Date normalization** (`normalizeDate`, R71.8, R71.9): position and education
+    `start`/`end` dates and standalone skill `since` fields are converted from
+    natural-language strings to ISO format (`YYYY-MM` or `YYYY`). Handles written
+    month names (English + Portuguese), numeric `MM/YYYY`, date ranges (extracts
+    start), and "Present"/"current"/"atual" → `undefined`. Already-ISO strings
+    pass through unchanged.
+  - **Compound skill splitting** (`splitCompoundSkills`, R71.11, R71.12): each
+    position's `technologies` array is expanded — parenthetical entries become
+    prefix + inner items, slash-separated entries become individual items —
+    while an allowlist of known compounds (CI/CD, TCP/IP, Node.js, C#, C++,
+    .NET, GitLab CI/CD, IDS/IPS) are preserved intact.
 - **Conversion**: `careerExtractionToItems` converts the extraction into
   `ExtractedItem[]` for the ingestion pipeline. Item types:
   `professional_summary`, `employment`, `education`, `skill`,

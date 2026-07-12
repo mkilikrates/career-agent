@@ -220,3 +220,130 @@ describe('retire — mark rather than delete (R23.3, R23.2)', () => {
     expect(next.id).toBe('STAR-02');
   });
 });
+
+
+// --- Talking-point polishing validation & fallback (R28.3, task 39.5) -------
+
+import { isPolishedQuality, deterministicSentenceTrim, ensurePolishedQuality } from './index';
+
+describe('isPolishedQuality — validates AI-produced polished text (R28.3)', () => {
+  const rawInput =
+    'the service was failing under load and i owned the reliability fix. ' +
+    'i added autoscaling and caching, and we cut error rates by half.';
+
+  it('accepts a genuinely polished first-person past-tense summary', () => {
+    const polished = 'I owned the reliability fix for a failing service. I added autoscaling and caching, cutting error rates by half.';
+    expect(isPolishedQuality(polished, rawInput)).toBe(true);
+  });
+
+  it('rejects empty text', () => {
+    expect(isPolishedQuality('', rawInput)).toBe(false);
+    expect(isPolishedQuality('   ', rawInput)).toBe(false);
+  });
+
+  it('rejects text with AI filler prefixes', () => {
+    expect(isPolishedQuality("Here's a polished version: I fixed the service.", rawInput)).toBe(false);
+    expect(isPolishedQuality('Here is the refined summary: I fixed it.', rawInput)).toBe(false);
+    expect(isPolishedQuality("Sure, here's: I fixed the service.", rawInput)).toBe(false);
+    expect(isPolishedQuality('Certainly, here is: I fixed the service.', rawInput)).toBe(false);
+  });
+
+  it('rejects text without first-person marker', () => {
+    expect(isPolishedQuality('The service was fixed under load.', rawInput)).toBe(false);
+  });
+
+  it('rejects overly long text (> 500 chars)', () => {
+    const long = 'I ' + 'did something important. '.repeat(25);
+    expect(isPolishedQuality(long, rawInput)).toBe(false);
+  });
+
+  it('rejects text with more than 4 sentences', () => {
+    const fiveSentences = 'I fixed the service. I added caching. I scaled it up. I monitored it. I reported the results to leadership.';
+    expect(isPolishedQuality(fiveSentences, rawInput)).toBe(false);
+  });
+
+  it('rejects text that is too similar to the raw input (not genuinely polished)', () => {
+    // Just the raw input with minimal changes — high token overlap.
+    const barelyChanged =
+      'The service was failing under load and i owned the reliability fix. ' +
+      'I added autoscaling and caching, and we cut error rates by half.';
+    expect(isPolishedQuality(barelyChanged, rawInput)).toBe(false);
+  });
+
+  it('accepts polished text that shares tokens but is significantly shorter', () => {
+    // Shortened version — same tokens but much more concise.
+    const concise = 'I fixed a service failing under load by adding autoscaling.';
+    expect(isPolishedQuality(concise, rawInput)).toBe(true);
+  });
+});
+
+describe('deterministicSentenceTrim — fallback sentence-trimming (R28.3)', () => {
+  it('returns empty string for empty input', () => {
+    expect(deterministicSentenceTrim('')).toBe('');
+    expect(deterministicSentenceTrim('   ')).toBe('');
+  });
+
+  it('trims to at most 3 sentences', () => {
+    const fourSentences =
+      'First sentence. Second sentence. Third sentence. Fourth sentence.';
+    const result = deterministicSentenceTrim(fourSentences);
+    expect(result).not.toContain('Fourth');
+    expect(result).toContain('Third');
+  });
+
+  it('prepends first-person frame when input lacks "I"', () => {
+    const input = 'The team improved throughput by 30%.';
+    const result = deterministicSentenceTrim(input);
+    expect(result).toMatch(/^I /);
+    // Original content is preserved (lowercased first char).
+    expect(result).toContain('the team improved throughput by 30%.');
+  });
+
+  it('preserves input that already starts with "I"', () => {
+    const input = 'I led the migration to a new database.';
+    const result = deterministicSentenceTrim(input);
+    expect(result).toBe('I led the migration to a new database.');
+  });
+
+  it('ensures the result ends with a period', () => {
+    const input = 'I fixed the service under load';
+    const result = deterministicSentenceTrim(input);
+    expect(result).toMatch(/\.$/);
+  });
+
+  it('handles single sentence input', () => {
+    const input = 'I reduced latency by 40%.';
+    expect(deterministicSentenceTrim(input)).toBe('I reduced latency by 40%.');
+  });
+});
+
+describe('ensurePolishedQuality — validation with fallback (R28.3, task 39.5)', () => {
+  const rawInput =
+    'the service was failing under load and i owned the reliability fix. ' +
+    'i added autoscaling and caching, and we cut error rates by half.';
+
+  it('returns good AI output unchanged', () => {
+    const good = 'I owned the reliability fix for a failing service. I added autoscaling and caching, cutting error rates by half.';
+    expect(ensurePolishedQuality(good, rawInput)).toBe(good);
+  });
+
+  it('falls back to deterministic trim when AI output is empty', () => {
+    const result = ensurePolishedQuality('', rawInput);
+    expect(result.length).toBeGreaterThan(0);
+    expect(result).toMatch(/^I /);
+  });
+
+  it('falls back when AI output has filler prefix', () => {
+    const bad = "Here's a polished version: I fixed the service.";
+    const result = ensurePolishedQuality(bad, rawInput);
+    // The fallback produces a sentence-trimmed version of the raw input.
+    expect(result).not.toContain("Here's a polished version");
+    expect(result).toMatch(/^I /);
+  });
+
+  it('falls back when AI output lacks first-person voice', () => {
+    const bad = 'The service was fixed and error rates dropped.';
+    const result = ensurePolishedQuality(bad, rawInput);
+    expect(result).toMatch(/\bI\b/);
+  });
+});

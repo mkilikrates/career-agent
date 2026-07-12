@@ -226,6 +226,73 @@ const extractSkillsFromItems = (items: readonly ExtractedItem[]): string[] => {
   return skills;
 };
 
+// --- Description-derived skill extraction (R71.21) -------------------------
+
+/**
+ * Extract skills mentioned in a role description by matching against known skill
+ * names from the user's skill map and the taxonomy. Pure and deterministic.
+ *
+ * The matching is case-insensitive and uses word-boundary awareness: a skill
+ * name must appear as a distinct token or phrase in the description (not as a
+ * substring of an unrelated word). Multi-word skill names are matched as phrases.
+ *
+ * Returns deduplicated skill names in their canonical form from the source
+ * (skill map entry name or taxonomy relation name).
+ */
+const extractSkillsFromDescription = (
+  description: string,
+  map: SkillMap,
+  taxonomy: Taxonomy,
+): string[] => {
+  if (description.trim().length === 0) return [];
+
+  // Build a set of known skill names (original casing) from the skill map and
+  // taxonomy, keyed by canonical form to deduplicate.
+  const knownByCanon = new Map<string, string>();
+  for (const entry of map.entries) {
+    const canon = canonicalTerm(entry.name);
+    if (canon.length > 0 && !knownByCanon.has(canon)) {
+      knownByCanon.set(canon, entry.name);
+    }
+  }
+  for (const rel of taxonomy.relations) {
+    const childCanon = canonicalTerm(rel.child);
+    if (childCanon.length > 0 && !knownByCanon.has(childCanon)) {
+      knownByCanon.set(childCanon, rel.child);
+    }
+    const parentCanon = canonicalTerm(rel.parent);
+    if (parentCanon.length > 0 && !knownByCanon.has(parentCanon)) {
+      knownByCanon.set(parentCanon, rel.parent);
+    }
+  }
+
+  const descLower = description.toLowerCase();
+  const found = new Set<string>();
+  const results: string[] = [];
+
+  // Sort by length descending so longer multi-word names match first (e.g.
+  // "SQL Database" before "SQL").
+  const candidates = [...knownByCanon.entries()].sort(
+    (a, b) => b[0].length - a[0].length,
+  );
+
+  for (const [canon, originalName] of candidates) {
+    if (found.has(canon)) continue;
+    // Build a word-boundary-aware check. For skills containing special regex
+    // chars (C#, C++, .NET), we escape them. We use a simple boundary approach:
+    // the skill must be preceded/followed by a non-alphanumeric char (or
+    // start/end of string).
+    const escaped = canon.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, 'i');
+    if (pattern.test(descLower)) {
+      found.add(canon);
+      results.push(originalName);
+    }
+  }
+
+  return results;
+};
+
 /**
  * Score a {@link RoleSpec} against a {@link SkillMap} using ontological matching
  * (R20.2, R20.3). Pure and deterministic. The returned score is an estimate and
@@ -254,8 +321,19 @@ export const scoreMatch = (
     explicitCount < MIN_EXPLICIT_SKILLS &&
     options?.items !== undefined &&
     options.items.length > 0;
+
+  // R71.21: When the role has no explicit skills and no employment items,
+  // parse mentioned skills from the role's description to compute a meaningful
+  // match score for user-added roles.
+  const useDescriptionData =
+    explicitCount < MIN_EXPLICIT_SKILLS &&
+    !useEmploymentData &&
+    role.description.trim().length > 0;
+
   if (useEmploymentData) {
     required = extractSkillsFromItems(options!.items!);
+  } else if (useDescriptionData) {
+    required = extractSkillsFromDescription(role.description, map, taxonomy);
   }
 
   const nameById = new Map<string, string>(
@@ -309,6 +387,13 @@ export const scoreMatch = (
     if (useEmploymentData) {
       parts.push(
         `Scored using ${required.length} skills from your employment history.` +
+          ` You match ${satisfiedRequired} of them for this ${role.roleType} role` +
+          (matchedNames.length > 0 ? ` (${listNames(matchedNames)})` : '') +
+          '.',
+      );
+    } else if (useDescriptionData) {
+      parts.push(
+        `Scored using ${required.length} skills mentioned in the role description.` +
           ` You match ${satisfiedRequired} of them for this ${role.roleType} role` +
           (matchedNames.length > 0 ? ` (${listNames(matchedNames)})` : '') +
           '.',

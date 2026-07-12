@@ -53,6 +53,7 @@ export type { DiscoveryCorpusOptions } from './skill-discovery';
 export {
   buildCareerExtractionPrompt,
   parseCareerExtraction,
+  parseCareerExtractionWithTracking,
   mergeCareerExtractions,
   careerExtractionToItems,
   CAREER_EXTRACTION_INSTRUCTION,
@@ -64,6 +65,7 @@ export type {
   ExtractedStandaloneSkill,
   ExtractedLanguage,
   ExtractedAdditionalInfo,
+  PostProcessingTransformation,
 } from './career-extraction';
 
 // AI skill discovery wired to the shared opt-in-first AssistableOperation (25.2):

@@ -117,6 +117,13 @@ export interface CvBullet {
   readonly needsMetric: boolean;
   /** A user-facing note to surface when `needsMetric` is set (R30.4). */
   readonly metricNote?: string;
+  /**
+   * The rationale for matching this bullet to a particular employment position
+   * (R75.5). Populated during employment grouping via skill overlap. Undefined
+   * when the bullet has not been matched to a position yet (i.e. in the flat
+   * experience list before employment grouping runs).
+   */
+  readonly matchRationale?: string;
 }
 
 /** One education or certification entry, as available from confirmed items. */
@@ -213,6 +220,123 @@ export interface ConfirmedEvidence {
   /** Optional professional summary, supplied verbatim. */
   readonly summary?: string;
 }
+
+// --- Employment deduplication (R76) ----------------------------------------
+
+/**
+ * Compute a richness score for an employment item. A higher score means
+ * the item has more data (technologies, achievements, description length).
+ */
+const employmentRichness = (item: ExtractedItem): number => {
+  const techs = Array.isArray(item.fields.technologies) ? item.fields.technologies.length : 0;
+  const achievements = Array.isArray(item.fields.achievements)
+    ? item.fields.achievements.length
+    : 0;
+  const desc =
+    typeof item.fields.description === 'string' ? item.fields.description.length : 0;
+  return techs + achievements + desc;
+};
+
+/**
+ * Strip the company name from the title when it appears as a prefix or suffix.
+ * Handles patterns like "Acme Corp — Senior Engineer", "Senior Engineer at Acme Corp",
+ * "Acme Corp Software Engineer", "Software Engineer Acme Corp".
+ */
+export const cleanEmploymentTitle = (title: string, company: string): string => {
+  if (!title || !company) return title;
+  const trimmedTitle = title.trim();
+  const trimmedCompany = company.trim();
+  if (trimmedCompany.length === 0) return trimmedTitle;
+
+  // Case-insensitive comparison
+  const titleLower = trimmedTitle.toLowerCase();
+  const companyLower = trimmedCompany.toLowerCase();
+
+  // Escape regex special chars in company name
+  const escapedCompany = trimmedCompany.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Try prefix patterns: "Company — Title", "Company - Title", "Company: Title", "Company Title"
+  const prefixPattern = new RegExp(
+    `^${escapedCompany}\\s*(?:[—–\\-:|]\\s*|\\s+)`,
+    'i',
+  );
+  const prefixMatch = trimmedTitle.match(prefixPattern);
+  if (prefixMatch) {
+    const result = trimmedTitle.slice(prefixMatch[0].length).trim();
+    if (result.length > 0) return result;
+  }
+
+  // Try suffix patterns: "Title at Company", "Title — Company", "Title - Company", "Title Company"
+  const suffixPattern = new RegExp(
+    `\\s*(?:\\bat\\b\\s*|[—–\\-:|]\\s*|\\s+)${escapedCompany}\\s*$`,
+    'i',
+  );
+  const suffixMatch = trimmedTitle.match(suffixPattern);
+  if (suffixMatch) {
+    const result = trimmedTitle.slice(0, suffixMatch.index).trim();
+    if (result.length > 0) return result;
+  }
+
+  // Direct prefix (company name is a literal prefix with no separator)
+  if (titleLower.startsWith(companyLower) && trimmedTitle.length > trimmedCompany.length) {
+    const afterCompany = trimmedTitle.slice(trimmedCompany.length).trim();
+    if (afterCompany.length > 0) return afterCompany;
+  }
+
+  // Direct suffix (company name is a literal suffix with no separator)
+  if (titleLower.endsWith(companyLower) && trimmedTitle.length > trimmedCompany.length) {
+    const beforeCompany = trimmedTitle.slice(0, trimmedTitle.length - trimmedCompany.length).trim();
+    if (beforeCompany.length > 0) return beforeCompany;
+  }
+
+  return trimmedTitle;
+};
+
+/**
+ * Deduplicate employment items by (company_lower, title_lower, startYM),
+ * keeping the richest entry (most technologies, longest description, most
+ * achievements). Also cleans the title field by stripping the company name
+ * when it appears as a prefix or suffix (R76.1–R76.4).
+ */
+export const deduplicateEmployment = (items: ExtractedItem[]): ExtractedItem[] => {
+  // First, clean titles before building keys (so "Acme Corp Senior Engineer"
+  // and "Senior Engineer" at Acme Corp share the same dedup key).
+  const cleaned: ExtractedItem[] = items.map((item) => {
+    const company = typeof item.fields.employer === 'string' ? item.fields.employer : '';
+    const title = typeof item.fields.title === 'string' ? item.fields.title : '';
+    const cleanedTitle = cleanEmploymentTitle(title, company);
+    if (cleanedTitle !== title) {
+      return { ...item, fields: { ...item.fields, title: cleanedTitle } };
+    }
+    return item;
+  });
+
+  // Build dedup key → best item
+  const keyMap = new Map<string, ExtractedItem>();
+  for (const item of cleaned) {
+    const company = (
+      typeof item.fields.employer === 'string' ? item.fields.employer : ''
+    ).toLowerCase().trim();
+    const title = (
+      typeof item.fields.title === 'string' ? item.fields.title : ''
+    ).toLowerCase().trim();
+    const startRaw = item.fields.start ?? item.fields.startedOn ?? item.fields.from;
+    const startYM = typeof startRaw === 'string' ? startRaw.trim().slice(0, 7) : '';
+    const key = `${company}|${title}|${startYM}`;
+
+    const existing = keyMap.get(key);
+    if (existing === undefined) {
+      keyMap.set(key, item);
+    } else {
+      // Keep the richer entry
+      if (employmentRichness(item) > employmentRichness(existing)) {
+        keyMap.set(key, item);
+      }
+    }
+  }
+
+  return Array.from(keyMap.values());
+};
 
 // --- Employment grouping helpers (R71.7) -----------------------------------
 
@@ -314,18 +438,31 @@ const buildEmploymentEntries = (
   for (const bullet of bullets) {
     let bestMatch: PositionInfo | undefined;
     let bestOverlap = 0;
+    let bestOverlappingSkills: string[] = [];
 
     for (const pos of positions) {
       if (pos.techSkillIds.size === 0) continue;
-      const overlap = bullet.skills.filter((s) => pos.techSkillIds.has(asString(s))).length;
-      if (overlap > bestOverlap) {
-        bestOverlap = overlap;
+      const overlappingIds: string[] = [];
+      for (const s of bullet.skills) {
+        if (pos.techSkillIds.has(asString(s))) overlappingIds.push(asString(s));
+      }
+      if (overlappingIds.length > bestOverlap) {
+        bestOverlap = overlappingIds.length;
         bestMatch = pos;
+        bestOverlappingSkills = overlappingIds;
       }
     }
 
     if (bestMatch !== undefined) {
-      bestMatch.matchedBullets.push(bullet);
+      // Build the match rationale: resolve skill ids to their display names (R75.5).
+      const overlappingNames = bestOverlappingSkills
+        .map((id) => {
+          const entry = skillMap.entries.find((e) => asString(e.id) === id);
+          return entry?.name ?? id;
+        });
+      const rationale = `Skill overlap: ${overlappingNames.join(', ')}`;
+      const annotated: CvBullet = { ...bullet, matchRationale: rationale };
+      bestMatch.matchedBullets.push(annotated);
       assigned.add(asString(bullet.id));
     }
   }
@@ -587,7 +724,10 @@ export const buildCvModel = (
 
   // 4. Employment entries — group bullets under their originating employment
   //    position, using date overlap or skill overlap (R71.7).
-  const employmentItems = (evidence.items ?? []).filter((i) => i.type === 'employment');
+  //    Deduplicate first (R76): same (company, title, start) keep richest.
+  const employmentItems = deduplicateEmployment(
+    (evidence.items ?? []).filter((i) => i.type === 'employment'),
+  );
   if (employmentItems.length > 0) {
     const entries = buildEmploymentEntries(employmentItems, experience, evidence.skillMap);
     if (entries.length > 0) {

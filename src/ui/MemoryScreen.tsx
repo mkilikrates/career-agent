@@ -13,6 +13,8 @@
 
 import { useState } from 'react';
 import { MemoryTree } from '@core/storage';
+import { CANONICAL_FILES } from '@core/storage';
+import { parseEgressLog, type EgressLogEntry } from '@core/egress';
 import { exportSessionZip } from '../adapters/memory-store-zip';
 import { Button, Row, EmptyState, ErrorState, Banner } from './design-system';
 
@@ -29,6 +31,16 @@ export function MemoryScreen({ store, onChanged, t }: MemoryScreenProps) {
 
   const paths = store.paths();
   const log = store.sessionLog();
+
+  // Parse the egress log for read-only display (R74.5).
+  const egressLog: EgressLogEntry[] = (() => {
+    try {
+      if (!store.has(CANONICAL_FILES.egressLog)) return [];
+      return parseEgressLog(store.readText(CANONICAL_FILES.egressLog));
+    } catch {
+      return [];
+    }
+  })();
 
   const handleExport = () => {
     const json = JSON.stringify(store.snapshot(), null, 2);
@@ -134,6 +146,29 @@ export function MemoryScreen({ store, onChanged, t }: MemoryScreenProps) {
               <small>
                 [{entry.type}] {entry.message}
               </small>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <h4>{t('memory.egressLogHeading')}</h4>
+      {egressLog.length === 0 ? (
+        <EmptyState message={t('memory.noEgressLog')} />
+      ) : (
+        <ul>
+          {egressLog.map((entry, i) => (
+            <li key={`${entry.at}-${i}`}>
+              <small>
+                [{entry.at}] <strong>{entry.operation}</strong> → {entry.provider}
+                {entry.redacted ? ` (${t('memory.egressRedacted')})` : ''}
+              </small>
+              <details>
+                <summary><small>{t('memory.egressDetails')}</small></summary>
+                <pre style={{ whiteSpace: 'pre-wrap', fontSize: '0.75rem' }}>
+                  {t('memory.egressPromptLabel')}: {entry.promptText}{'\n'}
+                  {t('memory.egressResponseLabel')}: {entry.responseText}
+                </pre>
+              </details>
             </li>
           ))}
         </ul>

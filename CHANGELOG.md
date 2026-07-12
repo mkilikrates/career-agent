@@ -5,6 +5,66 @@ All notable changes to Career Agent are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-07-05
+
+### Added
+
+- **Egress transparency and LLM interaction logging** (R74): every prompt sent
+  to and response received from any provider (cloud or local) is now logged to
+  `log/egress_log.md` in the Memory Store. The log is viewable from the Memory &
+  Maintenance screen. Local Provider requests also show an informational prompt
+  preview so the user can inspect what is being sent regardless of provider type.
+- **Inference transparency and decision surfacing** (R75): all automated
+  post-processing decisions (date normalisation, skill splitting, category
+  assignment, merge decisions, bullet-to-position matching) are now surfaced in
+  the review UI. Users can see original vs. normalised values, override
+  categories, reject merges, and view matching rationale for CV bullet placement.
+- **Employment deduplication in CV generation** (R76):
+  `deduplicateEmployment()` removes duplicate employment entries by
+  (company, title, start date) before rendering, keeping the richest entry.
+  Redundant company names in title fields are stripped automatically.
+- **Role preference re-scoring** (R77): `rescorePreferences()` recomputes
+  match scores for all saved role preferences whenever the skill map changes.
+  User-added roles with no explicit required skills now parse skills from the
+  description field for scoring rather than leaving the score at 0%.
+- **Auto-save CV on generation** (R33.4): generated CVs are automatically saved
+  to the Memory Store without requiring an explicit Save action.
+- **AI-only mode clarity labels** (R60.11, R60.12): phase UIs now clearly
+  communicate when AI is performing operations and distinguish between CV
+  structure (from confirmed evidence) and AI tailoring (advisory suggestions).
+- **Date normalization for career extraction** (R71.8, R71.9): `normalizeDate()`
+  converts natural-language dates (written month names in English and Portuguese,
+  numeric formats, date ranges) to ISO `YYYY-MM` or `YYYY` format before they
+  enter the skill map. "Present"/"current"/"atual" and empty values yield
+  `undefined`; already-ISO strings pass through unchanged.
+- **Compound skill splitting** (R71.11, R71.12): `splitCompoundSkills()` expands
+  parenthetical entries (`"AWS SAM (Python, Lambda)"` → three separate skills)
+  and slash-separated entries (`"Terraform/Terragrunt"` → two skills) while
+  preserving an allowlist of known compound names (CI/CD, TCP/IP, Node.js, C#,
+  C++, .NET, GitLab CI/CD, IDS/IPS).
+- **AI-polished talking-point validation** (R28.3): when the AI coaching summary
+  produces a talking point, the `polished` field is validated to be a concise
+  first-person past-tense summary; if validation fails, a deterministic
+  sentence-trimming fallback is applied.
+
+### Changed
+
+- **Core competency extraction prompt strengthened** (R71.5, R71.6): the
+  `CAREER_EXTRACTION_INSTRUCTION` now explicitly instructs the model to INFER
+  behavioural competencies from career patterns and achievements (role
+  progression, scope of responsibility, cross-team work, quantified outcomes) —
+  not only literal keywords. Example competencies listed: Leadership, Innovation,
+  Stakeholder Management, Crisis Management, Strategic Planning, Mentoring,
+  Cross-functional Collaboration, Change Management, Cost Optimization, Technical
+  Vision, Team Building, Process Improvement.
+
+### Fixed
+
+- **Role match scoring for user-added roles** (R71.21, R71.20): user-added roles
+  (which have no structured `requiredSkills`) now parse mentioned skills from
+  their description field and match against the confirmed skill map using
+  ontological matching, computing a percentage score rather than returning 0%.
+
 ## [0.3.0] — 2026-07-04
 
 ### Added

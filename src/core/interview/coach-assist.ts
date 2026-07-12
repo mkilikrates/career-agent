@@ -51,7 +51,7 @@ import {
 } from '@core/assist';
 import type { SkillMap } from '@core/skills';
 import { generateQuestions } from './questions';
-import { refine, type TalkingPointDraft } from './refine';
+import { refine, ensurePolishedQuality, type TalkingPointDraft } from './refine';
 import { contentContribution } from './firewall';
 import type { DeliveryLexicon } from './firewall';
 import { STAR_ORDER } from './coach';
@@ -1021,5 +1021,11 @@ export async function perQuestionSummary(
   transport: AssistTransport,
 ): Promise<PerQuestionSummary> {
   const reply = await transport(buildPerQuestionSummaryPrompt(input), dest);
-  return parsePerQuestionSummaryReply(reply);
+  const parsed = parsePerQuestionSummaryReply(reply);
+  // Validate the AI-produced summary meets the quality bar for a concise,
+  // first-person, past-tense talking point (R28.3, task 39.5). If the AI
+  // output is just the raw input with filler or otherwise fails validation,
+  // fall back to a deterministic sentence-trimming of the user's answer.
+  const validatedSummary = ensurePolishedQuality(parsed.summary, input.fullAnswer);
+  return { ...parsed, summary: validatedSummary };
 }

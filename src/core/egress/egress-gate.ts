@@ -53,6 +53,8 @@ import {
   type SendControlDecision,
   type SensitiveDetection,
 } from './send-control';
+import type { EgressLogCallback } from './egress-log';
+import { asISODate } from '@core/types';
 
 /**
  * The kind of outbound provider operation a payload represents. Used to build
@@ -210,30 +212,47 @@ export type RedactAndProceedPrompt = (
 
 /**
  * The exact outbound text payload the gate is about to transmit, surfaced to the
- * user for review BEFORE a third-party send (R65.1). It carries only the chosen
+ * user for review BEFORE a send (R65.1, R74.4). It carries only the chosen
  * `provider` (the sole permitted destination, R7.4), the `operation` kind for
  * context, and the verbatim `text` so the user can edit or remove any wording.
+ *
+ * When `informational` is `true` the preview is non-blocking: the payload stays
+ * on the user's device (Local Provider) so the preview exists for transparency
+ * only — the gate does NOT await approval and proceeds immediately (R74.4).
  */
 export interface PayloadPreview {
   readonly provider: ProviderId;
   readonly operation: EgressOperationKind;
   /** The exact text that would be transmitted, presented for review/editing. */
   readonly text: string;
+  /**
+   * When `true`, the preview is informational only — the request targets a
+   * keyless Local Provider on the user's own device, so no data leaves the
+   * device and the preview does not block transmission (R74.4). When `false` or
+   * absent, the preview is blocking: the user must approve or cancel (R65).
+   */
+  readonly informational?: boolean;
 }
 
 /**
  * Payload Preview callback offering pre-transmission review and free editing of
- * the exact outbound text before a third-party send (R65.1, R65.2). It is
- * injected so the UI shell owns the modal interaction and the gate stays
- * framework-agnostic (mirroring {@link RedactAndProceedPrompt} and
- * {@link LabelNotifier}).
+ * the exact outbound text before a send (R65.1, R65.2, R74.4). It is injected so
+ * the UI shell owns the modal interaction and the gate stays framework-agnostic
+ * (mirroring {@link RedactAndProceedPrompt} and {@link LabelNotifier}).
  *
- * Resolving a string means "transmit THIS user-approved (possibly edited) text"
+ * For a **third-party** (keyed cloud) send (`informational` absent/false):
+ * resolving a string means "transmit THIS user-approved (possibly edited) text"
  * — the resolved value becomes the basis for the rest of the egress pipeline
  * (PII pre-screening, redact-and-proceed, minimised-payload build), so the
  * preview supplements rather than bypasses PII pre-screening (R65.3). Resolving
  * `null` means the user cancelled: the gate fails closed, transmits nothing, and
  * the caller may treat it as preserving prior state (R65.4).
+ *
+ * For a **Local Provider** (keyless, `informational: true`): the gate fires the
+ * callback for transparency but does NOT await it — the preview is non-blocking
+ * and the send proceeds immediately (R74.4). The UI should render this as an
+ * informational notice (e.g. "this stays on your device") rather than a blocking
+ * approval gate.
  */
 export type PayloadPreviewPrompt = (
   preview: PayloadPreview,
@@ -250,15 +269,27 @@ export interface EgressGateOptions {
   /** Offers redact-and-proceed when high-risk values are detected (R6.3). */
   readonly confirmRedactAndProceed: RedactAndProceedPrompt;
   /**
-   * OPTIONAL Payload Preview callback (R65). When present, the gate surfaces the
-   * exact outbound text of a third-party `llm-chat` send for the user to review,
-   * edit, or cancel BEFORE PII pre-screening (R65.1, R65.2, R65.6). It is
-   * deliberately optional: when absent the gate behaves exactly as before (no
-   * preview), so existing callers/tests that do not supply it keep working. It
-   * never applies to a keyless Local Provider (nothing leaves the device, R65.5),
-   * to ingestion send-control (R57), or to STT audio (R65.7).
+   * OPTIONAL Payload Preview callback (R65, R74.4). When present, the gate
+   * surfaces the exact outbound text for the user to review:
+   * - For a keyed cloud (third-party) `llm-chat` send: the preview is blocking
+   *   — the user must approve or cancel BEFORE PII pre-screening (R65.1, R65.2,
+   *   R65.6).
+   * - For a keyless Local Provider `llm-chat` send: the preview is fired as
+   *   informational (non-blocking) so the user can inspect what is being sent,
+   *   with a "this stays on your device" label (R74.4). The gate does NOT await
+   *   it.
+   * It is deliberately optional: when absent the gate behaves exactly as before
+   * (no preview), so existing callers/tests that do not supply it keep working.
+   * It never applies to ingestion send-control (R57), or to STT audio (R65.7).
    */
   readonly previewPayload?: PayloadPreviewPrompt;
+  /**
+   * OPTIONAL Egress Log callback (R74.1, R74.2). When present, the gate calls it
+   * after every successful `request()` and `requestIngestion()` with the full
+   * prompt text sent and the response text received. The callback is optional so
+   * existing callers/tests that do not supply it keep working unchanged.
+   */
+  readonly logEntry?: EgressLogCallback;
 }
 
 /** The Egress Gate contract: the single way a core component reaches a provider. */
@@ -412,6 +443,7 @@ export class DefaultEgressGate implements EgressGate {
   private readonly notifyLabel: LabelNotifier;
   private readonly confirmRedactAndProceed: RedactAndProceedPrompt;
   private readonly previewPayload?: PayloadPreviewPrompt;
+  private readonly logEntry?: EgressLogCallback;
 
   constructor(options: EgressGateOptions) {
     // Fail closed on misconfiguration: a missing collaborator must never allow
@@ -432,6 +464,9 @@ export class DefaultEgressGate implements EgressGate {
     // OPTIONAL (R65): no misconfiguration error when absent — the gate simply
     // skips the Payload Preview and behaves exactly as before.
     this.previewPayload = options.previewPayload;
+    // OPTIONAL (R74): no misconfiguration error when absent — the gate simply
+    // skips egress logging when no callback is provided.
+    this.logEntry = options.logEntry;
   }
 
   /**
@@ -484,8 +519,19 @@ export class DefaultEgressGate implements EgressGate {
       // Local on-device provider (R7.6): the model runs on the user's own
       // machine and nothing crosses to a third party, so there is nothing to
       // protect against — PII pre-screening is skipped entirely and the FULL
-      // content is sent as-is (user-confirmed design decision). The Payload
-      // Preview is likewise skipped because no payload leaves the device (R65.5).
+      // content is sent as-is (user-confirmed design decision).
+
+      // 1a. Informational Payload Preview (R74.4): for a local `llm-chat` send,
+      //     when a preview callback is injected, fire a NON-BLOCKING informational
+      //     preview so the user can inspect what is being sent. The preview carries
+      //     `informational: true` so the UI renders it as a "this stays on your
+      //     device" notice rather than a blocking approval gate. The gate does NOT
+      //     await the result — it proceeds immediately.
+      if (this.previewPayload && operation === 'llm-chat') {
+        // Fire-and-forget: do not block transmission on the preview response.
+        void this.previewPayload({ provider, operation, text, informational: true });
+      }
+
       // The scanner's redact with no detections is used only to mint the
       // minimal, correctly branded payload; it performs no scanning.
       payload = this.scanner.redact(text, []);
@@ -551,7 +597,23 @@ export class DefaultEgressGate implements EgressGate {
 
     // 5. Hand off to the Provider_Manager, which transmits only to the user's
     //    chosen provider (R7.4) and decrypts that provider's key just-in-time.
-    return this.providerManager.send(provider, finalPayload);
+    const response = await this.providerManager.send(provider, finalPayload);
+
+    // 6. Egress logging (R74.1, R74.2): record the completed request/response
+    //    pair so the user can inspect what was sent and received.
+    if (this.logEntry) {
+      const hadDetections = finalPayload.text !== intent.text;
+      this.logEntry({
+        at: asISODate(new Date().toISOString()),
+        operation,
+        provider,
+        promptText: finalPayload.text,
+        response,
+        redacted: hadDetections,
+      });
+    }
+
+    return response;
   }
 
   async transcribe(intent: EgressSttIntent): Promise<EgressTranscript> {
@@ -674,7 +736,22 @@ export class DefaultEgressGate implements EgressGate {
 
     // 3. Hand off to the Provider_Manager, which transmits only to the user's
     //    chosen provider (R7.4) and decrypts that provider's key just-in-time.
-    return this.providerManager.send(provider, payload);
+    const response = await this.providerManager.send(provider, payload);
+
+    // 4. Egress logging (R74.1, R74.2): record the completed ingestion
+    //    request/response pair for transparency.
+    if (this.logEntry) {
+      this.logEntry({
+        at: asISODate(new Date().toISOString()),
+        operation,
+        provider,
+        promptText: payload.text,
+        response,
+        redacted: decision.mode === 'per-detection',
+      });
+    }
+
+    return response;
   }
 }
 

@@ -68,6 +68,7 @@ export {
   isRoleTag,
   ROLE_TAGS,
   DEFAULT_ROLE_TAG,
+  rescorePreferences,
 } from './role-preference';
 export type {
   RolePreferenceInput,

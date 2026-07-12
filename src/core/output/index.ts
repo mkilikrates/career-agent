@@ -11,7 +11,7 @@
 //
 //   import { buildCvModel, renderMarkdown, type CvModel } from '@core/output';
 
-export { buildCvModel, NEEDS_METRIC_MARKER, NEEDS_METRIC_NOTE } from './cv-model';
+export { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, NEEDS_METRIC_MARKER, NEEDS_METRIC_NOTE } from './cv-model';
 export { renderMarkdown } from './markdown-renderer';
 export type {
   CvModel,

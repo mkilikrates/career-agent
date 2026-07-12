@@ -51,3 +51,16 @@ export type {
   SendControlDecision,
   SendControlPanelModel,
 } from './send-control';
+
+export {
+  EGRESS_LOG_HEADING,
+  renderEgressLogEntry,
+  renderEgressLog,
+  parseEgressLog,
+} from './egress-log';
+
+export type {
+  EgressLogEntry,
+  EgressLogCallback,
+  EgressLogCallbackData,
+} from './egress-log';

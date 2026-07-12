@@ -211,7 +211,7 @@ export type { DeliveryLexicon } from './firewall';
 // confirmation (R28.3, R23.1); `retire` marks a talking point retired rather
 // than deleting it (R23.3). Confirmed talking points are persisted into the
 // interview file's `## Talking Points` section (R28.4).
-export { refine, confirmTalkingPoint, retire } from './refine';
+export { refine, confirmTalkingPoint, retire, isPolishedQuality, deterministicSentenceTrim, ensurePolishedQuality } from './refine';
 export type {
   TalkingPointDraft,
   StarSummaryElement,
