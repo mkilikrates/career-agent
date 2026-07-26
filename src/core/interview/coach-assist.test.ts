@@ -107,8 +107,8 @@ describe('parseQuestionPrompts', () => {
       '1. Leadership :: Tell me about X\n- Leadership :: Tell me about X\n* Resilience :: Describe a failure',
     );
     expect(qs).toEqual([
-      { competency: 'Leadership', question: 'Tell me about X' },
-      { competency: 'Resilience', question: 'Describe a failure' },
+      { competencies: ['Leadership'], question: 'Tell me about X' },
+      { competencies: ['Resilience'], question: 'Describe a failure' },
     ]);
   });
 
@@ -117,30 +117,50 @@ describe('parseQuestionPrompts', () => {
       'Here are some questions for you:\nCollaboration :: How did you work with the team?\nHope these help!',
     );
     expect(qs).toEqual([
-      { competency: 'Collaboration', question: 'How did you work with the team?' },
+      { competencies: ['Collaboration'], question: 'How did you work with the team?' },
     ]);
   });
 
   // --- JSON-first parsing (R62.3) ------------------------------------------
 
-  it('parses a clean JSON array of {competency, question} (R62.3)', () => {
+  it('parses a clean JSON array of {competencies, question} (R62.3)', () => {
+    const qs = parseQuestionPrompts(
+      '[{"competencies":["Adaptability"],"question":"Tell me about a tricky deploy."},' +
+        '{"competencies":["Mentorship"],"question":"Describe a mentoring moment."}]',
+    );
+    expect(qs).toEqual([
+      { competencies: ['Adaptability'], question: 'Tell me about a tricky deploy.' },
+      { competencies: ['Mentorship'], question: 'Describe a mentoring moment.' },
+    ]);
+  });
+
+  it('parses legacy {competency, question} format for backward compatibility (R62.5)', () => {
     const qs = parseQuestionPrompts(
       '[{"competency":"Adaptability","question":"Tell me about a tricky deploy."},' +
         '{"competency":"Mentorship","question":"Describe a mentoring moment."}]',
     );
     expect(qs).toEqual([
-      { competency: 'Adaptability', question: 'Tell me about a tricky deploy.' },
-      { competency: 'Mentorship', question: 'Describe a mentoring moment.' },
+      { competencies: ['Adaptability'], question: 'Tell me about a tricky deploy.' },
+      { competencies: ['Mentorship'], question: 'Describe a mentoring moment.' },
+    ]);
+  });
+
+  it('parses multi-competency array per question (R62.3)', () => {
+    const qs = parseQuestionPrompts(
+      '[{"competencies":["Leadership","Stakeholder Management"],"question":"Tell me about leading a cross-functional initiative."}]',
+    );
+    expect(qs).toEqual([
+      { competencies: ['Leadership', 'Stakeholder Management'], question: 'Tell me about leading a cross-functional initiative.' },
     ]);
   });
 
   it('extracts a JSON array embedded in a ```json fence and surrounding preamble (R62.5)', () => {
     const reply =
       'Sure! Here are some questions:\n```json\n' +
-      '[{"competency":"Ownership","question":"Tell me about a time you owned an outage."}]\n' +
+      '[{"competencies":["Ownership"],"question":"Tell me about a time you owned an outage."}]\n' +
       '```\nHope these help!';
     expect(parseQuestionPrompts(reply)).toEqual([
-      { competency: 'Ownership', question: 'Tell me about a time you owned an outage.' },
+      { competencies: ['Ownership'], question: 'Tell me about a time you owned an outage.' },
     ]);
   });
 
@@ -149,19 +169,19 @@ describe('parseQuestionPrompts', () => {
       parseQuestionPrompts('{"questions":[{"question":"How do you handle conflict?"}]}', {
         defaultCompetency: 'General',
       }),
-    ).toEqual([{ competency: 'General', question: 'How do you handle conflict?' }]);
+    ).toEqual([{ competencies: ['General'], question: 'How do you handle conflict?' }]);
 
     expect(
       parseQuestionPrompts('["Tell me about a hard decision you made."]', {
         defaultCompetency: 'General',
       }),
-    ).toEqual([{ competency: 'General', question: 'Tell me about a hard decision you made.' }]);
+    ).toEqual([{ competencies: ['General'], question: 'Tell me about a hard decision you made.' }]);
   });
 
   it('defaults a generic competency for JSON elements that omit one (R62.5)', () => {
     const qs = parseQuestionPrompts('[{"question":"Why do you want this role?"}]');
     expect(qs).toEqual([
-      { competency: DEFAULT_GENERIC_COMPETENCY, question: 'Why do you want this role?' },
+      { competencies: [DEFAULT_GENERIC_COMPETENCY], question: 'Why do you want this role?' },
     ]);
   });
 
@@ -175,9 +195,9 @@ describe('parseQuestionPrompts', () => {
       '- Describe a project you are proud of.\n' +
       'Good luck!';
     expect(parseQuestionPrompts(reply, { defaultCompetency: 'General' })).toEqual([
-      { competency: 'General', question: 'Tell me about a time you resolved a conflict.' },
-      { competency: 'General', question: 'How did you handle a tight deadline?' },
-      { competency: 'General', question: 'Describe a project you are proud of.' },
+      { competencies: ['General'], question: 'Tell me about a time you resolved a conflict.' },
+      { competencies: ['General'], question: 'How did you handle a tight deadline?' },
+      { competencies: ['General'], question: 'Describe a project you are proud of.' },
     ]);
   });
 
@@ -232,8 +252,8 @@ describe('StarQuestionsOperation — aiAssisted supplements, never replaces (R22
   it('returns the full script question set as baseline plus confirmable AI questions', async () => {
     const transport = vi.fn<AssistTransport>(
       async () =>
-        '[{"competency":"Adaptability","question":"Tell me about a tricky deploy"},' +
-        '{"competency":"Mentorship","question":"Describe a mentoring moment"}]',
+        '[{"competencies":["Adaptability"],"question":"Tell me about a tricky deploy"},' +
+        '{"competencies":["Mentorship"],"question":"Describe a mentoring moment"}]',
     );
     const op = new StarQuestionsOperation(transport);
 
@@ -242,11 +262,11 @@ describe('StarQuestionsOperation — aiAssisted supplements, never replaces (R22
 
     // Baseline is the SAME (full) script set — AI supplements never replace it.
     expect(outcome.baseline.map((q) => q.id)).toEqual(scriptOnly.baseline.map((q) => q.id));
-    // Each suggestion carries the competency it probes (R62.3); the question is
-    // what the user sees, while the competency is retained for the loop/summary.
+    // Each suggestion carries the competencies it probes (R62.3); the question is
+    // what the user sees, while the competencies are retained for the loop/summary.
     expect(outcome.suggestions.map((s) => s.value)).toEqual([
-      { competency: 'Adaptability', question: 'Tell me about a tricky deploy' },
-      { competency: 'Mentorship', question: 'Describe a mentoring moment' },
+      { competencies: ['Adaptability'], question: 'Tell me about a tricky deploy' },
+      { competencies: ['Mentorship'], question: 'Describe a mentoring moment' },
     ]);
     expect(outcome.suggestions.every((s) => s.requiresConfirmation === true)).toBe(true);
   });
@@ -263,9 +283,9 @@ describe('buildStarQuestionsPrompt — behaviour-first for the given role (R22.6
     expect(prompt).toMatch(/at most\s+one question focused on technical depth/i);
     // Practice prompts only — never suggest facts for the candidate to claim (R22.9).
     expect(prompt).toMatch(/Do NOT suggest facts or outcomes/i);
-    // Requests a self-delimiting JSON array of {competency, question} (R62.3).
+    // Requests a self-delimiting JSON array of {competencies, question} (R62.3).
     expect(prompt).toMatch(/ONLY a JSON array/i);
-    expect(prompt).toContain('"competency"');
+    expect(prompt).toContain('"competencies"');
     expect(prompt).toContain('"question"');
   });
 });

@@ -669,6 +669,7 @@ export function IngestScreen({
                   </li>
                 ))}
               </ul>
+              <Button onClick={handleSave}>{t('ingest.save')}</Button>
             </>
           )}
         </section>

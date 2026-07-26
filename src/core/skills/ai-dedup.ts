@@ -1,13 +1,17 @@
 // Post-extraction dedup pass for AI-extracted skill variants (R15.4, Problem D).
 //
 // After the AI extracts skills from career documents, this module groups obvious
-// duplicates and presents SUGGESTIONS (never auto-merges) to the user. Two
+// duplicates and presents SUGGESTIONS (never auto-merges) to the user. Three
 // heuristics detect high-confidence relationships:
 //
 //   1. Parenthetical stripping: "DNS (Route 53)" shares base "DNS" with a
 //      standalone "DNS" entry → suggest merge.
 //   2. Vendor-qualified detection: "AWS Lambda" vs "Lambda" — when one term is
 //      exactly `<vendor> <base>` and another is `<base>` → suggest merge.
+//   3. Containing-term detection: when one skill name fully contains another as
+//      a prefix or suffix token (e.g. "GitHub Enterprise" contains "GitHub",
+//      "IP routing" contains "routing"), suggest merging to the shorter canonical
+//      form — guarded by minimum length and confusable-pair checks.
 //
 // Conservative by design: only triggers on exact structural matches, never on
 // fuzzy similarity. Confusable pairs (Java/JavaScript) are never suggested.
@@ -71,13 +75,101 @@ export function stripVendorPrefix(name: string): string | null {
 }
 
 /**
+ * Well-known confusable pairs that MUST NEVER be suggested for merge even if
+ * one appears to contain the other (mirrors config/confusables.yaml R16.3).
+ * These are checked case-insensitively before the containing-term strategy fires.
+ */
+const CONFUSABLE_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ['java', 'javascript'],
+  ['c', 'c++'],
+  ['c', 'c#'],
+  ['react', 'react native'],
+  ['python', 'jython'],
+  ['go', 'google'],
+  ['go', 'golang'],
+  ['spark', 'apache spark'],
+  ['spark', 'adobe spark'],
+];
+
+/** Pre-built set of confusable pair keys for O(1) lookup. */
+const CONFUSABLE_SET = new Set(
+  CONFUSABLE_PAIRS.map(([a, b]) => {
+    const la = a.toLowerCase();
+    const lb = b.toLowerCase();
+    return la <= lb ? `${la}\0${lb}` : `${lb}\0${la}`;
+  }),
+);
+
+/** Check whether two terms form a confusable pair (case-insensitive). */
+function isConfusablePair(a: string, b: string): boolean {
+  const la = a.toLowerCase();
+  const lb = b.toLowerCase();
+  const key = la <= lb ? `${la}\0${lb}` : `${lb}\0${la}`;
+  return CONFUSABLE_SET.has(key);
+}
+
+/**
+ * Containing-term detection: does `longer` start with or end with `shorter`
+ * as a complete word/token boundary?
+ *
+ * Safeguards (to avoid false positives like "Go" matching "Google"):
+ *   - The shorter term must be ≥ 3 characters.
+ *   - The longer term must start with or end with the shorter term followed by
+ *     a word boundary (space, hyphen, slash, end-of-string).
+ *   - The pair must NOT be in the confusables list.
+ *   - Parenthetical variants (e.g. "Terraform (IaC)") are excluded — those are
+ *     handled by the parenthetical stripping strategy.
+ */
+export function isContainingTerm(shorter: string, longer: string): boolean {
+  if (shorter.length < 3) return false;
+  if (shorter.length >= longer.length) return false;
+
+  const sl = shorter.toLowerCase();
+  const ll = longer.toLowerCase();
+
+  // Must not be a confusable pair.
+  if (isConfusablePair(shorter, longer)) return false;
+
+  // Exclude parenthetical variants — those are handled by strategy 1.
+  if (/\s*\([^)]*\)\s*$/.test(longer)) {
+    const longerBase = longer.replace(/\s*\([^)]*\)\s*$/, '').trim().toLowerCase();
+    if (longerBase === sl) return false;
+  }
+
+  // Check prefix: longer starts with shorter + word boundary
+  if (ll.startsWith(sl)) {
+    const nextChar = ll[sl.length];
+    if (nextChar === ' ' || nextChar === '-' || nextChar === '/') return true;
+  }
+
+  // Check suffix: longer ends with shorter + word boundary before it
+  if (ll.endsWith(sl)) {
+    const prevChar = ll[ll.length - sl.length - 1];
+    if (prevChar === ' ' || prevChar === '-' || prevChar === '/') return true;
+  }
+
+  return false;
+}
+
+/**
+ * Normalise GitHub capitalization variants to the canonical "GitHub" form.
+ * Handles: "Github", "GITHUB", "github" → "GitHub".
+ * Returns the original string unchanged if it doesn't match.
+ */
+export function normalizeGitHubCasing(name: string): string {
+  // Match standalone "github" or as prefix ("GitHub Actions", "GitHub Enterprise")
+  return name.replace(/\bgithub\b/gi, 'GitHub');
+}
+
+/**
  * Analyse a set of AI-extracted skills and produce conservative dedup
  * suggestions (R15.4). These are NEVER auto-merges — the caller presents
  * them to the user for confirmation.
  *
- * Two detection strategies:
+ * Three detection strategies:
  * 1. Parenthetical: skills sharing the same base after stripping `(...)` suffix
  * 2. Vendor-qualified: `"AWS Lambda"` alongside `"Lambda"` (exact base match)
+ * 3. Containing-term: when one skill fully contains another as prefix/suffix token
  */
 export function suggestAiDedups(
   skills: ReadonlyArray<{ readonly name: string; readonly since?: string }>,
@@ -142,6 +234,39 @@ export function suggestAiDedups(
       variants: [name],
       reason: `"${name}" appears to be a vendor-qualified form of "${standalone}".`,
     });
+  }
+
+  // --- Strategy 3: Containing-term detection ---
+  // For each pair of skills, check if one is a containing-term of the other.
+  // Suggest merge to the shorter canonical form.
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      const a = names[i];
+      const b = names[j];
+
+      let shorter: string;
+      let longer: string;
+      if (a.length <= b.length) {
+        shorter = a;
+        longer = b;
+      } else {
+        shorter = b;
+        longer = a;
+      }
+
+      if (!isContainingTerm(shorter, longer)) continue;
+
+      // Avoid duplicate suggestions already covered by strategies 1 or 2.
+      const pairKey = [shorter.toLowerCase(), longer.toLowerCase()].sort().join('|');
+      if (suggestedPairs.has(pairKey)) continue;
+      suggestedPairs.add(pairKey);
+
+      suggestions.push({
+        canonical: shorter,
+        variants: [longer],
+        reason: `"${longer}" contains "${shorter}" as a component term (containing-term match).`,
+      });
+    }
   }
 
   return suggestions;

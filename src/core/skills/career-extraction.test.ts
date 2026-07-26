@@ -2,13 +2,20 @@ import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
 import {
   buildCareerExtractionPrompt,
+  buildConsolidationPrompt,
   parseCareerExtraction,
   parseCareerExtractionWithTracking,
   mergeCareerExtractions,
+  consolidateExtraction,
+  consolidateExtractionReduced,
+  applyAiConsolidation,
   careerExtractionToItems,
   splitCompoundSkills,
   normalizeDate,
+  loadCompetencySynonyms,
+  DEFAULT_COMPETENCY_SYNONYMS_YAML,
   CAREER_EXTRACTION_INSTRUCTION,
+  stripNonAlpha,
 } from './career-extraction';
 import type {
   CareerExtraction,
@@ -1314,5 +1321,711 @@ describe('parseCareerExtractionWithTracking', () => {
     expect(extraction.positions).toEqual(standard.positions);
     expect(extraction.education).toEqual(standard.education);
     expect(extraction.skills).toEqual(standard.skills);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// consolidateExtraction (R71.15, R71.16, R71.17)
+// ---------------------------------------------------------------------------
+
+describe('consolidateExtraction', () => {
+  describe('sub-pass 1: vendor-prefix skill deduplication (R71.15)', () => {
+    it('collapses "AWS S3" + "S3" to "S3" in technicalSkills', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'AWS S3', since: '2020' },
+          { name: 'S3', since: '2021' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(1);
+      expect(result.technicalSkills[0].name).toBe('S3');
+      // Keeps earliest since date.
+      expect(result.technicalSkills[0].since).toBe('2020');
+    });
+
+    it('collapses "AWS Lambda" + "Lambda" to "Lambda"', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'Lambda', since: '2019' },
+          { name: 'AWS Lambda', since: '2018' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(1);
+      expect(result.technicalSkills[0].name).toBe('Lambda');
+      expect(result.technicalSkills[0].since).toBe('2018');
+    });
+
+    it('collapses "Azure DevOps" + "DevOps" to "DevOps"', () => {
+      const ext = extraction({
+        skills: [{ name: 'Azure DevOps' }, { name: 'DevOps' }],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(1);
+      expect(result.technicalSkills[0].name).toBe('DevOps');
+    });
+
+    it('does not collapse when base form does not exist', () => {
+      const ext = extraction({
+        skills: [{ name: 'AWS Lambda' }, { name: 'S3' }],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(2);
+    });
+
+    it('deduplicates vendor-prefix skills in position technologies', () => {
+      const ext = extraction({
+        positions: [{
+          title: 'Dev',
+          company: 'Co',
+          technologies: ['AWS S3', 'S3', 'Lambda', 'AWS Lambda', 'Docker'],
+        }],
+      });
+      const result = consolidateExtraction(ext);
+      const techs = result.positions[0].technologies;
+      expect(techs).toContain('S3');
+      expect(techs).toContain('Lambda');
+      expect(techs).toContain('Docker');
+      expect(techs).not.toContain('AWS S3');
+      expect(techs).not.toContain('AWS Lambda');
+    });
+
+    it('keeps skills that are not vendor-qualified duplicates', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'Kubernetes' },
+          { name: 'Docker' },
+          { name: 'Go' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(3);
+    });
+
+    it('collapses containing-term: "GitHub Enterprise" + "GitHub" → keeps "GitHub"', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'GitHub Enterprise', since: '2020' },
+          { name: 'GitHub', since: '2018' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(1);
+      expect(result.technicalSkills[0].name).toBe('GitHub');
+      expect(result.technicalSkills[0].since).toBe('2018');
+    });
+
+    it('prefers slash-compound: "IDS" + "IDS/IPS" → keeps "IDS/IPS"', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'IDS', since: '2017' },
+          { name: 'IDS/IPS', since: '2019' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(1);
+      expect(result.technicalSkills[0].name).toBe('IDS/IPS');
+      expect(result.technicalSkills[0].since).toBe('2017');
+    });
+
+    it('normalizes GitHub casing: "Github" → "GitHub"', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'Github', since: '2020' },
+          { name: 'GitHub Actions', since: '2021' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      // "Github" normalised to "GitHub", then "GitHub Actions" contains "GitHub" → collapse to "GitHub"
+      expect(result.technicalSkills).toHaveLength(1);
+      expect(result.technicalSkills[0].name).toBe('GitHub');
+    });
+
+    it('normalizes "Enterprise Github" to "GitHub Enterprise" and deduplicates', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'Enterprise Github', since: '2020' },
+          { name: 'GitHub', since: '2018' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      // "Enterprise Github" → "Enterprise GitHub", then containing-term collapses to "GitHub"
+      expect(result.technicalSkills).toHaveLength(1);
+      expect(result.technicalSkills[0].name).toBe('GitHub');
+    });
+
+    it('does NOT collapse confusable pair: "React" + "React Native"', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'React' },
+          { name: 'React Native' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.technicalSkills).toHaveLength(2);
+    });
+
+    it('handles slash-compound in technologies array', () => {
+      const ext = extraction({
+        positions: [{
+          title: 'Security Engineer',
+          company: 'Acme',
+          start: '2020',
+          technologies: ['IDS', 'IDS/IPS', 'Firewall'],
+        }],
+      });
+      const result = consolidateExtraction(ext);
+      const techs = result.positions[0].technologies;
+      expect(techs).toContain('IDS/IPS');
+      expect(techs).not.toContain('IDS');
+      expect(techs).toContain('Firewall');
+    });
+  });
+
+  describe('sub-pass 2: fuzzy position deduplication (R71.16)', () => {
+    it('deduplicates positions with same company+title but different abbreviations', () => {
+      const ext = extraction({
+        positions: [
+          { title: 'Sr. Engineer', company: 'Acme Corp', start: '2020', end: '2022', technologies: ['Go', 'K8s'], description: 'Short' },
+          { title: 'Senior Engineer', company: 'Acme Corp', start: '2020-01', end: '2022-06', technologies: ['Go', 'K8s', 'Terraform'], description: 'Longer description here' },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.positions).toHaveLength(1);
+      // Keeps the richer entry (more technologies + longer description).
+      expect(result.positions[0].technologies).toContain('Terraform');
+    });
+
+    it('deduplicates "SRE" vs "Site Reliability Engineer"', () => {
+      const ext = extraction({
+        positions: [
+          { title: 'SRE', company: 'BigCo', start: '2019', technologies: ['K8s'] },
+          { title: 'Site Reliability Engineer', company: 'BigCo', start: '2019', technologies: ['K8s', 'Go', 'Prometheus'], achievements: ['Reduced downtime 50%'] },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.positions).toHaveLength(1);
+      expect(result.positions[0].achievements).toContain('Reduced downtime 50%');
+    });
+
+    it('does NOT deduplicate positions with different companies', () => {
+      const ext = extraction({
+        positions: [
+          { title: 'Senior Engineer', company: 'Acme', start: '2020', technologies: ['Go'] },
+          { title: 'Senior Engineer', company: 'Other Inc', start: '2020', technologies: ['Python'] },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.positions).toHaveLength(2);
+    });
+
+    it('does NOT deduplicate positions with non-overlapping dates', () => {
+      const ext = extraction({
+        positions: [
+          { title: 'Senior Engineer', company: 'Acme', start: '2015', end: '2018', technologies: ['Java'] },
+          { title: 'Senior Engineer', company: 'Acme', start: '2020', end: '2023', technologies: ['Go'] },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.positions).toHaveLength(2);
+    });
+
+    it('treats missing end date as "present" for overlap detection', () => {
+      const ext = extraction({
+        positions: [
+          { title: 'Sr. Dev', company: 'Co', start: '2020', technologies: ['TS'] },
+          { title: 'Senior Developer', company: 'Co', start: '2020-03', technologies: ['TS', 'React', 'Node'] },
+        ],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.positions).toHaveLength(1);
+    });
+  });
+
+  describe('sub-pass 3: synonym competency deduplication (R71.17)', () => {
+    it('collapses "Team Leadership" to "Leadership"', () => {
+      const ext = extraction({
+        coreCompetencies: ['Team Leadership', 'Communication'],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.coreCompetencies).toContain('Leadership');
+      expect(result.coreCompetencies).not.toContain('Team Leadership');
+      expect(result.coreCompetencies).toContain('Communication');
+    });
+
+    it('deduplicates when both synonym and canonical form are present', () => {
+      const ext = extraction({
+        coreCompetencies: ['Leadership', 'Team Leadership', 'People Leadership'],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.coreCompetencies).toEqual(['Leadership']);
+    });
+
+    it('collapses "Effective Communication" to "Communication"', () => {
+      const ext = extraction({
+        coreCompetencies: ['Effective Communication'],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.coreCompetencies).toEqual(['Communication']);
+    });
+
+    it('collapses "Problem-Solving" to "Problem Solving"', () => {
+      const ext = extraction({
+        coreCompetencies: ['Problem-Solving', 'Innovation'],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.coreCompetencies).toContain('Problem Solving');
+      expect(result.coreCompetencies).toContain('Innovation');
+      expect(result.coreCompetencies).not.toContain('Problem-Solving');
+    });
+
+    it('collapses "Cross-functional Collaboration" to "Collaboration"', () => {
+      const ext = extraction({
+        coreCompetencies: ['Cross-functional Collaboration'],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.coreCompetencies).toEqual(['Collaboration']);
+    });
+
+    it('keeps competencies not in any synonym group unchanged', () => {
+      const ext = extraction({
+        coreCompetencies: ['Resilience', 'Creativity'],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.coreCompetencies).toEqual(['Resilience', 'Creativity']);
+    });
+  });
+
+  describe('combined consolidation', () => {
+    it('runs all three sub-passes together', () => {
+      const ext = extraction({
+        skills: [
+          { name: 'AWS S3', since: '2019' },
+          { name: 'S3', since: '2020' },
+          { name: 'Docker' },
+        ],
+        positions: [
+          { title: 'Sr. SRE', company: 'Acme', start: '2020', technologies: ['Lambda', 'Go'] },
+          { title: 'Senior Site Reliability Engineer', company: 'Acme', start: '2020', technologies: ['Go', 'Lambda', 'AWS Lambda', 'K8s', 'Terraform'], achievements: ['Led incident response'] },
+        ],
+        coreCompetencies: ['Team Leadership', 'Leadership', 'Problem-Solving', 'Resilience'],
+      });
+      const result = consolidateExtraction(ext);
+
+      // Sub-pass 1: vendor-prefix dedup on skills.
+      expect(result.technicalSkills.map((s) => s.name)).toEqual(['S3', 'Docker']);
+      expect(result.technicalSkills[0].since).toBe('2019');
+
+      // Sub-pass 2: fuzzy position dedup.
+      expect(result.positions).toHaveLength(1);
+      expect(result.positions[0].achievements).toContain('Led incident response');
+      // Technologies should also be vendor-deduped (AWS Lambda collapsed since both Lambda and AWS Lambda present).
+      expect(result.positions[0].technologies).toContain('Lambda');
+      expect(result.positions[0].technologies).toContain('Go');
+      expect(result.positions[0].technologies).toContain('K8s');
+      expect(result.positions[0].technologies).toContain('Terraform');
+      expect(result.positions[0].technologies).not.toContain('AWS Lambda');
+
+      // Sub-pass 3: synonym competency dedup.
+      expect(result.coreCompetencies).toContain('Leadership');
+      expect(result.coreCompetencies).toContain('Problem Solving');
+      expect(result.coreCompetencies).toContain('Resilience');
+      expect(result.coreCompetencies).not.toContain('Team Leadership');
+      expect(result.coreCompetencies).not.toContain('Problem-Solving');
+    });
+
+    it('preserves other extraction fields unchanged', () => {
+      const ext = extraction({
+        professionalSummary: 'Experienced engineer',
+        education: [{ institution: 'MIT', degree: 'BSc', skills: ['ML'] }],
+        languages: [{ language: 'English', proficiency: 'Native' }],
+        hobbies: ['Hiking'],
+        causes: ['Open Source'],
+        additionalInfo: [{ category: 'Awards', value: 'Best Engineer' }],
+      });
+      const result = consolidateExtraction(ext);
+      expect(result.professionalSummary).toBe('Experienced engineer');
+      expect(result.education).toEqual(ext.education);
+      expect(result.languages).toEqual(ext.languages);
+      expect(result.hobbies).toEqual(ext.hobbies);
+      expect(result.causes).toEqual(ext.causes);
+      expect(result.additionalInfo).toEqual(ext.additionalInfo);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadCompetencySynonyms (R71.17)
+// ---------------------------------------------------------------------------
+
+describe('loadCompetencySynonyms', () => {
+  it('parses the default YAML and returns a map', () => {
+    const map = loadCompetencySynonyms(DEFAULT_COMPETENCY_SYNONYMS_YAML);
+    expect(map.size).toBeGreaterThan(0);
+    expect(map.get('team leadership')).toBe('Leadership');
+    expect(map.get('leadership')).toBe('Leadership');
+    expect(map.get('people leadership')).toBe('Leadership');
+  });
+
+  it('maps synonyms case-insensitively', () => {
+    const map = loadCompetencySynonyms(DEFAULT_COMPETENCY_SYNONYMS_YAML);
+    expect(map.get('effective communication')).toBe('Communication');
+    expect(map.get('written communication')).toBe('Communication');
+  });
+
+  it('returns canonical form for all synonym entries', () => {
+    const map = loadCompetencySynonyms(DEFAULT_COMPETENCY_SYNONYMS_YAML);
+    expect(map.get('problem-solving')).toBe('Problem Solving');
+    expect(map.get('analytical problem solving')).toBe('Problem Solving');
+    expect(map.get('stakeholder engagement')).toBe('Stakeholder Management');
+    expect(map.get('organisational change management')).toBe('Change Management');
+    expect(map.get('creative innovation')).toBe('Innovation');
+    expect(map.get('coaching & mentoring')).toBe('Mentoring');
+    expect(map.get('cross-functional collaboration')).toBe('Collaboration');
+  });
+
+  it('returns an empty map for invalid YAML', () => {
+    const map = loadCompetencySynonyms('not: valid: yaml: {{{}}}');
+    expect(map.size).toBe(0);
+  });
+
+  it('returns an empty map for YAML without synonym_groups key', () => {
+    const map = loadCompetencySynonyms('other_key:\n  - [A, B]');
+    expect(map.size).toBe(0);
+  });
+
+  it('skips groups with fewer than 2 entries', () => {
+    const yaml = 'synonym_groups:\n  - ["Solo"]';
+    const map = loadCompetencySynonyms(yaml);
+    expect(map.size).toBe(0);
+  });
+});
+
+// Feature: career-agent, Property 4: consolidateExtraction never increases counts —
+// deduplication only removes or collapses, never adds entries.
+describe('consolidateExtraction property tests', () => {
+  const arbPosition: fc.Arbitrary<ExtractedPosition> = fc.record({
+    title: fc.stringOf(fc.constantFrom(...'abcdefghij '.split('')), { minLength: 1, maxLength: 15 }),
+    company: fc.stringOf(fc.constantFrom(...'abcdefghij '.split('')), { minLength: 1, maxLength: 10 }),
+    start: fc.option(fc.constantFrom('2018', '2019', '2020', '2021', '2022'), { nil: undefined }),
+    end: fc.option(fc.constantFrom('2020', '2021', '2022', '2023'), { nil: undefined }),
+    technologies: fc.array(fc.stringOf(fc.constantFrom(...'ABCDEFGHIJ '.split('')), { minLength: 1, maxLength: 10 }), { maxLength: 5 }),
+    description: fc.option(fc.string({ maxLength: 30 }), { nil: undefined }),
+    achievements: fc.option(fc.array(fc.string({ maxLength: 20 }), { maxLength: 3 }), { nil: undefined }),
+  });
+
+  const arbSkill: fc.Arbitrary<ExtractedStandaloneSkill> = fc.record({
+    name: fc.stringOf(fc.constantFrom(...'ABCDEFGHIJ '.split('')), { minLength: 1, maxLength: 12 }),
+    since: fc.option(fc.constantFrom('2017', '2018', '2019', '2020'), { nil: undefined }),
+  });
+
+  const arbExtraction: fc.Arbitrary<CareerExtraction> = fc.record({
+    professionalSummary: fc.option(fc.string({ maxLength: 30 }), { nil: undefined }),
+    positions: fc.array(arbPosition, { maxLength: 4 }),
+    education: fc.constant([]),
+    skills: fc.array(arbSkill, { maxLength: 5 }),
+    coreCompetencies: fc.array(fc.string({ minLength: 1, maxLength: 20 }), { maxLength: 5 }),
+    languages: fc.constant([]),
+    hobbies: fc.constant([]),
+    causes: fc.constant([]),
+    additionalInfo: fc.constant([]),
+  }).map((e) => ({ ...e, technicalSkills: e.skills }));
+
+  it('never increases the number of skills, positions, or competencies', () => {
+    fc.assert(
+      fc.property(arbExtraction, (ext) => {
+        const result = consolidateExtraction(ext);
+        expect(result.technicalSkills.length).toBeLessThanOrEqual(ext.technicalSkills.length);
+        expect(result.positions.length).toBeLessThanOrEqual(ext.positions.length);
+        expect(result.coreCompetencies.length).toBeLessThanOrEqual(ext.coreCompetencies.length);
+      }),
+      { numRuns: 100 },
+    );
+  });
+});
+
+describe('@core/skills — stripNonAlpha (R76.1, R76.2)', () => {
+  it('strips spaces, dots, and special characters', () => {
+    expect(stripNonAlpha('T RIP A DVISOR')).toBe('tripadvisor');
+    expect(stripNonAlpha('TripAdvisor')).toBe('tripadvisor');
+    expect(stripNonAlpha('FINOA (GmbH)')).toBe('finoagmbh');
+    expect(stripNonAlpha('Finoa')).toBe('finoa');
+    expect(stripNonAlpha('G LOBO . COM')).toBe('globocom');
+    expect(stripNonAlpha('Globo.com')).toBe('globocom');
+  });
+
+  it('lowercases all characters', () => {
+    expect(stripNonAlpha('HELLO WORLD')).toBe('helloworld');
+    expect(stripNonAlpha('Hello-World')).toBe('helloworld');
+  });
+
+  it('preserves digits', () => {
+    expect(stripNonAlpha('Web 2.0 Corp')).toBe('web20corp');
+    expect(stripNonAlpha('3M Company')).toBe('3mcompany');
+  });
+
+  it('returns empty string for non-alphanumeric input', () => {
+    expect(stripNonAlpha('---')).toBe('');
+    expect(stripNonAlpha('   ')).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildConsolidationPrompt (R71.15, R71.16, R71.17, R71.18)
+// ---------------------------------------------------------------------------
+
+describe('buildConsolidationPrompt', () => {
+  it('produces a prompt containing the extraction data as JSON', () => {
+    const ext = extraction({
+      positions: [{ title: 'Engineer', company: 'Acme', start: '2020', technologies: ['Go'] }],
+      skills: [{ name: 'Docker', since: '2018' }],
+      coreCompetencies: ['Leadership', 'Problem Solving'],
+    });
+    const prompt = buildConsolidationPrompt(ext);
+    expect(prompt).toContain('deduplicating');
+    expect(prompt).toContain('"title": "Engineer"');
+    expect(prompt).toContain('"company": "Acme"');
+    expect(prompt).toContain('"name": "Docker"');
+    expect(prompt).toContain('"Leadership"');
+    expect(prompt).toContain('"Problem Solving"');
+  });
+
+  it('includes dedup instructions for positions, skills, and competencies', () => {
+    const ext = extraction({});
+    const prompt = buildConsolidationPrompt(ext);
+    expect(prompt).toContain('MERGE duplicate positions');
+    expect(prompt).toContain('MERGE duplicate skills');
+    expect(prompt).toContain('COLLAPSE synonymous competencies');
+  });
+
+  it('omits optional fields from data when not present', () => {
+    const ext = extraction({
+      positions: [{ title: 'Dev', company: 'Corp', technologies: [] }],
+    });
+    const prompt = buildConsolidationPrompt(ext);
+    // The INPUT section should not contain these optional fields for this position.
+    const inputSection = prompt.slice(prompt.indexOf('INPUT:'));
+    expect(inputSection).not.toContain('"location":');
+    expect(inputSection).not.toContain('"description":');
+    expect(inputSection).not.toContain('"achievements":');
+  });
+
+  it('instructs model to return only JSON', () => {
+    const ext = extraction({});
+    const prompt = buildConsolidationPrompt(ext);
+    expect(prompt).toContain('Return ONLY');
+    expect(prompt).toContain('no commentary');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// consolidateExtractionReduced (R71.16, R71.17)
+// ---------------------------------------------------------------------------
+
+describe('consolidateExtractionReduced', () => {
+  it('collapses exact case-insensitive skill duplicates', () => {
+    const ext = extraction({
+      skills: [
+        { name: 'Docker', since: '2018' },
+        { name: 'docker', since: '2020' },
+        { name: 'DOCKER', since: '2019' },
+      ],
+    });
+    const result = consolidateExtractionReduced(ext);
+    expect(result.technicalSkills).toHaveLength(1);
+    expect(result.technicalSkills[0].name).toBe('Docker');
+    expect(result.technicalSkills[0].since).toBe('2018');
+  });
+
+  it('does NOT strip vendor prefixes (that is the AI job)', () => {
+    const ext = extraction({
+      skills: [
+        { name: 'AWS S3', since: '2019' },
+        { name: 'S3', since: '2020' },
+      ],
+    });
+    const result = consolidateExtractionReduced(ext);
+    // Both are kept because they are not exact case-insensitive matches.
+    expect(result.technicalSkills).toHaveLength(2);
+  });
+
+  it('does NOT resolve synonym competencies', () => {
+    const ext = extraction({
+      coreCompetencies: ['Leadership', 'Team Leadership'],
+    });
+    const result = consolidateExtractionReduced(ext);
+    // Both are kept because they are not exact case-insensitive matches.
+    expect(result.coreCompetencies).toHaveLength(2);
+  });
+
+  it('collapses exact case-insensitive competency duplicates', () => {
+    const ext = extraction({
+      coreCompetencies: ['Leadership', 'leadership', 'LEADERSHIP'],
+    });
+    const result = consolidateExtractionReduced(ext);
+    expect(result.coreCompetencies).toHaveLength(1);
+    expect(result.coreCompetencies[0]).toBe('Leadership');
+  });
+
+  it('collapses exact case-insensitive position duplicates by key', () => {
+    const ext = extraction({
+      positions: [
+        { title: 'Engineer', company: 'Acme', start: '2020', technologies: ['Go'] },
+        { title: 'ENGINEER', company: 'ACME', start: '2020', technologies: ['Go', 'Rust'] },
+      ],
+    });
+    const result = consolidateExtractionReduced(ext);
+    expect(result.positions).toHaveLength(1);
+    // Keeps the richer entry
+    expect(result.positions[0].technologies.length).toBe(2);
+  });
+
+  it('does NOT merge positions with fuzzy-similar company names', () => {
+    const ext = extraction({
+      positions: [
+        { title: 'Engineer', company: 'Acme Corp', start: '2020', technologies: ['Go'] },
+        { title: 'Engineer', company: 'Acme Corporation', start: '2020', technologies: ['Rust'] },
+      ],
+    });
+    const result = consolidateExtractionReduced(ext);
+    // Kept separate — not exact match on company.
+    expect(result.positions).toHaveLength(2);
+  });
+
+  it('deduplicates per-position technologies case-insensitively', () => {
+    const ext = extraction({
+      positions: [
+        { title: 'Dev', company: 'X', start: '2020', technologies: ['Docker', 'docker', 'DOCKER'] },
+      ],
+    });
+    const result = consolidateExtractionReduced(ext);
+    expect(result.positions[0].technologies).toHaveLength(1);
+    expect(result.positions[0].technologies[0]).toBe('Docker');
+  });
+
+  it('preserves non-dedup fields unchanged', () => {
+    const ext = extraction({
+      professionalSummary: 'Test summary',
+      education: [{ institution: 'MIT', degree: 'BSc', skills: ['ML'] }],
+      languages: [{ language: 'English', proficiency: 'Native' }],
+      hobbies: ['Hiking'],
+      causes: ['Open Source'],
+    });
+    const result = consolidateExtractionReduced(ext);
+    expect(result.professionalSummary).toBe('Test summary');
+    expect(result.education).toEqual(ext.education);
+    expect(result.languages).toEqual(ext.languages);
+    expect(result.hobbies).toEqual(ext.hobbies);
+    expect(result.causes).toEqual(ext.causes);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyAiConsolidation (R71.15, R71.18)
+// ---------------------------------------------------------------------------
+
+describe('applyAiConsolidation', () => {
+  it('overlays AI-deduplicated positions, skills, and competencies', () => {
+    const original = extraction({
+      positions: [
+        { title: 'Dev', company: 'Acme', start: '2020', technologies: ['Go'] },
+        { title: 'Dev', company: 'ACME Corp', start: '2020', technologies: ['Go', 'Rust'] },
+      ],
+      skills: [{ name: 'AWS S3' }, { name: 'S3' }],
+      coreCompetencies: ['Leadership', 'Team Leadership'],
+      education: [{ institution: 'MIT', degree: 'BSc', skills: ['ML'] }],
+    });
+    const aiReply = JSON.stringify({
+      positions: [
+        { title: 'Dev', company: 'Acme', start: '2020', technologies: ['Go', 'Rust'] },
+      ],
+      technical_skills: [{ name: 'S3' }],
+      core_competencies: ['Leadership'],
+    });
+    const result = applyAiConsolidation(original, aiReply);
+    expect(result.positions).toHaveLength(1);
+    expect(result.technicalSkills).toHaveLength(1);
+    expect(result.coreCompetencies).toEqual(['Leadership']);
+    // Preserves education from original
+    expect(result.education).toEqual(original.education);
+  });
+
+  it('throws on empty AI result', () => {
+    const original = extraction({
+      positions: [{ title: 'Dev', company: 'X', technologies: ['Go'] }],
+    });
+    expect(() => applyAiConsolidation(original, '{}')).toThrow('empty result');
+  });
+
+  it('throws on completely unparseable response', () => {
+    const original = extraction({
+      skills: [{ name: 'Docker' }],
+    });
+    expect(() => applyAiConsolidation(original, 'not json at all!!!!')).toThrow('empty result');
+  });
+
+  it('handles markdown-fenced AI responses', () => {
+    const originalWithPos = extraction({
+      positions: [{ title: 'Dev', company: 'X', technologies: [] }],
+      skills: [{ name: 'Docker' }, { name: 'docker' }],
+      coreCompetencies: ['Leadership'],
+    });
+    const fencedValid = '```json\n' + JSON.stringify({
+      positions: [{ title: 'Dev', company: 'X', technologies: [] }],
+      technical_skills: [{ name: 'Docker' }],
+      core_competencies: ['Leadership'],
+    }) + '\n```';
+    const result = applyAiConsolidation(originalWithPos, fencedValid);
+    expect(result.technicalSkills).toHaveLength(1);
+    expect(result.positions).toHaveLength(1);
+  });
+});
+
+describe('@core/skills — fuzzyNormalize OCR-garbled dedup in consolidateExtraction (R71.16, R76.1)', () => {
+  it('deduplicates positions with OCR-garbled company names', () => {
+    const ext = extraction({
+      positions: [
+        {
+          title: 'Engineer',
+          company: 'T RIP A DVISOR',
+          start: '2020-01',
+          end: '2022-01',
+          technologies: ['React'],
+        },
+        {
+          title: 'Engineer',
+          company: 'TripAdvisor',
+          start: '2020-01',
+          end: '2022-01',
+          technologies: ['React', 'TypeScript'],
+        },
+      ],
+    });
+    const result = consolidateExtraction(ext);
+    expect(result.positions).toHaveLength(1);
+  });
+
+  it('deduplicates positions with company names differing by dots and parens', () => {
+    const ext = extraction({
+      positions: [
+        {
+          title: 'Developer',
+          company: 'G LOBO . COM',
+          start: '2018-03',
+          end: '2020-01',
+          technologies: ['Java'],
+        },
+        {
+          title: 'Developer',
+          company: 'Globo.com',
+          start: '2018-03',
+          end: '2020-01',
+          technologies: ['Java', 'Spring'],
+        },
+      ],
+    });
+    const result = consolidateExtraction(ext);
+    expect(result.positions).toHaveLength(1);
   });
 });

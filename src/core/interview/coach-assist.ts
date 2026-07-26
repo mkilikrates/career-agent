@@ -64,17 +64,19 @@ export interface StarQuestionsInput {
   readonly role: RolePreference;
   /** The confirmed skill map used to ground behavioural questions (R22.1). */
   readonly map: SkillMap;
+  /** Optional ATS career context for richer question calibration (R22.6, R62.5). */
+  readonly atsContext?: AtsContext;
 }
 
 /**
  * A single AI-proposed STAR question prompt (a practice prompt, supplement). The
- * model tags each question with the competency/quality it probes (R62.3); the
- * `question` is what the user sees, while `competency` is retained for the
+ * model tags each question with the competencies/qualities it probes (R62.3); the
+ * `question` is what the user sees, while `competencies` is retained for the
  * adaptive coaching loop and the per-question summary (R63.2, R63.6).
  */
 export interface StarQuestionSuggestion {
-  /** The behaviour/quality the question probes, retained for the loop (R62.3). */
-  readonly competency: string;
+  /** The behaviours/qualities the question probes, retained for the loop (R62.3). */
+  readonly competencies: string[];
   /** The open behavioural question text shown to the user (R62.3). */
   readonly question: string;
 }
@@ -130,11 +132,12 @@ const suggestionFromJson = (
   item: unknown,
   defaultCompetency: string,
 ): StarQuestionSuggestion | null => {
-  // Tolerate both `{ competency, question }` objects and bare question strings.
+  // Tolerate both `{ competencies, question }` objects, legacy `{ competency, question }`,
+  // and bare question strings (backward-compatible, R62.5).
   if (typeof item === 'string') {
     const question = item.trim();
     return question.length >= MIN_QUESTION_LENGTH
-      ? { competency: defaultCompetency, question }
+      ? { competencies: [defaultCompetency], question }
       : null;
   }
   if (item && typeof item === 'object') {
@@ -143,14 +146,37 @@ const suggestionFromJson = (
     if (typeof rawQuestion !== 'string') return null;
     const question = rawQuestion.trim();
     if (question.length < MIN_QUESTION_LENGTH) return null;
-    const rawCompetency = obj.competency ?? obj.quality ?? obj.skill;
-    const competency =
-      typeof rawCompetency === 'string' && rawCompetency.trim().length > 0
-        ? rawCompetency.trim()
-        : defaultCompetency;
-    return { competency, question };
+    // Accept the new `competencies` array OR the legacy singular `competency` string.
+    const competencies = resolveCompetencies(obj, defaultCompetency);
+    return { competencies, question };
   }
   return null;
+};
+
+/**
+ * Resolve competencies from a parsed JSON object, accepting both:
+ *   - `competencies` (string[]) — the new multi-competency format
+ *   - `competency` / `quality` / `skill` (string) — legacy singular format,
+ *     wrapped into a single-element array for backward compatibility (R62.5)
+ */
+const resolveCompetencies = (
+  obj: Record<string, unknown>,
+  defaultCompetency: string,
+): string[] => {
+  // Prefer the plural `competencies` array.
+  const rawArray = obj.competencies;
+  if (Array.isArray(rawArray)) {
+    const items = rawArray
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      .map((v) => v.trim());
+    if (items.length > 0) return items;
+  }
+  // Fall back to the singular `competency` / `quality` / `skill` string (legacy).
+  const rawCompetency = obj.competency ?? obj.quality ?? obj.skill;
+  if (typeof rawCompetency === 'string' && rawCompetency.trim().length > 0) {
+    return [rawCompetency.trim()];
+  }
+  return [defaultCompetency];
 };
 
 /** Pull an array of question elements out of an arbitrary parsed JSON value. */
@@ -229,13 +255,13 @@ const parseQuestionsLines = (
     const line = cleanLine(raw);
     if (line.length === 0) continue;
 
-    let competency = defaultCompetency;
+    let competencies = [defaultCompetency];
     let question = line;
     const delimiter = line.indexOf(COMPETENCY_DELIMITER);
     if (delimiter >= 0) {
       const tag = line.slice(0, delimiter).trim();
       const text = line.slice(delimiter + COMPETENCY_DELIMITER.length).trim();
-      if (tag.length > 0) competency = tag;
+      if (tag.length > 0) competencies = [tag];
       question = text;
     } else if (!looksLikeQuestion(line)) {
       // No competency tag and does not read as a question → preamble/chatter.
@@ -246,7 +272,7 @@ const parseQuestionsLines = (
     const key = question.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ competency, question });
+    out.push({ competencies, question });
   }
   return out;
 };
@@ -287,16 +313,35 @@ const isThirdParty = (dest: EgressDestination): boolean =>
   dest.kind !== 'keyless-local';
 
 /**
+ * Additional ATS context that can be included in the candidate profile when
+ * available, providing the model with richer calibration data (R22.6).
+ */
+export interface AtsContext {
+  /** Previous job titles (without employer names) for seniority calibration. */
+  readonly previousTitles?: readonly string[];
+  /** Confirmed core competencies from the career extraction. */
+  readonly coreCompetencies?: readonly string[];
+  /** Education degrees/fields (e.g. "MSc Computer Science"). */
+  readonly educationDegrees?: readonly string[];
+  /** A brief professional summary. */
+  readonly professionalSummary?: string;
+}
+
+/**
  * Build a compact structured candidate profile for the STAR question prompt,
  * including only the skills relevant to the target role — matched + gap — with
  * proficiency signal, evidence count, and approximate experience years (computed
  * from `since`) so the model can calibrate question depth and seniority (R70.6).
  * For a keyed cloud (third-party) `dest`, private skills are excluded (R22.7, R46.4).
+ * When ATS context is available, additional lines are appended for richer
+ * calibration: previous titles, core competencies, education, and a professional
+ * summary (R22.6).
  */
 export function buildCandidateProfile(
   role: RolePreference,
   map: SkillMap,
   dest: EgressDestination,
+  atsContext?: AtsContext,
 ): string {
   const thirdParty = isThirdParty(dest);
   const asString = (v: unknown): string => v as unknown as string;
@@ -344,6 +389,21 @@ export function buildCandidateProfile(
     lines.push(`- Gap skills (developing):`);
     lines.push(...gapLines);
   }
+  // Append additional ATS context when available for richer calibration (R22.6).
+  if (atsContext) {
+    if (atsContext.previousTitles && atsContext.previousTitles.length > 0) {
+      lines.push(`- Previous titles: ${atsContext.previousTitles.join(', ')}`);
+    }
+    if (atsContext.coreCompetencies && atsContext.coreCompetencies.length > 0) {
+      lines.push(`- Core competencies: ${atsContext.coreCompetencies.join(', ')}`);
+    }
+    if (atsContext.educationDegrees && atsContext.educationDegrees.length > 0) {
+      lines.push(`- Education: ${atsContext.educationDegrees.join(', ')}`);
+    }
+    if (atsContext.professionalSummary && atsContext.professionalSummary.trim().length > 0) {
+      lines.push(`- Summary: ${atsContext.professionalSummary.trim()}`);
+    }
+  }
   return lines.join('\n');
 }
 
@@ -363,8 +423,9 @@ export function buildStarQuestionsPrompt(
   role: RolePreference,
   map: SkillMap,
   dest: EgressDestination = { provider: 'openai', kind: 'keyed-cloud' },
+  atsContext?: AtsContext,
 ): string {
-  const profile = buildCandidateProfile(role, map, dest);
+  const profile = buildCandidateProfile(role, map, dest, atsContext);
   const description = role.description?.trim();
   return (
     `You are an experienced interviewer preparing behavioural practice questions ` +
@@ -379,10 +440,11 @@ export function buildStarQuestionsPrompt(
     'include at most one question focused on technical depth, since technical ' +
     'topics are easier to prepare for. Do NOT suggest facts or outcomes for them ' +
     'to claim. Return ONLY a JSON array and nothing else, where each element is ' +
-    'an object with two string fields: "competency" (the single behaviour or ' +
-    'quality that question probes) and "question" (the open behavioural practice ' +
-    'question). Example: [{"competency": "Leadership", "question": "Tell me ' +
-    'about a time you led a team through a difficult change."}].\n\n' +
+    'an object with two fields: "competencies" (an array of one or more ' +
+    'behaviour/quality strings that the question probes) and "question" (the ' +
+    'open behavioural practice question). Example: [{"competencies": ' +
+    '["Leadership", "Stakeholder Management"], "question": "Tell me about a ' +
+    'time you led a team through a difficult change."}].\n\n' +
     profile
   );
 }
@@ -430,7 +492,7 @@ export class StarQuestionsOperation extends BaseAssistableOperation<
     dest: EgressDestination,
   ): Promise<readonly StarQuestionSuggestion[]> {
     const reply = await this.transport(
-      buildStarQuestionsPrompt(input.role, input.map, dest),
+      buildStarQuestionsPrompt(input.role, input.map, dest, input.atsContext),
       dest,
     );
     return parseQuestionPrompts(reply, { defaultCompetency: this.defaultCompetency });

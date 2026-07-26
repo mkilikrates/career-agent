@@ -36,6 +36,7 @@ import {
   buildDiscoveryPayload,
   buildDiscoveryPrompt as buildPayloadPrompt,
   buildRoleReviewPrompt,
+  type AtsCareerData,
 } from './role-discovery-payload';
 
 /** Input to the role-discovery assist operation. */
@@ -54,6 +55,13 @@ export interface RoleDiscoveryInput {
    * alone (the "AI only" mode).
    */
   readonly review?: boolean;
+  /**
+   * Optional ATS career data (previous job titles, competencies, education,
+   * professional summary) to enrich the AI prompt (R20.6, R47.2). When present,
+   * the payload includes career-trajectory context so the model can infer the
+   * candidate's career arc without seeing employer names.
+   */
+  readonly atsData?: AtsCareerData;
 }
 
 /** A single AI-recommended role (a proposal the user must accept, R47.3). */
@@ -166,7 +174,7 @@ export class RoleDiscoveryOperation extends BaseAssistableOperation<
     dest: EgressDestination,
     baseline: RoleSuggestion[],
   ): Promise<readonly AiRoleRecommendation[]> {
-    const payload = buildDiscoveryPayload(input.map, dest);
+    const payload = buildDiscoveryPayload(input.map, dest, input.atsData);
     // "Both" → the model reviews/refines the script-matched roles; "AI only" →
     // it recommends from the skills alone. Either way the payload is the
     // employer-free skills+durations set (R20.6, R47.2).

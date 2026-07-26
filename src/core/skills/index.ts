@@ -52,11 +52,18 @@ export type { DiscoveryCorpusOptions } from './skill-discovery';
 // AI career extraction: structured timeline (R71.1, R71.2, R71.10).
 export {
   buildCareerExtractionPrompt,
+  buildConsolidationPrompt,
   parseCareerExtraction,
   parseCareerExtractionWithTracking,
   mergeCareerExtractions,
+  consolidateExtraction,
+  consolidateExtractionReduced,
+  applyAiConsolidation,
   careerExtractionToItems,
+  loadCompetencySynonyms,
+  DEFAULT_COMPETENCY_SYNONYMS_YAML,
   CAREER_EXTRACTION_INSTRUCTION,
+  stripNonAlpha,
 } from './career-extraction';
 export type {
   CareerExtraction,
@@ -101,7 +108,7 @@ export type {
 } from './review';
 
 // Post-extraction AI dedup suggestions (R15.4, Problem D).
-export { suggestAiDedups, stripParenthetical, stripVendorPrefix } from './ai-dedup';
+export { suggestAiDedups, stripParenthetical, stripVendorPrefix, isContainingTerm, normalizeGitHubCasing } from './ai-dedup';
 export type { DedupSuggestion } from './ai-dedup';
 
 // Skill-map persistence: serialize / parse / save `profile/skill_map.md`

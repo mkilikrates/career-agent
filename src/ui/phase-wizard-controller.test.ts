@@ -37,6 +37,7 @@ function makeController(store = new MemoryTree()) {
   const controller = new PhaseWizardController({
     agent,
     persistence: createMemoryTreePersistence(store),
+    store,
   });
   return { agent, controller, store };
 }
@@ -69,8 +70,11 @@ describe('PhaseWizardController — phase views', () => {
     expect(phases[1]).toMatchObject({ current: false, status: 'pending' });
   });
 
-  it('marks earlier phases complete and the current phase in-progress after advancing', async () => {
-    const { controller } = makeController();
+  it('marks earlier phases complete only when their artefact is present', async () => {
+    const { controller, store } = makeController();
+    // Write artefacts for the first two phases
+    store.write(CANONICAL_FILES.rawExtractions, '# Raw Extractions\n');
+    store.write(CANONICAL_FILES.skillMap, '# Skill Map\n');
     await controller.confirmStep(); // ingest -> skill-map
     await controller.confirmStep(); // skill-map -> role-discovery
     const phases = controller.phases();
@@ -82,6 +86,22 @@ describe('PhaseWizardController — phase views', () => {
       status: 'in-progress',
     });
     expect(phases.find((p) => p.phase === 'output')?.status).toBe('pending');
+  });
+
+  it('shows earlier phases as in-progress (not complete) when artefact is missing', async () => {
+    const { controller } = makeController();
+    // Advance without writing artefacts — the bug was that these showed 'complete'
+    await controller.confirmStep(); // ingest -> skill-map
+    await controller.confirmStep(); // skill-map -> role-discovery
+    const phases = controller.phases();
+
+    // Without artefacts, earlier phases should NOT be 'complete'
+    expect(phases.find((p) => p.phase === 'ingest')?.status).toBe('in-progress');
+    expect(phases.find((p) => p.phase === 'skill-map')?.status).toBe('in-progress');
+    expect(phases.find((p) => p.phase === 'role-discovery')).toMatchObject({
+      current: true,
+      status: 'in-progress',
+    });
   });
 });
 
@@ -172,5 +192,80 @@ describe('PhaseWizardController — subscription', () => {
     unsubscribe();
     await controller.goToPhase('ingest');
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+describe('PhaseWizardController — artefact-presence gating (R48.2–48.4)', () => {
+  it('marks a phase complete when its artefact is present in the store', () => {
+    const store = new MemoryTree();
+    store.write(CANONICAL_FILES.rawExtractions, '# Extractions\n');
+    const { controller } = makeController(store);
+    // Even though we're on ingest (index 0), the artefact makes it 'complete'
+    const phases = controller.phases();
+    expect(phases.find((p) => p.phase === 'ingest')?.status).toBe('complete');
+  });
+
+  it('marks interview-coaching complete when any interview file exists', async () => {
+    const store = new MemoryTree();
+    store.write('interviews/interview_cloud-architect.md', '# Interview\n');
+    const { controller } = makeController(store);
+    await controller.goToPhase('memory');
+    const phases = controller.phases();
+    expect(phases.find((p) => p.phase === 'interview-coaching')?.status).toBe('complete');
+  });
+
+  it('marks output complete when any cv_ output exists', async () => {
+    const store = new MemoryTree();
+    store.write('outputs/cv_cloud-architect_v1.md', '# CV\n');
+    const { controller } = makeController(store);
+    await controller.goToPhase('memory');
+    const phases = controller.phases();
+    expect(phases.find((p) => p.phase === 'output')?.status).toBe('complete');
+  });
+
+  it('memory phase is always complete (no gating)', async () => {
+    const { controller } = makeController();
+    await controller.goToPhase('memory');
+    // Even though we just jumped to memory with no artefacts, memory's gate always passes
+    const phases = controller.phases();
+    expect(phases.find((p) => p.phase === 'memory')?.status).toBe('complete');
+  });
+
+  it('reports correct statuses when all artefacts are present', async () => {
+    const store = new MemoryTree();
+    store.write(CANONICAL_FILES.rawExtractions, '# Extractions\n');
+    store.write(CANONICAL_FILES.skillMap, '# Skills\n');
+    store.write(CANONICAL_FILES.rolePreferences, '# Roles\n');
+    store.write('interviews/interview_sre.md', '# Interview\n');
+    store.write('outputs/cv_sre_v1.md', '# CV\n');
+    const { controller } = makeController(store);
+    await controller.goToPhase('output');
+    const phases = controller.phases();
+
+    expect(phases.find((p) => p.phase === 'ingest')?.status).toBe('complete');
+    expect(phases.find((p) => p.phase === 'skill-map')?.status).toBe('complete');
+    expect(phases.find((p) => p.phase === 'role-discovery')?.status).toBe('complete');
+    expect(phases.find((p) => p.phase === 'interview-coaching')?.status).toBe('complete');
+    // output is current AND has artefact → 'complete' takes precedence
+    expect(phases.find((p) => p.phase === 'output')?.status).toBe('complete');
+    // memory is always complete
+    expect(phases.find((p) => p.phase === 'memory')?.status).toBe('complete');
+  });
+
+  it('phase before current without artefact is in-progress, not complete', async () => {
+    const store = new MemoryTree();
+    // Only write the raw_extractions artefact, skip skill_map
+    store.write(CANONICAL_FILES.rawExtractions, '# Extractions\n');
+    const { controller } = makeController(store);
+    await controller.confirmStep(); // ingest -> skill-map
+    await controller.confirmStep(); // skill-map -> role-discovery
+    const phases = controller.phases();
+
+    // ingest has its artefact → complete
+    expect(phases.find((p) => p.phase === 'ingest')?.status).toBe('complete');
+    // skill-map was visited (before current) but has no artefact → in-progress
+    expect(phases.find((p) => p.phase === 'skill-map')?.status).toBe('in-progress');
+    // role-discovery is current → in-progress
+    expect(phases.find((p) => p.phase === 'role-discovery')?.status).toBe('in-progress');
   });
 });

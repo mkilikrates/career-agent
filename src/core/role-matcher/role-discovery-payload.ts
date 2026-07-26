@@ -27,6 +27,24 @@ import type { SkillMap } from '@core/skills';
 import type { SkillCategory, SkillMapEntry } from '@core/types';
 
 /**
+ * Employer-free career-trajectory context derived from ingestion (R20.6, R47.2).
+ * Contains previous job titles (without employer names), confirmed core
+ * competencies, education degrees/fields, and an optional professional summary
+ * so the model can infer the candidate's career arc without ever seeing where
+ * they worked.
+ */
+export interface AtsCareerData {
+  /** Previous job titles — employer names stripped (R20.6). */
+  readonly jobTitles: readonly string[];
+  /** Confirmed core (soft/leadership) competencies from extraction. */
+  readonly competencies: readonly string[];
+  /** Education degrees/fields (no institution names for keyed cloud, R47.2). */
+  readonly educationSummaries: readonly string[];
+  /** Professional summary when available from extraction. */
+  readonly professionalSummary?: string;
+}
+
+/**
  * The AI-assist input derived from the skill map (design "Role_Matcher";
  * R20.6, R47.2). Deliberately employer-free and level-inferring: every carried
  * skill has the user's phrasing, an approximate experience duration in months,
@@ -42,6 +60,15 @@ export interface RoleDiscoveryPayload {
     /** The skill's category bucket. */
     readonly category: SkillCategory;
   }>;
+  // Career-trajectory context (R20.6, R47.2) — employer-free, level-inferring
+  /** Previous job titles only — no company names (R20.6). */
+  readonly jobTitles?: readonly string[];
+  /** Confirmed core competencies from extraction. */
+  readonly competencies?: readonly string[];
+  /** Education degrees/fields (no institution names for keyed cloud). */
+  readonly educationSummaries?: readonly string[];
+  /** Professional summary when available. */
+  readonly professionalSummary?: string;
 }
 
 /** Average days per month used to convert a date span to an approximate month count. */
@@ -115,6 +142,7 @@ const isThirdParty = (dest: EgressDestination): boolean =>
 export const buildDiscoveryPayload = (
   map: SkillMap,
   dest: EgressDestination,
+  atsData?: AtsCareerData,
 ): RoleDiscoveryPayload => {
   const thirdParty = isThirdParty(dest);
   const skills = map.entries
@@ -124,7 +152,16 @@ export const buildDiscoveryPayload = (
       approxDurationMonths: approxDurationMonths(entry),
       category: entry.category,
     }));
-  return { skills };
+
+  // Attach career-trajectory context when available (R20.6, R47.2).
+  const jobTitles = atsData?.jobTitles?.length ? atsData.jobTitles : undefined;
+  const competencies = atsData?.competencies?.length ? atsData.competencies : undefined;
+  const educationSummaries = atsData?.educationSummaries?.length
+    ? atsData.educationSummaries
+    : undefined;
+  const professionalSummary = atsData?.professionalSummary || undefined;
+
+  return { skills, jobTitles, competencies, educationSummaries, professionalSummary };
 };
 
 /** Render an approximate duration in months as a short human/model-readable hint. */
@@ -137,24 +174,61 @@ const describeDuration = (months: number): string => {
 };
 
 /**
+ * Build the "Career context" block lines from the payload's optional fields.
+ * Returns an empty array when no career-trajectory context is present, so
+ * callers can conditionally append the block to the prompt.
+ */
+const buildCareerContextBlock = (payload: RoleDiscoveryPayload): string[] => {
+  const lines: string[] = [];
+  if (payload.jobTitles && payload.jobTitles.length > 0) {
+    lines.push(`Previous roles: ${payload.jobTitles.join(', ')}`);
+  }
+  if (payload.competencies && payload.competencies.length > 0) {
+    lines.push(`Core competencies: ${payload.competencies.join(', ')}`);
+  }
+  if (payload.educationSummaries && payload.educationSummaries.length > 0) {
+    lines.push(`Education: ${payload.educationSummaries.join(', ')}`);
+  }
+  if (payload.professionalSummary) {
+    lines.push(`Summary: ${payload.professionalSummary}`);
+  }
+  return lines;
+};
+
+/**
  * Build the role-recommendation PROMPT from an employer-free
  * {@link RoleDiscoveryPayload} (R20.6). The model sees only skill phrasing, an
  * approximate experience duration per skill (so it can infer a level), and the
  * category — never an employer or company. Each skill is one line:
- * `"<name> (<category>, ~<duration>)"`. The reply format mirrors
- * {@link parseAiRoles}: one role per line as `"Title — short reason"`.
+ * `"<name> (<category>, ~<duration>)"`. When career-trajectory context is
+ * present (previous titles, competencies, education, summary) it is appended
+ * so the model can match on the candidate's career arc (R20.6, R47.2). The
+ * reply format mirrors {@link parseAiRoles}: one role per line as
+ * `"Title — short reason"`.
  */
 export const buildDiscoveryPrompt = (payload: RoleDiscoveryPayload): string => {
   const lines = payload.skills.map(
     (s) => `- ${s.name} (${s.category}, ${describeDuration(s.approxDurationMonths)})`,
   );
+
+  const contextLines = buildCareerContextBlock(payload);
+  const contextSuffix = contextLines.length > 0
+    ? ', and career context'
+    : '';
+
   return (
-    'Based ONLY on the following skills and the approximate experience duration ' +
-    'for each, suggest up to 5 realistic job roles that fit, inferring a level of ' +
-    'experience from the durations. Do not assume any employer or industry beyond ' +
-    'what the skills imply. Return one role per line as "Title — short reason". ' +
+    'Based ONLY on the following skills, experience durations' +
+    contextSuffix +
+    ', suggest up to 5 realistic job roles that fit, inferring a level of ' +
+    'experience from the durations' +
+    (contextLines.length > 0 ? ' and career trajectory' : '') +
+    '. Do not assume any employer or industry beyond ' +
+    'what the skills' +
+    (contextLines.length > 0 ? ' and context' : '') +
+    ' imply. Return one role per line as "Title — short reason". ' +
     'No preamble.\n\nSkills:\n' +
-    lines.join('\n')
+    lines.join('\n') +
+    (contextLines.length > 0 ? '\n\nCareer context:\n' + contextLines.join('\n') : '')
   );
 };
 

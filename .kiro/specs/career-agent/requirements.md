@@ -291,7 +291,7 @@ The product's defining promise is trust: user files never leave the device, and 
 3. WHEN computing a skill-match score, THE Role_Matcher SHALL apply Ontological Matching as defined in Requirement 17.
 4. BEFORE the Role_Matcher generates suggested roles, THE Role_Matcher SHALL present an opt-in-first choice for the user to select either script-only role discovery or role discovery with additional AI assist.
 5. WHERE the user selects script-only role discovery, THE Role_Matcher SHALL generate suggested roles using deterministic matching alone and SHALL make no provider call.
-6. WHERE the user opts in to AI assist for role discovery, THE Role_Matcher SHALL build the role-discovery payload from the skill map, SHALL exclude every employer and company name from the payload, and SHALL include the approximate duration of experience for each skill so the chosen model can infer a level of experience.
+6. WHERE the user opts in to AI assist for role discovery, THE Role_Matcher SHALL build the role-discovery payload from the skill map, SHALL exclude every employer and company name from the payload, SHALL include the approximate duration of experience for each skill so the chosen model can infer a level of experience, and SHALL additionally include the user's previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary (when available), so that the model has sufficient career-trajectory context to suggest roles that match the person's career arc rather than only their skill list.
 7. WHEN computing match scores for user-added roles, THE Role_Matcher SHALL use the structured employment data from Requirement 71 (skills per position, experience duration) to compute meaningful matched/gap skill sets, rather than leaving them empty.
 
 ### Requirement 21: Role Preference Capture
@@ -315,7 +315,7 @@ The product's defining promise is trust: user files never leave the device, and 
 3. THE Interview_Coach SHALL store the script-based questions, any AI-generated questions, and the user's responses in a per-role interview file keyed to the Role Slug in the Memory Store.
 4. WHEN the user selects a role for coaching, THE Interview_Coach SHALL offer the user the option to request AI-generated and AI-reviewed STAR questions for the selected role.
 5. WHERE the user declines the AI option, THE Interview_Coach SHALL generate STAR questions using script-based generation alone and SHALL make no provider call.
-6. WHERE the user opts in to AI-generated STAR questions, THE Interview_Coach SHALL request the questions through the Egress Gate using a prompt that frames the chosen model as a recruiter for the specific target position, and the AI-generated questions SHALL supplement rather than replace the script-based questions.
+6. WHERE the user opts in to AI-generated STAR questions, THE Interview_Coach SHALL request the questions through the Egress Gate using a prompt that frames the chosen model as a recruiter for the specific target position, SHALL include in the candidate profile the user's previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary (when available) alongside the existing matched and gap skill lists, and the AI-generated questions SHALL supplement rather than replace the script-based questions.
 7. WHERE the destination is a keyed cloud (third-party) provider, THE Interview_Coach SHALL exclude every item marked private from the question-generation request, consistent with Requirements 46.4 and 46.5.
 8. IF the AI question-generation provider call fails, THEN THE Interview_Coach SHALL surface an error and SHALL preserve the user's pending coaching state so that the script-based questions remain available.
 9. THE Interview_Coach SHALL treat AI-generated questions as practice prompts that are not factual claims gated by the No-Fabrication Rule in Requirement 37.
@@ -420,9 +420,14 @@ The product's defining promise is trust: user files never leave the device, and 
 6. WHERE the user indicates a Target Opportunity, THE Output_Engine SHALL allow the user to upload or paste the job posting details and SHALL offer AI-assisted tailoring of the CV to that Target Opportunity using only confirmed evidence from the confirmed skill map and interview files.
 7. WHERE the user declines a Target Opportunity, declines AI assistance, or the AI tailoring request fails, THE Output_Engine SHALL generate the CV using script-only generation from the confirmed evidence and SHALL indicate that script-only generation was used.
 8. THE Output_Engine SHALL structure the CV experience section using the employment positions extracted per Requirement 71, grouping accomplishments and talking points under the relevant position (by date range or skill overlap), so the output reads as a chronological work history rather than a flat list of bullets.
-8. WHEN AI-assisted tailoring is performed, THE Output_Engine SHALL exclude any skill, metric, date, title, or employer name not present in confirmed evidence, including any such item appearing only in the Target Opportunity text, consistent with the No-Fabrication Rule in Requirement 37.
-9. WHEN the user supplies a Target Opportunity, THE Output_Engine SHALL pass the Target Opportunity text through the Egress Gate with PII pre-screening as defined in Requirement 6, and SHALL treat the Target Opportunity text only as a tailoring target and never as a claim source.
-10. WHERE the destination is a keyed cloud (third-party) provider, THE Output_Engine SHALL exclude every item marked private from the payload, consistent with Requirement 46.4.
+9. WHEN AI-assisted or AI-only tailoring is performed without a Target Opportunity, THE Output_Engine SHALL instruct the model to produce a complete ATS-formatted CV draft in Markdown containing: a tailored professional summary targeting the role, an employment section with bullet emphasis and phrasing adjusted for the target role, and a skills section ordered by relevance to the role — using only confirmed evidence and the No-Fabrication Rule in Requirement 37.
+10. WHEN AI-assisted or AI-only tailoring is performed with a Target Opportunity, THE Output_Engine SHALL instruct the model to produce the same complete ATS-formatted CV draft as criterion 9, additionally adapting wording and emphasis toward the specific posting's language and priorities, but SHALL exclude any skill, metric, date, title, or employer name not present in confirmed evidence, including any such item appearing only in the Target Opportunity text, consistent with the No-Fabrication Rule in Requirement 37.
+11. WHEN the AI produces a complete CV draft, THE Output_Engine SHALL display the AI draft as the primary CV output for user review and explicit confirmation — the deterministic CvModel rendering SHALL serve as a fallback shown only when the AI call fails, the user declines AI assistance, or the user is in script-only mode.
+12. THE Output_Engine SHALL allow the user to toggle between the AI-generated CV draft and the deterministic CvModel version during the review step, so the user can compare both renderings before confirming.
+13. THE AI CV draft SHALL become the saved and exported CV only after the user explicitly confirms it; UNTIL confirmation, THE Output_Engine SHALL NOT persist the AI draft as the authoritative CV version.
+14. WHEN the user supplies a Target Opportunity, THE Output_Engine SHALL pass the Target Opportunity text through the Egress Gate with PII pre-screening as defined in Requirement 6, and SHALL treat the Target Opportunity text only as a tailoring target and never as a claim source.
+15. WHERE the destination is a keyed cloud (third-party) provider, THE Output_Engine SHALL exclude every item marked private from the payload, consistent with Requirement 46.4.
+16. WHEN AI-assisted or AI-only tailoring is performed, THE Output_Engine SHALL include in the prompt the full confirmed ATS career data (employment positions with titles and achievements, core competencies, education, professional summary, and skills with durations) so the model has sufficient context to produce a complete, grounded CV draft.
 
 ### Requirement 31: LinkedIn Improvement Report
 
@@ -612,7 +617,7 @@ The product's defining promise is trust: user files never leave the device, and 
 #### Acceptance Criteria
 
 1. WHERE the user opts in to AI assist during skill mapping AND the chosen chat provider is a keyless Local Provider running on the user's own device, THE Skill_Mapper SHALL build the discovery corpus from the full raw text of the ingested documents (whole-document content); and WHERE the chosen chat provider is a keyed cloud (third-party) provider, THE Skill_Mapper SHALL build the discovery corpus from the structured non-private extracted items only, because raw text carries no per-item private flag and cannot be sent to a third party without violating Requirement 46.4.
-2. WHERE the user opts in to AI assist during role discovery, THE Role_Matcher SHALL request role recommendations through the Egress Gate using only non-private content, SHALL exclude every employer and company name from the request, and SHALL include the approximate duration of experience for each skill so the chosen model can infer a level of experience.
+2. WHERE the user opts in to AI assist during role discovery, THE Role_Matcher SHALL request role recommendations through the Egress Gate using only non-private content, SHALL exclude every employer and company name from the request, SHALL include the approximate duration of experience for each skill so the chosen model can infer a level of experience, and SHALL include the user's previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary (when available) so the model has sufficient career-trajectory context.
 3. THE Career_Agent SHALL require explicit user confirmation of any AI-suggested skill or role before the suggestion enters the knowledge base.
 4. WHERE the destination is a keyed cloud (third-party) provider, THE Career_Agent SHALL exclude every item marked private from the AI assist request.
 5. WHERE the user opts in to AI assist during skill mapping, THE Skill_Mapper SHALL send the discovery corpus through the Egress Gate split into chunks rather than a single truncated payload, so that no evidence is silently dropped, consistent with the private-item exclusion in Requirements 46.4 and 46.5.
@@ -628,8 +633,10 @@ The product's defining promise is trust: user files never leave the device, and 
 #### Acceptance Criteria
 
 1. THE Career_Agent SHALL present a wizard interface with a dedicated screen for Provider Setup, Ingest, Skill Map, Role Discovery, Interview Coaching, Output, and Memory & Maintenance.
-2. THE Career_Agent SHALL display a status badge for each phase that reflects the phase's current progress.
-3. THE Career_Agent SHALL allow the user to navigate to any available phase screen from the wizard.
+2. THE Career_Agent SHALL display a status badge for each phase that reflects the phase's current progress, where a phase SHALL show "done" only when the user has explicitly confirmed or saved that phase's work — not merely because the user navigated past it.
+3. WHEN a phase has been visited but the user has not explicitly confirmed or saved its work, THE Career_Agent SHALL display that phase's status badge as "in progress" or "visited" rather than "done".
+4. THE Career_Agent SHALL derive the phase status badge from the persisted confirmation state (the presence of a confirmed artefact for that phase in the Memory Store or session state), not from the phase's ordinal position relative to the current phase.
+5. THE Career_Agent SHALL allow the user to navigate to any available phase screen from the wizard.
 
 ### Requirement 49: Session Rehydration and Lossless Working-State Round-Trip
 
@@ -808,9 +815,10 @@ The product's defining promise is trust: user files never leave the device, and 
 
 1. WHERE the user opts into AI-generated STAR questions, THE Interview_Coach SHALL instruct the model to first infer the behaviours and qualities most important for succeeding in the target role, whatever the industry or seniority, and then generate questions that probe those qualities.
 2. THE Interview_Coach SHALL request that the AI limit technical-depth questions to at most one per generated set.
-3. THE Interview_Coach SHALL request the AI questions as a structured JSON array in which each element pairs a question with the competency or quality it probes, and SHALL retain that competency for use in the coaching loop and summary.
+3. THE Interview_Coach SHALL request the AI questions as a structured JSON array in which each element pairs a question with one or more competencies it probes — using a `"competencies"` array field (for example `["Leadership", "Stakeholder Management"]`) rather than a single `"competency"` string — so that a single question may assess multiple correlated skills, and SHALL retain the competency list for use in the coaching loop and summary.
 4. THE Interview_Coach SHALL pass the candidate's skills to the question generator only as background context, not as the primary driver of the questions.
-5. WHEN the model reply does not conform to the requested JSON format, THE Interview_Coach SHALL still surface every usable practice question contained in the reply — extracting and parsing the structured JSON when it is present anywhere in the reply, and otherwise recovering every question-like line from the reply text — assigning a generic competency to any question whose competency cannot be determined, and SHALL treat the generation as producing no questions only when the reply contains no usable question text, so that a local model that ignores the exact format still yields supplemental practice questions consistent with Requirements 22.6 and 22.8.
+5. THE Interview_Coach SHALL include in the candidate profile sent with the STAR question prompt: previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary (when available), in addition to the existing matched and gap skill lists, so that the model can write questions grounded in the candidate's actual experience trajectory.
+6. WHEN the model reply does not conform to the requested JSON format, THE Interview_Coach SHALL still surface every usable practice question contained in the reply — extracting and parsing the structured JSON when it is present anywhere in the reply, and otherwise recovering every question-like line from the reply text — assigning a generic competency to any question whose competency cannot be determined, and SHALL treat the generation as producing no questions only when the reply contains no usable question text, so that a local model that ignores the exact format still yields supplemental practice questions consistent with Requirements 22.6 and 22.8.
 
 ### Requirement 63: AI Adaptive STAR Coaching Loop
 
@@ -878,7 +886,7 @@ The product's defining promise is trust: user files never leave the device, and 
 #### Acceptance Criteria
 
 1. THE Career_Agent SHALL present each pipeline phase (Ingest, Skill Map, Role Discovery, Interview Coaching, Output, Memory) as a separate, full-screen card or page view, showing only one phase at a time.
-2. THE Career_Agent SHALL provide a persistent navigation element (sidebar, top bar, or stepper) visible on every phase card that indicates the current phase, the completion status of each phase, and allows the user to jump to any phase.
+2. THE Career_Agent SHALL provide a persistent navigation element (sidebar, top bar, or stepper) visible on every phase card that indicates the current phase, the completion status of each phase derived from persisted confirmation state (consistent with Requirement 48 criteria 2–4), and allows the user to jump to any phase.
 3. THE navigation element SHALL indicate a recommended next phase when a previous phase has been completed and the next phase has not, so the user knows the intended progression without being blocked from choosing differently.
 4. THE Career_Agent SHALL move settings (provider setup, model selection, max completion tokens, language, privacy and consent) to a separate Settings page or panel accessible from the navigation element, so that infrequently-changed configuration does not occupy pipeline screen space.
 5. WITHIN each phase card, THE Career_Agent SHALL use progressive disclosure: show only the controls and information relevant to the user's current state in that phase, and reveal subsequent sections as prior steps are completed (for example, the coaching card shows the role selector first, then questions after selection, then the answer interface after question selection).
@@ -940,8 +948,8 @@ The product's defining promise is trust: user files never leave the device, and 
 
 **Core competency inference:**
 
-5. THE AI extraction prompt SHALL instruct the model to INFER core competencies and behavioural strengths (such as innovation, crisis management, stakeholder management, team leadership, mentoring, strategic thinking, change management, cost optimization) from the person's career pattern, achievements, and education — not only from explicitly stated keywords.
-6. THE AI extraction prompt SHALL provide explicit examples of core competencies to guide the model, including but not limited to: Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost Optimization, and Technical Vision.
+5. THE AI extraction prompt SHALL instruct the model to INFER core competencies and behavioural strengths from the person's career pattern, achievements, and education — not only from explicitly stated keywords — and SHALL explicitly state that the provided examples are not a comprehensive list and that the model should infer competencies appropriate to the candidate's demonstrated seniority level.
+6. THE AI extraction prompt SHALL provide explicit examples of core competencies spanning all seniority levels to guide the model, including but not limited to: Organisation, Customer Focus, Attention to Detail, Time Management, Adaptability, Problem Solving, Analytical Thinking, Teamwork, Communication, Continuous Learning, Quality Assurance, Prioritisation, Self-Motivation, Resilience, Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost Optimization, Technical Vision, and Team Building.
 7. THE Skill_Mapper SHALL distinguish core competencies from technical skills in the skill map, preserving the distinction in the persisted `skill_map.md` so CV generation can render them in separate sections.
 
 **Date normalization:**
@@ -954,32 +962,40 @@ The product's defining promise is trust: user files never leave the device, and 
 
 11. WHEN the AI returns a technology entry that contains multiple skills in a single string (for example "AWS SAM (Python, Lambda, Step Functions)" or "Terraform/Terragrunt"), THE Career_Agent SHALL split the entry into individual skill items — one per distinct technology — before storing them in the skill map.
 12. THE Career_Agent SHALL NOT store a parenthetical qualifier as part of a skill name unless the qualifier is an intrinsic part of the technology name (for example "Node.js" or "C#" are not parenthetical qualifiers, but "(Python, Lambda)" appended to "AWS SAM" is a list of additional skills).
-13. THE extraction prompt SHALL instruct the model to map each skill (technical and core competency) to the specific positions where it was demonstrated, so the skill map carries per-position provenance.
+13. THE extraction prompt SHALL instruct the model to list each technology as a separate, standalone, atomic item in the `technologies` field — for example "S3", "Lambda", "DynamoDB" rather than "AWS (S3, Lambda, DynamoDB)" — so that the extraction produces consistent, deduplicate-friendly skill names without embedded sub-skills or vendor-qualified groupings.
+14. THE extraction prompt SHALL instruct the model to map each skill (technical and core competency) to the specific positions where it was demonstrated, so the skill map carries per-position provenance.
+
+**Cross-chunk consolidation (post-merge deduplication):**
+
+15. AFTER merging all extraction chunks via `mergeCareerExtractions`, WHERE the user selected AI-only or AI-assisted mode, THE Career_Agent SHALL first send the merged extraction to the AI with a consolidation prompt asking it to identify and merge duplicate positions, duplicate skills, and synonymous competencies — the AI consolidation SHALL run BEFORE the deterministic consolidation so the model can apply contextual understanding (OCR noise, company-name variants, semantic duplicates) that pattern-based code cannot.
+16. AFTER AI consolidation completes (or immediately after merging in script-only mode), THE Career_Agent SHALL run the deterministic `consolidateExtraction` pass as a lightweight safety net, limited to collapsing only exact case-insensitive duplicates of skills, positions, and competencies — the deterministic pass SHALL NOT apply fuzzy matching, vendor-prefix stripping, or synonym resolution that could incorrectly collapse distinct entries.
+17. WHERE the user selected script-only mode, THE Career_Agent SHALL run only the deterministic consolidation pass (no AI consolidation call) and the deterministic pass SHALL apply the same exact-case-insensitive-duplicate-only logic as in AI-assisted mode.
+18. THE AI consolidation prompt SHALL instruct the model to preserve the earliest `since` date when merging duplicate skills, keep the richest data (most technologies, longest description, most achievements) when merging duplicate positions, and collapse synonymous core competencies to the shorter canonical form.
 
 **Skill map integration:**
 
-14. THE Skill_Mapper SHALL link each skill in the skill map to the positions and education entries where it was used, so the user can see for any skill which jobs and courses evidenced it.
-15. THE Skill_Mapper SHALL derive the `since` date for each skill from the earliest position or education start date in which that skill appears, using normalized ISO dates.
+19. THE Skill_Mapper SHALL link each skill in the skill map to the positions and education entries where it was used, so the user can see for any skill which jobs and courses evidenced it.
+20. THE Skill_Mapper SHALL derive the `since` date for each skill from the earliest position or education start date in which that skill appears, using normalized ISO dates.
 
 **User review and confirmation:**
 
-16. THE Career_Agent SHALL present all extracted categories to the user for review and explicit confirmation before any item enters the knowledge base, consistent with the confirm-before-entry pattern in Requirements 12 and 47.3.
-17. THE Career_Agent SHALL NOT include any extracted item in any output unless the user has explicitly confirmed it, consistent with the No-Fabrication Rule in Requirement 37.
+21. THE Career_Agent SHALL present all extracted categories to the user for review and explicit confirmation before any item enters the knowledge base, consistent with the confirm-before-entry pattern in Requirements 12 and 47.3.
+22. THE Career_Agent SHALL NOT include any extracted item in any output unless the user has explicitly confirmed it, consistent with the No-Fabrication Rule in Requirement 37.
 
 **CV generation integration:**
 
-18. THE CV generation SHALL use the extracted employment structure (positions with company, title, dates, location, achievements) as the CV skeleton, placing confirmed talking points and accomplishments under the appropriate position, rather than generating a flat list of bullets.
-19. THE Output_Engine SHALL use the additional extracted categories (professional summary, core competencies, languages, hobbies, causes) when generating a CV, placing them in appropriate ATS-standard sections, but SHALL include each category only when the user has confirmed its items.
+23. THE CV generation SHALL use the extracted employment structure (positions with company, title, dates, location, achievements) as the CV skeleton, placing confirmed talking points and accomplishments under the appropriate position, rather than generating a flat list of bullets.
+24. THE Output_Engine SHALL use the additional extracted categories (professional summary, core competencies, languages, hobbies, causes) when generating a CV, placing them in appropriate ATS-standard sections, but SHALL include each category only when the user has confirmed its items.
 
 **Role discovery integration:**
 
-20. THE role-discovery scoring SHALL use the structured employment data (skills per position, experience duration per skill) to compute meaningful match scores and level inference.
-21. WHEN the user adds a role or the AI suggests a role, THE Role_Matcher SHALL compute a meaningful match score and populate the matched-skills and gap-skills sets by comparing the role's described requirements against the user's confirmed skill map entries, rather than leaving them at 0% with empty sets.
+25. THE role-discovery scoring SHALL use the structured employment data (skills per position, experience duration per skill) to compute meaningful match scores and level inference.
+26. WHEN the user adds a role or the AI suggests a role, THE Role_Matcher SHALL compute a meaningful match score and populate the matched-skills and gap-skills sets by comparing the role's described requirements against the user's confirmed skill map entries, rather than leaving them at 0% with empty sets.
 
 **General:**
 
-22. THE AI extraction SHALL be tolerant of varied document formats and languages, and SHALL extract what it can determine from the evidence without inventing information not present in the source (No-Fabrication Rule, R37).
-23. THE extraction schema evolution is free to replace previous schemas (no backward compatibility with previous extraction results required); any previously-persisted extraction data SHALL be re-extracted on the next AI-assist run.
+27. THE AI extraction SHALL be tolerant of varied document formats and languages, and SHALL extract what it can determine from the evidence without inventing information not present in the source (No-Fabrication Rule, R37).
+28. THE extraction schema evolution is free to replace previous schemas (no backward compatibility with previous extraction results required); any previously-persisted extraction data SHALL be re-extracted on the next AI-assist run.
 
 ### Requirement 72: Zip Export with All Session Files
 

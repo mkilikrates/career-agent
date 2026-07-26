@@ -247,6 +247,13 @@
         "splitLabel": "Skill split",
         "dateLog": "Post-processing: date normalised \"{{original}}\" → \"{{normalized}}\"",
         "splitLog": "Post-processing: compound skill split \"{{original}}\" → \"{{normalized}}\""
+      },
+      "consolidation": {
+        "heading": "Consolidation",
+        "intro": "Duplicate and synonymous entries were consolidated to improve extraction quality.",
+        "vendorDedup": "Vendor-prefix dedup: \"{{original}}\" collapsed into \"{{canonical}}\"",
+        "positionDedup": "Duplicate position merged: \"{{title}}\" at \"{{company}}\"",
+        "synonymDedup": "Competency synonym: \"{{original}}\" → \"{{canonical}}\""
       }
     }
   },
@@ -429,9 +436,15 @@
     "ai": {
       "tailor": "✨ Suggest CV tailoring with AI",
       "working": "Asking the AI…",
-      "heading": "AI tailoring suggestions (advisory)",
-      "advisory": "These are advisory AI suggestions. Your CV is built only from your confirmed evidence; nothing here changes it unless you apply it."
+      "heading": "AI-generated CV draft (advisory)",
+      "advisory": "This is an AI-generated full CV draft. Your CV is built only from your confirmed evidence; nothing here changes it unless you apply it.",
+      "draftLabel": "Full ATS-formatted CV draft"
     },
+    "showAiDraft": "Show AI draft",
+    "showDeterministic": "Show deterministic version",
+    "confirmAiDraft": "Confirm AI draft",
+    "aiDraftActive": "Viewing AI-tailored draft. Confirm it to persist, or switch to the deterministic view.",
+    "deterministicFallback": "Viewing the deterministic CV (no AI draft available).",
     "aiOnlyLabel": "CV structure built from your confirmed evidence; AI tailoring provides advisory suggestions.",
     "matchRationale": {
       "heading": "Bullet-to-position matching details",

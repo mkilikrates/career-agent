@@ -32,8 +32,35 @@ import {
 } from '@core/orchestrator';
 import type { StoreFile } from '@core/healing';
 import type { MemoryStoreReader, ResumeStoreState } from '@core/orchestrator';
-import { MemoryTree } from '@core/storage';
+import { MemoryTree, CANONICAL_FILES } from '@core/storage';
+import type { MemoryPath } from '@core/types';
 import { asMemoryPath } from '@core/types';
+
+/**
+ * Minimal read-only view of the Memory Store consumed by the wizard controller
+ * for artefact-presence gating. Matches the subset of {@link MemoryTree} needed
+ * to determine whether a phase's deliverable exists (R48.2–48.4).
+ */
+export interface MemoryStoreView {
+  /** Whether a given canonical path is present in the store. */
+  has(path: string): boolean;
+  /** All paths currently in the store. */
+  paths(): MemoryPath[];
+}
+
+/**
+ * Per-phase artefact-presence gate: returns `true` when the phase's canonical
+ * deliverable is present in the store. A phase is only `'complete'` when its
+ * gate passes — never by positional index alone (R48.2, R48.3, R48.4).
+ */
+const PHASE_ARTEFACT_GATE: Record<Phase, (store: MemoryStoreView) => boolean> = {
+  ingest: (store) => store.has(CANONICAL_FILES.rawExtractions),
+  'skill-map': (store) => store.has(CANONICAL_FILES.skillMap),
+  'role-discovery': (store) => store.has(CANONICAL_FILES.rolePreferences),
+  'interview-coaching': (store) => store.paths().some((p) => p.startsWith('interviews/')),
+  output: (store) => store.paths().some((p) => p.startsWith('outputs/cv_')),
+  memory: () => true, // Always accessible — no gating
+};
 
 /**
  * Canonical Memory Store file that records the phase the user is currently in,
@@ -137,6 +164,12 @@ export interface PhaseWizardControllerOptions {
   readonly agent: CareerAgent;
   /** Where confirmed steps are persisted (R35.2). */
   readonly persistence: PhasePersistence;
+  /**
+   * Read-only view of the Memory Store for artefact-presence gating (R48.2–48.4).
+   * When provided, phases derive their `'complete'` status from whether the
+   * phase's canonical deliverable is present — not from positional index.
+   */
+  readonly store: MemoryStoreView;
 }
 
 /**
@@ -148,6 +181,7 @@ export interface PhaseWizardControllerOptions {
 export class PhaseWizardController {
   private readonly agent: CareerAgent;
   private readonly persistence: PhasePersistence;
+  private readonly store: MemoryStoreView;
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribeAgent: () => void;
   private currentSummary: SessionSummary | null = null;
@@ -155,6 +189,7 @@ export class PhaseWizardController {
   constructor(options: PhaseWizardControllerOptions) {
     this.agent = options.agent;
     this.persistence = options.persistence;
+    this.store = options.store;
     // Re-render the shell whenever the orchestrator's phase changes.
     this.unsubscribeAgent = this.agent.onPhaseChange(() => this.emit());
   }
@@ -192,26 +227,35 @@ export class PhaseWizardController {
   /**
    * Project every phase into a {@link PhaseView} for the nav / review screen.
    *
-   * Progress is derived from the pipeline position so it always reflects where
-   * the user actually is: the current phase is `in-progress`, every phase before
-   * it is `complete`, and later phases fall back to the resume summary's status
-   * (or `pending`). This deliberately takes precedence over a stale resume
-   * summary for the current/earlier phases — otherwise the summary computed once
-   * at resume (e.g. all-`pending` for a fresh store) would keep showing "not
-   * started" even after the user confirms and advances.
+   * Status is derived from artefact presence rather than positional index
+   * (R48.2–48.4):
+   *   • `'complete'`    — the phase's canonical deliverable IS present in the store.
+   *   • `'in-progress'` — it's the current phase, OR it has been visited (position
+   *                        before current) but its artefact is not yet present.
+   *   • `'pending'`     — no artefact and not current/visited.
+   *
+   * This prevents the premature "done" display that occurred when status was
+   * derived purely from pipeline position.
+   *
+   * An optional `overrideCurrentPhase` can be passed to synchronise with the
+   * UI-level view when the orchestrator's internal pointer hasn't caught up yet
+   * (e.g. the async goToPhase hasn't resolved but the view already switched).
    */
-  phases(): PhaseView[] {
-    const current = this.currentPhase();
+  phases(overrideCurrentPhase?: Phase): PhaseView[] {
+    const current = overrideCurrentPhase ?? this.currentPhase();
     const currentIndex = PHASE_SEQUENCE.indexOf(current);
-    const states = this.currentSummary?.phaseStates;
     return PHASE_SEQUENCE.map((phase, index) => {
       let status: PhaseStatus;
-      if (phase === current) {
+      const artefactPresent = PHASE_ARTEFACT_GATE[phase](this.store);
+      if (artefactPresent) {
+        status = 'complete';
+      } else if (phase === current) {
         status = 'in-progress';
       } else if (index < currentIndex) {
-        status = 'complete';
+        // Visited (before current) but artefact not present → still in progress
+        status = 'in-progress';
       } else {
-        status = states?.[phase] ?? 'pending';
+        status = 'pending';
       }
       return { phase, index, status, current: phase === current };
     });

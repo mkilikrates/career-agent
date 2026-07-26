@@ -1,0 +1,12 @@
+# config/competency_synonyms.yaml — synonym groups for core competency consolidation (R71.17)
+# Within each group, the FIRST entry is the canonical form.
+# This file can be extended without code changes.
+synonym_groups:
+  - ["Leadership", "Team Leadership", "People Leadership"]
+  - ["Communication", "Effective Communication", "Written Communication"]
+  - ["Problem Solving", "Problem-Solving", "Analytical Problem Solving"]
+  - ["Stakeholder Management", "Stakeholder Engagement"]
+  - ["Change Management", "Organisational Change Management"]
+  - ["Innovation", "Creative Innovation"]
+  - ["Mentoring", "Coaching & Mentoring"]
+  - ["Collaboration", "Cross-functional Collaboration"]

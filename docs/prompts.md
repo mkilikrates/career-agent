@@ -47,13 +47,14 @@ matching section here.
 | 1 | Provider key validation | Provider Setup | none (`GET /models`) | — | — |
 | 2 | Skill discovery | Skill Map → "Suggest skills with AI" | `buildDiscoveryPrompt` (`@core/skills/skill-discovery.ts`) | comma-separated list | `parseDiscoveredSkills` |
 | 2a | Structured career extraction | Document upload → AI extraction | `buildCareerExtractionPrompt` (`@core/skills/career-extraction.ts`) | JSON `{ professional_summary, positions, education, technical_skills, core_competencies, languages, hobbies, causes, additional_info }` | `parseCareerExtraction` |
+| 2b | AI consolidation (dedup) | After merge, before deterministic pass (AI modes only) | `buildConsolidationPrompt` (`@core/skills/career-extraction.ts`) | JSON `{ positions, technical_skills, core_competencies }` (deduplicated) | `parseCareerExtraction` |
 | 3 | Role discovery | Role Discovery → "Recommend roles with AI" | `buildDiscoveryPrompt` (`@core/role-matcher/role-discovery-payload.ts`) | `Title — reason` per line | `parseAiRoles` |
-| 4 | STAR practice questions | Coaching → "Suggest practice questions with AI" | `buildStarQuestionsPrompt` (`@core/interview/coach-assist.ts`) | JSON array of `{competency, question}` | `parseQuestionPrompts` (JSON-first, tolerant line fallback) |
+| 4 | STAR practice questions | Coaching → "Suggest practice questions with AI" | `buildStarQuestionsPrompt` (`@core/interview/coach-assist.ts`) | JSON array of `{competencies, question}` | `parseQuestionPrompts` (JSON-first, tolerant line fallback) |
 | 5 | Educational STAR summary | Coaching → educational summary | `buildStarSummaryPrompt` (`@core/interview/coach-assist.ts`) | free-text guidance | trimmed text |
 | 5a | Adaptive coaching — adequacy / follow-up | Coaching → submit a STAR answer (per turn) | `buildAdequacyPrompt` (`@core/interview/coach-assist.ts`) | strict `LABEL: value` lines | `parseAdequacyReply` |
 | 5b | Adaptive coaching — per-question summary | Coaching → a question's loop ends | `buildPerQuestionSummaryPrompt` (`@core/interview/coach-assist.ts`) | strict `LABEL: value` lines | `parsePerQuestionSummaryReply` |
-| 6 | CV tailoring (no posting) | Output → tailor with AI | `buildCvTailoringPrompt` (`@core/output/output-assist.ts`) | one suggestion per line | `parseTailoringNotes` |
-| 7 | CV tailoring (Target Opportunity) | Output → tailor toward a job posting | `buildTailoringPayload` (`@core/output/tailoring.ts`) | one suggestion per line | `parseTailoringNotes` |
+| 6 | CV tailoring (no posting) | Output → tailor with AI | `buildCvTailoringPrompt` (`@core/output/output-assist.ts`) | complete Markdown CV draft | `parseCvDraft` |
+| 7 | CV tailoring (Target Opportunity) | Output → tailor toward a job posting | `buildTailoringPayload` (`@core/output/tailoring.ts`) | complete Markdown CV draft | `parseCvDraft` |
 | 8 | Speech-to-text transcription | Coaching → upload/record audio | none (audio upload) | transcript text | — |
 
 > Every prompt below is sent with the language directive appended as a final
@@ -154,6 +155,10 @@ Rules:
   start/end dates, a brief role description, quantified achievements (use
   numbers where possible), and technologies/skills used in that role. Map skills
   and technologies to each specific position where they were used.
+- For technologies: list each technology as a separate, standalone item. Write
+  'S3', 'Lambda', 'DynamoDB' — NOT 'AWS (S3, Lambda, DynamoDB)'. Each entry
+  should be one atomic skill name without embedded sub-skills or vendor-prefixed
+  groupings.
 - For education: extract institution, degree/course, start/end dates, and skills
   gained.
 - For technical_skills: list standalone technical skills not tied to a specific
@@ -162,11 +167,17 @@ Rules:
   and achievements, not only literal keywords. Look at role progression, scope
   of responsibility, cross-team work, and quantified outcomes to identify
   competencies the candidate demonstrates even if they are not explicitly named.
-  Examples of competencies to look for: Leadership, Innovation, Stakeholder
-  Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional
-  Collaboration, Change Management, Cost Optimization, Technical Vision, Team
-  Building, Process Improvement. Include both explicitly stated and
-  pattern-inferred competencies distinct from technical skills.
+  Examples of competencies to look for: Organisation, Customer Focus, Attention
+  to Detail, Time Management, Adaptability, Problem Solving, Analytical
+  Thinking, Teamwork, Communication, Continuous Learning, Quality Assurance,
+  Prioritisation, Self-Motivation, Resilience, Leadership, Innovation,
+  Stakeholder Management, Crisis Management, Strategic Planning, Mentoring,
+  Cross-functional Collaboration, Change Management, Cost Optimization,
+  Technical Vision, Team Building, Process Improvement. These examples span all
+  seniority levels — from entry-level strengths through senior leadership.
+  Infer competencies appropriate to the candidate's demonstrated level. Include
+  both explicitly stated and pattern-inferred competencies distinct from
+  technical skills.
 - For languages: list spoken/written languages with proficiency levels (e.g.
   "Native", "Fluent", "Professional", "Intermediate", "Basic").
 - For hobbies: list hobbies and interests if mentioned.
@@ -231,6 +242,32 @@ Followed by `DOCUMENT CONTENT:` and the corpus chunk.
     prefix + inner items, slash-separated entries become individual items —
     while an allowlist of known compounds (CI/CD, TCP/IP, Node.js, C#, C++,
     .NET, GitLab CI/CD, IDS/IPS) are preserved intact.
+- **AI Consolidation** (`buildConsolidationPrompt`, applied after merge in
+  AI-only/AI-assisted modes, R71.15, R71.18): serializes the merged positions,
+  skills, and competencies into a prompt asking the model to identify and merge
+  duplicates that pattern-based code cannot reliably detect (OCR noise,
+  company-name variants, vendor-qualified skill forms, semantic duplicates,
+  synonymous competencies). The model returns the same `CareerExtraction` JSON
+  schema (deduplicated), parsed by `parseCareerExtraction`. On failure, falls
+  back to the reduced deterministic pass.
+- **Deterministic Safety Net** (`consolidateExtractionReduced`, applied after AI
+  consolidation or alone in script-only mode): performs ONLY exact
+  case-insensitive duplicate collapsing for skills, positions (by
+  company+title+start), per-position technologies, and competencies. Does NOT
+  apply fuzzy matching, vendor-prefix stripping, or synonym resolution.
+- **Full Deterministic Consolidation** (`consolidateExtraction`, legacy):
+  - **Sub-pass 1 — vendor-prefix skill deduplication** (R71.15): collapses
+    vendor-qualified duplicates ("AWS S3" + "S3" → "S3", "Azure DevOps" +
+    "DevOps" → "DevOps") in both `technicalSkills` and per-position
+    `technologies` arrays, keeping the earliest `since` date.
+  - **Sub-pass 2 — fuzzy position deduplication** (R71.16): deduplicates
+    positions with fuzzy matching on (company + title) and overlapping dates,
+    keeping the richest entry (most technologies, longest description, most
+    achievements).
+  - **Sub-pass 3 — synonym competency deduplication** (R71.17): loads
+    `competency_synonyms.yaml` and canonicalises synonymous competencies to
+    their canonical form (e.g. "Team Leadership" → "Leadership",
+    "Cross-functional Collaboration" → "Collaboration").
 - **Conversion**: `careerExtractionToItems` converts the extraction into
   `ExtractedItem[]` for the ingestion pipeline. Item types:
   `professional_summary`, `employment`, `education`, `skill`,
@@ -242,31 +279,83 @@ Followed by `DOCUMENT CONTENT:` and the corpus chunk.
 
 ---
 
+## 2b. AI consolidation (`career_consolidation`)
+
+- **File**: `src/core/skills/career-extraction.ts`
+- **Builder**: `buildConsolidationPrompt(extraction)` serializes the merged
+  positions, technical skills, and core competencies as JSON and asks the model
+  to deduplicate them.
+- **Trigger**: after `mergeCareerExtractions()`, only in `ai-only` or
+  `ai-assisted` mode. Skipped in `script-only` mode.
+- **Reply format**: same `CareerExtraction` JSON schema (positions,
+  technical_skills, core_competencies — deduplicated).
+- **Parser**: reuses `parseCareerExtraction` (same JSON schema contract).
+
+**Prompt summary (condensed):**
+
+```
+You are deduplicating a structured career extraction. The following JSON contains
+positions, technical skills, and core competencies that may have duplicates.
+
+Your task:
+1. MERGE duplicate positions (OCR noise, company-name variants, abbreviations).
+   Keep the richest entry and preserve the earliest start date.
+2. MERGE duplicate skills (vendor-qualified variants, semantic duplicates).
+   Preserve the earliest `since` date.
+3. COLLAPSE synonymous competencies to the shorter canonical form.
+
+Return ONLY a JSON object with: { positions, technical_skills, core_competencies }
+Rules: Do not invent. Do not remove distinct entries. Preserve richest data.
+```
+
+Followed by `INPUT:` and the extraction data as JSON.
+
+- **Failure handling**: on error or unparseable response, the system falls back to
+  `consolidateExtractionReduced` (exact case-insensitive dedup only) and logs a
+  non-blocking warning.
+- **After AI consolidation**: `consolidateExtractionReduced` runs as a lightweight
+  safety net (exact case-insensitive dedup only — no fuzzy matching, no
+  vendor-prefix stripping, no synonym resolution).
+
+---
+
 ## 3. Role discovery (`role_discovery`)
 
 - **File**: `src/core/role-matcher/role-discovery-payload.ts`
 - **Builder**: `buildDiscoveryPrompt(payload)` where the payload is built by
-  `buildDiscoveryPayload(map, dest)` — **employer-free**: each skill is projected
+  `buildDiscoveryPayload(map, dest, atsData?)` — **employer-free**: each skill is projected
   to `{ name, approxDurationMonths, category }` only. No employer/company name is
   ever included. For `keyed-cloud`, private skills are excluded.
   `approxDurationMonths` is computed as `(now − since)` — i.e. the elapsed time
-  since the user first used the skill (R70.7).
+  since the user first used the skill (R70.7). When `AtsCareerData` is provided
+  (job titles, competencies, education summaries, professional summary), it is
+  appended as a "Career context" block so the model can match on the candidate's
+  career arc without seeing employer names (R20.6, R47.2).
 
 **Prompt template:**
 
 ```
-Based ONLY on the following skills and the approximate experience duration for
-each, suggest up to 5 realistic job roles that fit, inferring a level of
-experience from the durations. Do not assume any employer or industry beyond
-what the skills imply. Return one role per line as "Title — short reason". No
-preamble.
+Based ONLY on the following skills, experience durations, and career context,
+suggest up to 5 realistic job roles that fit, inferring a level of experience
+from the durations and career trajectory. Do not assume any employer or industry
+beyond what the skills and context imply. Return one role per line as
+"Title — short reason". No preamble.
 
 Skills:
 - <skill name> (<category>, ~<duration>)
 - ...
+
+Career context:
+Previous roles: <comma-separated job titles — no company names>
+Core competencies: <comma-separated competencies from extraction>
+Education: <comma-separated degrees/fields>
+Summary: <professional summary text>
 ```
 
-`<duration>` is rendered as `~N mo` (<12 months) or `~N yr`.
+`<duration>` is rendered as `~N mo` (<12 months) or `~N yr`. The "Career
+context" block is included only when `AtsCareerData` is provided; when absent
+(e.g. no extraction ran or no ATS data available), the prompt omits it and uses
+a simpler phrasing without "and career context" / "and career trajectory".
 
 - **Reply format**: one role per line, `Title — short reason`.
 - **Parser**: `parseAiRoles` (accepts `—`, `–`, `-`, or `:` separators; de-dupes
@@ -297,11 +386,11 @@ Calibrate the depth and seniority of your questions to match the candidate's
 profile below. Prioritise behaviours and qualities; include at most one question
 focused on technical depth, since technical topics are easier to prepare for. Do
 NOT suggest facts or outcomes for them to claim. Return ONLY a JSON array and
-nothing else, where each element is an object with two string fields:
-"competency" (the single behaviour or quality that question probes) and
-"question" (the open behavioural practice question). Example:
-[{"competency": "Leadership", "question": "Tell me about a time you led a team
-through a difficult change."}].
+nothing else, where each element is an object with two fields:
+"competencies" (an array of one or more behaviour/quality strings that the
+question probes) and "question" (the open behavioural practice question).
+Example: [{"competencies": ["Leadership", "Stakeholder Management"], "question":
+"Tell me about a time you led a team through a difficult change."}].
 
 CANDIDATE PROFILE (for question-level calibration):
 - Target role: <role.title>
@@ -312,6 +401,10 @@ CANDIDATE PROFILE (for question-level calibration):
 - Gap skills (developing):
   - <gap skill name> (gap — developing)
   - ...
+- Previous titles: <comma-separated job titles>
+- Core competencies: <comma-separated competencies from extraction>
+- Education: <comma-separated degrees/fields>
+- Summary: <professional summary text>
 ```
 
 The model infers the role's key behaviours/qualities itself (no hardcoded
@@ -322,21 +415,26 @@ senior-level questions, while someone with < 1 year gets appropriately scoped
 ones. Experience duration is derived from the skill's `since` date (the year the
 user first used the skill, R70.6). Only role-relevant skills (matched + gaps)
 are sent, keeping the prompt compact; for a keyed cloud (third-party)
-destination, private skills are excluded (R22.7).
+destination, private skills are excluded (R22.7). The additional ATS context
+lines (previous titles, competencies, education, summary) are included when an
+`AtsContext` is provided from the career extraction, giving the model richer
+career-arc calibration data.
 
 (The `The role: …` sentence is included only when the role has a description.)
 
-- **Reply format**: a JSON array of `{ "competency", "question" }` objects. JSON
-  is self-delimiting, so any model preamble or trailing chatter falls outside the
-  array and is ignored.
+- **Reply format**: a JSON array of `{ "competencies", "question" }` objects
+  (multi-competency). JSON is self-delimiting, so any model preamble or trailing
+  chatter falls outside the array and is ignored. The legacy singular
+  `"competency"` field is accepted for backward compatibility and wrapped into a
+  single-element `competencies` array.
 - **Parser**: `parseQuestionPrompts(reply, { defaultCompetency })` is **tolerant
   and layered** so a local model that ignores the format still yields questions
   (R62.5):
   1. **JSON-first** — locate and parse the JSON array anywhere in the reply
      (tolerating ```` ```json ```` fences and surrounding prose), accept
-     `{ competency, question }` objects, a `{ questions: [...] }` wrapper, or bare
-     question strings, and default a **generic competency** for any element that
-     omits one;
+     `{ competencies, question }` or `{ competency, question }` objects, a
+     `{ questions: [...] }` wrapper, or bare question strings, and default a
+     **generic competency** for any element that omits one;
   2. **line fallback** — when no usable JSON is found, scan lines and keep only
      those that read as a question: a `<competency> :: <question>` line
      (competency preserved), a line ending in `?`, or a line opening with a
@@ -345,11 +443,11 @@ destination, private skills are excluded (R22.7).
 
   The result is empty **only** when the reply contains no usable question text;
   on an empty result the UI keeps the deterministic script questions (R22.6/22.8).
-  The `question` is shown to the user while the `competency` is retained for the
-  adaptive coaching loop and per-question summary (R62.3, R63.2, R63.6). The
-  generic-competency label is supplied by the UI from `locales/`
-  (`coaching.ai.genericCompetency`), so no user-facing string is hardcoded in
-  `@core`.
+  The `competencies` array is shown to the user (all behaviours the question
+  probes) and retained for the adaptive coaching loop and per-question summary
+  (R62.3, R63.2, R63.6). The generic-competency label is supplied by the UI from
+  `locales/` (`coaching.ai.genericCompetency`), so no user-facing string is
+  hardcoded in `@core`.
 - **Trust**: AI questions are practice prompts, surfaced as unconfirmed
   suggestions; they never enter the knowledge base, so they are not gated by the
   No-Fabrication harness.
@@ -508,27 +606,45 @@ When no answer was given, the full-answer block renders `(no answer given)`.)
 ## 6. CV tailoring — no Target Opportunity (`cv_tailoring`)
 
 - **File**: `src/core/output/output-assist.ts`
-- **Builder**: `buildCvTailoringPrompt(model)` from the deterministic CV model.
+- **Builder**: `buildCvTailoringPrompt(model, evidence?)` from the deterministic
+  CV model and optional confirmed evidence.
 
 **Prompt template:**
 
 ```
-You are helping tailor a CV for the role of "<targetRole.title>". Suggest up to
-5 short, advisory edits to better target this role (emphasis, ordering,
-phrasing). Do NOT invent experience, metrics, or skills the candidate did not
-provide. Return one suggestion per line, no preamble.
+You are producing a complete ATS-formatted CV draft in Markdown for the role of
+"<targetRole.title>". Use ONLY the confirmed career data below. Do NOT invent
+any skill, metric, date, title, or employer not present in the confirmed data.
 
-Skills: <comma-separated skill names>
+Produce a complete CV in Markdown with the following sections:
+1. Professional Summary (2-3 sentences targeting this role)
+2. Experience (employment entries with adjusted bullet emphasis for the role)
+3. Skills (ordered by relevance to this role)
+4. Education
+5. Core Competencies (if applicable)
 
-Experience bullets:
-- <bullet text>
-- ...
+Confirmed career data:
+- Professional summary: <summary text or "(none)">
+- Positions:
+  - <title> at <company> (<dates>); technologies: <comma-separated>; achievements: <semicolon-separated>
+  - ...
+- Core competencies: <comma-separated competencies or "(none)">
+- Education:
+  - <degree> at <institution> (<dates>)
+  - ...
+- Skills:
+  - <skill name> (~<N> years)
+  - ...
 ```
 
-- **Reply format**: one suggestion per line.
-- **Parser**: `parseTailoringNotes`.
-- **Trust**: suggestions are advisory; nothing is woven into the CV until the
-  user confirms it.
+- **Reply format**: a complete Markdown CV draft.
+- **Parser**: `parseCvDraft` — extracts the Markdown body and derives a short
+  summary from the first significant line. Returns `undefined` when the reply is
+  too short (< 20 chars) to constitute a meaningful draft. The result is wrapped
+  as a `CvDraft` with `{ markdown, summary }`.
+- **Trust**: the draft is advisory; the user reviews and confirms it before it
+  replaces the deterministic CV. Nothing from the draft enters confirmed outputs
+  without user acceptance.
 
 ---
 
@@ -542,28 +658,43 @@ Experience bullets:
 **Prompt template:**
 
 ```
-You are helping tailor a CV to a Target Opportunity. The Target Opportunity is a
-TAILORING TARGET ONLY — it is NEVER a source of facts. Use ONLY the confirmed
-evidence below as the source of skills, metrics, dates, job titles, and
-employers. Do NOT add, infer, or import any skill, metric, date, title, or
-employer that appears only in the Target Opportunity and not in the confirmed
-evidence. Suggest up to 5 short, advisory edits — emphasis, ordering, and
-phrasing only — to better target this opportunity using that confirmed evidence.
-Return one suggestion per line, no preamble.
+You are producing a complete ATS-formatted CV draft in Markdown, tailored to a
+Target Opportunity. The Target Opportunity is a TAILORING TARGET ONLY — it is
+NEVER a source of facts. Use ONLY the confirmed evidence below. Do NOT invent
+any skill, metric, date, title, or employer not present in the confirmed data.
 
-Confirmed skills:
-- <skill name> (<category>)
-- ...
+Produce a complete CV in Markdown with the following sections:
+1. Professional Summary (2-3 sentences targeting this opportunity)
+2. Experience (employment entries with adjusted bullet emphasis for the
+   opportunity)
+3. Skills (ordered by relevance to this opportunity)
+4. Education
+5. Core Competencies (if applicable)
 
-Confirmed experience:
-- <accomplishment / talking-point text>
-- ...
+Adapt emphasis and phrasing toward the Target Opportunity's language and
+priorities, but EXCLUDE any skill, metric, date, title, or employer appearing
+only in the Target Opportunity and not in confirmed evidence.
+
+Confirmed career data:
+- Professional summary: <summary text or "(none)">
+- Positions:
+  - <title> at <company> (<dates>); technologies: <comma-separated>; achievements: <semicolon-separated>
+  - ...
+- Core competencies: <comma-separated competencies or "(none)">
+- Education:
+  - <degree> at <institution> (<dates>)
+  - ...
+- Skills:
+  - <skill name> (~<N> years)
+  - ...
 
 Target Opportunity (tailoring target only — NOT a source of facts):
 <job posting text>
 ```
 
-- **Reply format / parser**: same as #6 (`parseTailoringNotes`).
+- **Reply format / parser**: same as #6 (`parseCvDraft` → `CvDraft`). The full
+  Markdown CV draft is advisory and presented alongside the deterministic
+  baseline for user review and confirmation.
 
 ---
 

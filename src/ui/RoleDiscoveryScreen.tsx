@@ -18,6 +18,7 @@ import {
   type RoleSuggestion,
   type RolePreferenceInput,
   type AiRoleRecommendation,
+  type AtsCareerData,
 } from '@core/role-matcher';
 import { runAssist, type AssistMode, type EgressDestination } from '@core/assist';
 import { AssistChoice } from './AssistChoice';
@@ -47,6 +48,90 @@ const parseList = (text: string): string[] => {
     out.push(name);
   }
   return out;
+};
+
+/**
+ * Derive ATS career data from confirmed extracted items (R20.6, R47.2).
+ * Returns undefined when there is nothing useful to include, so the prompt
+ * stays minimal. Employer names are deliberately stripped from job titles.
+ */
+const deriveAtsCareerData = (
+  items: ReadonlyArray<ExtractedItem>,
+  thirdParty: boolean,
+): AtsCareerData | undefined => {
+  // Include all extracted items for career-context derivation — not just
+  // user-confirmed ones. The userConfirmed flag gates what appears in CV
+  // outputs (No-Fabrication boundary), but the career context sent to downstream
+  // prompts (role discovery, STAR questions) should reflect the full extraction
+  // so the model understands the candidate's trajectory. Items marked private
+  // are still excluded for third-party (keyed cloud) destinations (R46.4).
+  const eligible = items.filter(
+    (i) => !(thirdParty && i.private),
+  );
+
+  const jobTitles: string[] = [];
+  const competencies: string[] = [];
+  const educationSummaries: string[] = [];
+  let professionalSummary: string | undefined;
+
+  for (const item of eligible) {
+    switch (item.type) {
+      case 'employment': {
+        const title =
+          typeof item.fields.title === 'string' ? item.fields.title.trim() : '';
+        if (title.length > 0 && !jobTitles.includes(title)) {
+          jobTitles.push(title);
+        }
+        break;
+      }
+      case 'core_competency': {
+        const name =
+          typeof item.fields.name === 'string' ? item.fields.name.trim() : '';
+        if (name.length > 0 && !competencies.includes(name)) {
+          competencies.push(name);
+        }
+        break;
+      }
+      case 'education': {
+        const entry =
+          typeof item.fields.entry === 'string' ? item.fields.entry.trim() : '';
+        const degree =
+          typeof item.fields.degree === 'string' ? item.fields.degree.trim() : '';
+        const field =
+          typeof item.fields.field === 'string' ? item.fields.field.trim() : '';
+        // Strip markdown formatting that may leak from AI extraction (e.g. **bold**).
+        const raw = entry || [degree, field].filter(Boolean).join(' in ') || '';
+        const summary = raw.replace(/\*+/g, '').replace(/--/g, '').trim();
+        // Deduplicate case-insensitively to avoid "MSc Leadership" + "MSc leadership".
+        if (summary.length > 0 && !educationSummaries.some(e => e.toLowerCase() === summary.toLowerCase())) {
+          educationSummaries.push(summary);
+        }
+        break;
+      }
+      case 'professional_summary': {
+        const text =
+          typeof item.fields.text === 'string' ? item.fields.text.trim() : '';
+        // Strip a leading "Summary:" prefix if the AI included it in the text.
+        const cleaned = text.replace(/^summary:\s*/i, '').trim();
+        if (cleaned.length > 0 && !professionalSummary) {
+          professionalSummary = cleaned;
+        }
+        break;
+      }
+    }
+  }
+
+  // Return undefined when there is nothing to include.
+  if (
+    jobTitles.length === 0 &&
+    competencies.length === 0 &&
+    educationSummaries.length === 0 &&
+    !professionalSummary
+  ) {
+    return undefined;
+  }
+
+  return { jobTitles, competencies, educationSummaries, professionalSummary };
 };
 
 export interface RoleDiscoveryScreenProps {
@@ -172,13 +257,15 @@ export function RoleDiscoveryScreen({
     const dest: EgressDestination | null = chatProvider
       ? { provider: chatProvider, kind: chatIsLocal ? 'keyless-local' : 'keyed-cloud' }
       : null;
+    const thirdParty = !chatIsLocal;
+    const atsData = deriveAtsCareerData(extractions, thirdParty);
     try {
       // runAssist branches on the mode: script-only never constructs an Egress
       // request; ai-assisted computes the deterministic suggestions first then
       // adds gate-routed AI roles, falling back to the baseline on failure.
       const { outcome, error } = await runAssist(
         operation,
-        { map: effectiveMap, review: assistMode === 'ai-assisted' },
+        { map: effectiveMap, review: assistMode === 'ai-assisted', atsData },
         { mode: assistMode, capability: 'role_discovery' },
         dest ?? undefined,
       );

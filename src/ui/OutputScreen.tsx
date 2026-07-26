@@ -89,6 +89,15 @@ export function OutputScreen({
   const [pdfBusy, setPdfBusy] = useState(false);
   const [showRationale, setShowRationale] = useState(false);
 
+  // AI draft toggle state (R30.11, R30.12, R30.13): when an AI draft exists,
+  // the user can switch between viewing the AI draft and the deterministic version.
+  // The AI draft is displayed as primary when available; the user must explicitly
+  // confirm it before it is persisted.
+  const [aiDraftMarkdown, setAiDraftMarkdown] = useState<string>('');
+  const [deterministicMarkdown, setDeterministicMarkdown] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'ai-draft' | 'deterministic'>('deterministic');
+  const [aiDraftConfirmed, setAiDraftConfirmed] = useState(false);
+
   // Opt-in-first AI CV tailoring (R30.7): the pipeline-wide choice surfaced by
   // <AssistChoice>, plus advisory AI tailoring notes that never alter the
   // deterministic CV until the user acts on them (R22.6, R47.3).
@@ -136,16 +145,34 @@ export function OutputScreen({
       : undefined;
 
   /** Apply a generated CvBundle to the screen, surfacing the generation mode (R30.7).
-   *  Auto-saves to the Memory Store on successful generation (R33.4). */
+   *  When the AI produced a full draft (`suggestions[0].markdown`), display it as the
+   *  primary CV view (R30.11). Auto-saves the deterministic version by default;
+   *  persists the AI draft only after explicit user confirmation (R30.12, R30.13). */
   const applyBundle = (
     model: CvModel,
     scriptOnly: boolean,
     notes: readonly string[],
+    aiDraft?: string,
     fallbackReason?: string,
   ) => {
     setCvModel(model);
-    const md = renderMarkdown(model);
-    setCvMarkdown(md);
+    const detMd = renderMarkdown(model);
+    setDeterministicMarkdown(detMd);
+
+    // When an AI draft is available, show it as primary (R30.11); otherwise
+    // fall back to the deterministic version.
+    if (aiDraft && aiDraft.length > 0) {
+      setAiDraftMarkdown(aiDraft);
+      setCvMarkdown(aiDraft);
+      setViewMode('ai-draft');
+      setAiDraftConfirmed(false);
+    } else {
+      setAiDraftMarkdown('');
+      setCvMarkdown(detMd);
+      setViewMode('deterministic');
+      setAiDraftConfirmed(false);
+    }
+
     const linkedInMd = evidence
       ? renderLinkedInReportMarkdown(buildLinkedInReport(evidence))
       : '';
@@ -154,12 +181,12 @@ export function OutputScreen({
     setGenNote(scriptOnly ? t('output.scriptOnlyUsed') : t('output.aiTailoredUsed'));
     setAiError(fallbackReason ? t('assist.fallback', { reason: fallbackReason }) : '');
 
-    // Auto-save CV on generation (R33.4): persist immediately without requiring
-    // the user to click Save. The explicit Save button remains for re-saving
-    // after manual edits.
-    if (role && md.length > 0) {
+    // Auto-save CV on generation (R33.4): persist the DETERMINISTIC version
+    // immediately. The AI draft is persisted only after the user confirms it
+    // (R30.12, R30.13).
+    if (role && detMd.length > 0) {
       try {
-        store.write(cvPath(role.slug, 1, 'md'), md);
+        store.write(cvPath(role.slug, 1, 'md'), detMd);
         if (linkedInMd.length > 0) {
           store.write(CANONICAL_FILES.linkedinRecommendations, linkedInMd);
         }
@@ -182,13 +209,14 @@ export function OutputScreen({
       assist: { mode: 'script-only', capability: 'cv_tailoring' },
     };
     const bundle = await generateCv(req);
-    applyBundle(bundle.model, bundle.scriptOnly, bundle.suggestions.map((s) => s.value));
+    applyBundle(bundle.model, bundle.scriptOnly, bundle.suggestions.map((s) => s.value.summary), undefined);
     setStatus('');
   };
 
   // AI-assisted, opportunity-driven tailoring (R30.6): the CV model is the SAME
-  // deterministic baseline; the AI returns advisory notes routed through the
-  // Egress Gate, and on failure generateCv falls back to script-only (R30.7).
+  // deterministic baseline; the AI returns a full ATS-formatted CV draft routed
+  // through the Egress Gate, and on failure generateCv falls back to script-only
+  // (R30.7). When the AI produces a draft, it is shown as the primary view (R30.11).
   const handleAiTailor = async () => {
     if (!role || !evidence) return;
     setAiBusy(true);
@@ -204,16 +232,43 @@ export function OutputScreen({
         transport,
         dest: dest ?? undefined,
       });
+      // Extract the AI draft markdown from the first suggestion (R30.11).
+      const draft = bundle.suggestions[0]?.value?.markdown;
       applyBundle(
         bundle.model,
         bundle.scriptOnly,
-        bundle.suggestions.map((s) => s.value),
+        bundle.suggestions.map((s) => s.value.summary),
+        draft,
         bundle.error?.message,
       );
     } catch (error) {
       setAiError(error instanceof Error ? error.message : String(error));
     } finally {
       setAiBusy(false);
+    }
+  };
+
+  /** Toggle between AI draft view and deterministic view (R30.12). */
+  const handleToggleView = () => {
+    if (viewMode === 'ai-draft') {
+      setViewMode('deterministic');
+      setCvMarkdown(deterministicMarkdown);
+    } else if (aiDraftMarkdown.length > 0) {
+      setViewMode('ai-draft');
+      setCvMarkdown(aiDraftMarkdown);
+    }
+  };
+
+  /** Confirm the AI draft: persist it to the Memory Store (R30.13). */
+  const handleConfirmAiDraft = () => {
+    if (!role || aiDraftMarkdown.length === 0) return;
+    setAiDraftConfirmed(true);
+    try {
+      store.write(cvPath(role.slug, 1, 'md'), aiDraftMarkdown);
+      store.logAction(`Confirmed AI-tailored CV draft for "${role.title}".`);
+      setStatus(t('output.saved'));
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -306,6 +361,10 @@ export function OutputScreen({
             setLinkedIn('');
             setAiNotes([]);
             setGenNote('');
+            setAiDraftMarkdown('');
+            setDeterministicMarkdown('');
+            setViewMode('deterministic');
+            setAiDraftConfirmed(false);
           }}
         >
           {rolePrefs.map((r) => (
@@ -449,6 +508,33 @@ export function OutputScreen({
       {cvMarkdown ? (
         <>
           <h4>{t('output.cvHeading')}</h4>
+
+          {/* AI draft / deterministic toggle (R30.12) */}
+          {aiDraftMarkdown.length > 0 ? (
+            <Row>
+              <Button
+                variant={viewMode === 'ai-draft' ? 'primary' : 'secondary'}
+                onClick={handleToggleView}
+                data-testid="toggle-ai-draft"
+              >
+                {viewMode === 'ai-draft' ? t('output.showDeterministic') : t('output.showAiDraft')}
+              </Button>
+              {viewMode === 'ai-draft' && !aiDraftConfirmed ? (
+                <Button onClick={handleConfirmAiDraft} data-testid="confirm-ai-draft">
+                  {t('output.confirmAiDraft')}
+                </Button>
+              ) : null}
+            </Row>
+          ) : null}
+          {aiDraftMarkdown.length > 0 ? (
+            <Banner role="status" data-testid="view-mode-indicator">
+              <small>
+                {viewMode === 'ai-draft'
+                  ? t('output.aiDraftActive')
+                  : t('output.deterministicFallback')}
+              </small>
+            </Banner>
+          ) : null}
           <Row>
             <Button onClick={handleDownloadMarkdown}>{t('output.downloadMd')}</Button>
             <Button variant="secondary" onClick={() => void handleDownloadDocx()}>

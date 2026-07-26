@@ -234,6 +234,7 @@ export function createCareerAgentRuntime(
   const controller = new PhaseWizardController({
     agent,
     persistence: createMemoryTreePersistence(store),
+    store,
   });
 
   // The local, provider-free Ingestion_Engine with the real external adapters

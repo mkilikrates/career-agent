@@ -1,10 +1,12 @@
-// Unit tests for the OutputScreen auto-save behaviour (task 40.8, R33.4).
+// Unit tests for the OutputScreen auto-save behaviour (task 40.8, R33.4) and
+// AI draft toggle behaviour (task 43.1, R30.11, R30.12, R30.13).
 //
 // Verifies that:
 //   1. After generation succeeds (applyBundle path), the CV is persisted
 //      automatically to the Memory Store without the user clicking Save.
 //   2. The explicit Save button is still rendered for re-saving after edits.
 //   3. Auto-save locale strings resolve in both supported languages.
+//   4. AI draft toggle locale strings resolve in both supported languages.
 
 import { describe, it, expect, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -107,4 +109,26 @@ describe('OutputScreen — auto-save on generation (R33.4)', () => {
     store.write(CANONICAL_FILES.linkedinRecommendations, report);
     expect(store.readText(CANONICAL_FILES.linkedinRecommendations)).toBe(report);
   });
+});
+
+
+describe('OutputScreen — AI draft toggle locale strings (R30.11, R30.12, R30.13)', () => {
+  const keys = [
+    'output.showAiDraft',
+    'output.showDeterministic',
+    'output.confirmAiDraft',
+    'output.aiDraftActive',
+    'output.deterministicFallback',
+  ];
+
+  for (const lang of SUPPORTED_LANGUAGES) {
+    for (const key of keys) {
+      it(`resolves ${key} in ${lang}`, async () => {
+        const i18n = await createI18n(lang);
+        const val = i18n.t(key);
+        expect(val).not.toBe(key);
+        expect(val.length).toBeGreaterThan(0);
+      });
+    }
+  }
 });

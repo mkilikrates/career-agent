@@ -247,6 +247,13 @@
         "splitLabel": "Competência separada",
         "dateLog": "Pós-processamento: data normalizada \"{{original}}\" → \"{{normalized}}\"",
         "splitLog": "Pós-processamento: competência composta separada \"{{original}}\" → \"{{normalized}}\""
+      },
+      "consolidation": {
+        "heading": "Consolidação",
+        "intro": "Entradas duplicadas e sinônimas foram consolidadas para melhorar a qualidade da extração.",
+        "vendorDedup": "Dedup de prefixo de fornecedor: \"{{original}}\" consolidado em \"{{canonical}}\"",
+        "positionDedup": "Cargo duplicado mesclado: \"{{title}}\" em \"{{company}}\"",
+        "synonymDedup": "Sinônimo de competência: \"{{original}}\" → \"{{canonical}}\""
       }
     }
   },
@@ -429,9 +436,15 @@
     "ai": {
       "tailor": "✨ Sugerir personalização do currículo com IA",
       "working": "Perguntando à IA…",
-      "heading": "Sugestões de personalização da IA (orientativas)",
-      "advisory": "Estas são sugestões orientativas da IA. Seu currículo é montado apenas a partir das evidências confirmadas; nada aqui o altera, a menos que você aplique."
+      "heading": "Rascunho de currículo gerado por IA (orientativo)",
+      "advisory": "Este é um rascunho completo de currículo gerado pela IA. Seu currículo é montado apenas a partir das evidências confirmadas; nada aqui o altera, a menos que você aplique.",
+      "draftLabel": "Rascunho completo de currículo no formato ATS"
     },
+    "showAiDraft": "Mostrar rascunho da IA",
+    "showDeterministic": "Mostrar versão determinística",
+    "confirmAiDraft": "Confirmar rascunho da IA",
+    "aiDraftActive": "Visualizando o rascunho gerado pela IA. Confirme-o para salvar, ou mude para a versão determinística.",
+    "deterministicFallback": "Visualizando o currículo determinístico (nenhum rascunho de IA disponível).",
     "aiOnlyLabel": "Estrutura do currículo construída a partir das suas evidências confirmadas; a personalização por IA fornece sugestões orientativas.",
     "matchRationale": {
       "heading": "Detalhes do vínculo bullet–cargo",

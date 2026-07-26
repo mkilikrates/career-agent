@@ -45,6 +45,25 @@ import type {
 import type { SkillMap } from '@core/skills';
 import { computeEligibility } from '@core/ingestion';
 
+/**
+ * Priority order for skill categories on the CV (R32.4).
+ * Technical skills first (most relevant for ATS), then tools, domain expertise,
+ * leadership, communication, and finally core competencies.
+ */
+export const SKILL_CATEGORY_ORDER: readonly SkillCategory[] = [
+  'Technical',
+  'Tools',
+  'Domain',
+  'Leadership',
+  'Communication',
+  'Core_Competency',
+] as const;
+
+/** Lookup map for O(1) category priority during sorting. */
+const categoryPriority = new Map<SkillCategory, number>(
+  SKILL_CATEGORY_ORDER.map((cat, idx) => [cat, idx]),
+);
+
 const asString = (v: unknown): string => v as unknown as string;
 
 /** Collapse whitespace so a model field can never carry stray newlines. */
@@ -293,10 +312,29 @@ export const cleanEmploymentTitle = (title: string, company: string): string => 
 };
 
 /**
+ * Common parenthetical corporate suffixes to strip before comparison (R76.2).
+ * These are removed before the non-alpha normalization so "Finoa (GmbH)" → "finoa".
+ */
+const CORPORATE_SUFFIX_PATTERN =
+  /\s*\((?:GmbH|Ltd|Inc|SARL|Pty|LLC|S\.?A\.?|AG|PLC|Corp|Co)\)/gi;
+
+/**
+ * Strip all non-alphanumeric characters from a string and lowercase it.
+ * This collapses OCR-garbled names like "T RIP A DVISOR" → "tripadvisor",
+ * "Globo.com" → "globocom", "FINOA (GmbH)" → "finoagmbh" (after suffix strip).
+ */
+export const stripNonAlphaKey = (s: string): string =>
+  s.replace(CORPORATE_SUFFIX_PATTERN, '').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+
+/**
  * Deduplicate employment items by (company_lower, title_lower, startYM),
  * keeping the richest entry (most technologies, longest description, most
  * achievements). Also cleans the title field by stripping the company name
  * when it appears as a prefix or suffix (R76.1–R76.4).
+ *
+ * Company and title keys are normalized by stripping all non-alphanumeric
+ * characters and common corporate suffixes (R76.1, R76.2) so OCR-garbled
+ * names like "T RIP A DVISOR" match "TripAdvisor".
  */
 export const deduplicateEmployment = (items: ExtractedItem[]): ExtractedItem[] => {
   // First, clean titles before building keys (so "Acme Corp Senior Engineer"
@@ -311,15 +349,16 @@ export const deduplicateEmployment = (items: ExtractedItem[]): ExtractedItem[] =
     return item;
   });
 
-  // Build dedup key → best item
+  // Build dedup key → best item.
+  // Keys use stripNonAlphaKey for OCR-garbled resilience (R76.1, R76.2).
   const keyMap = new Map<string, ExtractedItem>();
   for (const item of cleaned) {
-    const company = (
-      typeof item.fields.employer === 'string' ? item.fields.employer : ''
-    ).toLowerCase().trim();
-    const title = (
-      typeof item.fields.title === 'string' ? item.fields.title : ''
-    ).toLowerCase().trim();
+    const companyRaw =
+      typeof item.fields.employer === 'string' ? item.fields.employer : '';
+    const titleRaw =
+      typeof item.fields.title === 'string' ? item.fields.title : '';
+    const company = stripNonAlphaKey(companyRaw);
+    const title = stripNonAlphaKey(titleRaw);
     const startRaw = item.fields.start ?? item.fields.startedOn ?? item.fields.from;
     const startYM = typeof startRaw === 'string' ? startRaw.trim().slice(0, 7) : '';
     const key = `${company}|${title}|${startYM}`;
@@ -568,7 +607,9 @@ export const buildCvModel = (
   const roleSkillIds = new Set<string>(role.matchedSkills.map((s) => asString(s)));
 
   // 1. Skills section — only confirmed skill-map entries (R30.1), target-relevant
-  //    first, then by category and name for a stable, deterministic order (R30.2).
+  //    first, then by category priority (Technical → Tools → Domain → Leadership →
+  //    Communication → Core_Competency), then alphabetically within each group
+  //    for a stable, deterministic, ATS-friendly order (R30.2, R32.4).
   const skills: CvSkill[] = evidence.skillMap.entries
     .map((entry) => ({
       id: entry.id,
@@ -577,8 +618,13 @@ export const buildCvModel = (
       targetRelevant: roleSkillIds.has(asString(entry.id)),
     }))
     .sort((a, b) => {
+      // Target-relevant skills first (R30.2)
       if (a.targetRelevant !== b.targetRelevant) return a.targetRelevant ? -1 : 1;
-      if (a.category !== b.category) return a.category < b.category ? -1 : 1;
+      // Then by category priority order
+      const aPri = categoryPriority.get(a.category) ?? 999;
+      const bPri = categoryPriority.get(b.category) ?? 999;
+      if (aPri !== bPri) return aPri - bPri;
+      // Then alphabetically within the same group
       if (a.name !== b.name) return a.name < b.name ? -1 : 1;
       return asString(a.id) < asString(b.id) ? -1 : asString(a.id) > asString(b.id) ? 1 : 0;
     });

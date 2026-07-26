@@ -23,6 +23,7 @@ import type {
   StarAnswer,
   StarElement,
   TalkingPoint,
+  ExtractedItem,
 } from '@core/types';
 import { asQuestionId, asSkillId } from '@core/types';
 import type { IdRegistry } from '@core/registry';
@@ -83,6 +84,7 @@ import {
   type CoachingLoopAction,
   type PerQuestionSummary,
   type ConfirmedTranscript,
+  type AtsContext,
 } from '@core/interview';
 import { rescorePreferences, saveRolePreferences } from '@core/role-matcher';
 import { RecordAnswer } from './RecordAnswer';
@@ -130,6 +132,8 @@ export interface CoachingScreenProps {
   readonly assistMode: AssistMode;
   /** Change the pipeline-wide AI-assist mode (persisted by the shell). */
   readonly onAssistMode: (mode: AssistMode) => void;
+  /** Confirmed extracted items for deriving ATS context in STAR questions (R22.6, R62.5). */
+  readonly extractions?: ReadonlyArray<ExtractedItem>;
   readonly t: (key: string, options?: Record<string, unknown>) => string;
 }
 
@@ -141,6 +145,86 @@ const nameFromSkillId = (id: SkillId): string =>
     .replace(/^SKILL-/, '')
     .replace(/-/g, ' ')
     .trim();
+
+/**
+ * Derive ATS context for the STAR question candidate profile from confirmed
+ * extractions (R22.6, R62.5). Returns undefined when there is nothing useful.
+ */
+const deriveAtsContext = (
+  items: ReadonlyArray<ExtractedItem>,
+  thirdParty: boolean,
+): AtsContext | undefined => {
+  // Include all extracted items for career-context derivation — not just
+  // user-confirmed ones. The userConfirmed flag gates what appears in CV
+  // outputs (No-Fabrication boundary), but the career context sent to
+  // downstream prompts (STAR questions) should reflect the full extraction so
+  // the model understands the candidate's trajectory. Items marked private are
+  // still excluded for third-party (keyed cloud) destinations (R46.4).
+  const eligible = items.filter(
+    (i) => !(thirdParty && i.private),
+  );
+
+  const previousTitles: string[] = [];
+  const coreCompetencies: string[] = [];
+  const educationDegrees: string[] = [];
+  let professionalSummary: string | undefined;
+
+  for (const item of eligible) {
+    switch (item.type) {
+      case 'employment': {
+        const title =
+          typeof item.fields.title === 'string' ? item.fields.title.trim() : '';
+        if (title.length > 0 && !previousTitles.includes(title)) {
+          previousTitles.push(title);
+        }
+        break;
+      }
+      case 'core_competency': {
+        const name =
+          typeof item.fields.name === 'string' ? item.fields.name.trim() : '';
+        if (name.length > 0 && !coreCompetencies.includes(name)) {
+          coreCompetencies.push(name);
+        }
+        break;
+      }
+      case 'education': {
+        const degree =
+          typeof item.fields.degree === 'string' ? item.fields.degree.trim() : '';
+        const field =
+          typeof item.fields.field === 'string' ? item.fields.field.trim() : '';
+        // Strip markdown formatting that may leak from AI extraction.
+        const raw = [degree, field].filter(Boolean).join(' in ') || '';
+        const summary = raw.replace(/\*+/g, '').replace(/--/g, '').trim();
+        // Deduplicate case-insensitively.
+        if (summary.length > 0 && !educationDegrees.some(e => e.toLowerCase() === summary.toLowerCase())) {
+          educationDegrees.push(summary);
+        }
+        break;
+      }
+      case 'professional_summary': {
+        const text =
+          typeof item.fields.text === 'string' ? item.fields.text.trim() : '';
+        // Strip a leading "Summary:" prefix if the AI included it in the text.
+        const cleaned = text.replace(/^summary:\s*/i, '').trim();
+        if (cleaned.length > 0 && !professionalSummary) {
+          professionalSummary = cleaned;
+        }
+        break;
+      }
+    }
+  }
+
+  if (
+    previousTitles.length === 0 &&
+    coreCompetencies.length === 0 &&
+    educationDegrees.length === 0 &&
+    !professionalSummary
+  ) {
+    return undefined;
+  }
+
+  return { previousTitles, coreCompetencies, educationDegrees, professionalSummary };
+};
 
 export function CoachingScreen({
   skillMap,
@@ -161,6 +245,7 @@ export function CoachingScreen({
   chatIsLocal = false,
   assistMode,
   onAssistMode,
+  extractions = [],
   t,
 }: CoachingScreenProps) {
   const [roleSlug, setRoleSlug] = useState<string>(
@@ -490,7 +575,7 @@ export function CoachingScreen({
       // questions, falling back to the baseline on provider failure.
       const { outcome, error } = await runAssist(
         questionsOperation,
-        { role, map: skillMap },
+        { role, map: skillMap, atsContext: deriveAtsContext(extractions, !chatIsLocal) },
         { mode: assistMode, capability: 'star_questions' },
         dest ?? undefined,
       );
@@ -558,7 +643,7 @@ export function CoachingScreen({
   const handleStartLoop = (q: StarQuestionSuggestion) => {
     if (!role || !aiDest) return;
     const loop = createStarCoachingLoop(
-      { role, competency: q.competency, question: q.question },
+      { role, competency: q.competencies.join(', '), question: q.question },
       aiDest,
       aiTransport,
     );
@@ -999,7 +1084,7 @@ export function CoachingScreen({
                   <Card aria-label={t('coaching.loop.summaryHeading')}>
                     <h5>{t('coaching.loop.summaryHeading')}</h5>
                     <p>
-                      <strong>{t('coaching.loop.competency')}:</strong> {loopQuestion.competency}
+                      <strong>{t('coaching.loop.competency')}:</strong> {loopQuestion.competencies.join(', ')}
                     </p>
                     <p>
                       <strong>{t('coaching.loop.summaryLabel')}:</strong> {summary.summary || t('coaching.noContent')}

@@ -46,7 +46,7 @@ import {
   saveAssistMode,
   type AssistMode,
 } from '@core/assist';
-import { parseRawExtractions, parseRawDocuments } from '@core/ingestion';
+import { parseRawExtractions, parseRawDocuments, serializeRawExtractions } from '@core/ingestion';
 import { parseRolePreferences } from '@core/role-matcher';
 import { parseInterview, interviewFilePath } from '@core/interview';
 import { listAvailableProviders, type AvailableProvider } from './provider-availability';
@@ -450,7 +450,14 @@ export default function App() {
             extractions={extractions}
             skillMap={skillMap}
             onSkillMap={setSkillMap}
-            onAddExtractions={(added) => setExtractions([...extractions, ...added])}
+            onAddExtractions={(added) => {
+              const updated = [...extractions, ...added];
+              setExtractions(updated);
+              // Persist the updated extractions so downstream phases and session
+              // resume have access to the full ATS data (employment, education,
+              // competencies, professional summary) — not just the skills.
+              store.write(CANONICAL_FILES.rawExtractions, serializeRawExtractions(updated));
+            }}
             store={store}
             rolePrefs={rolePrefs}
             onRolePrefs={setRolePrefs}
@@ -500,6 +507,7 @@ export default function App() {
             chatIsLocal={chatIsLocal}
             assistMode={assistMode}
             onAssistMode={handleAssistMode}
+            extractions={extractions}
             t={t}
           />
         );
@@ -727,7 +735,7 @@ export default function App() {
 
   return (
     <AppShell
-      phases={runtime.controller.phases()}
+      phases={runtime.controller.phases(currentPhase)}
       currentPhase={currentPhase}
       onPhaseSelect={goToPipelinePhase}
       onGoToSettings={() => setAppView({ kind: 'settings' })}

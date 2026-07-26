@@ -11,7 +11,7 @@
 //
 //   import { buildCvModel, renderMarkdown, type CvModel } from '@core/output';
 
-export { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, NEEDS_METRIC_MARKER, NEEDS_METRIC_NOTE } from './cv-model';
+export { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, stripNonAlphaKey, NEEDS_METRIC_MARKER, NEEDS_METRIC_NOTE } from './cv-model';
 export { renderMarkdown } from './markdown-renderer';
 export type {
   CvModel,
@@ -33,8 +33,9 @@ export {
   createCvTailoringOperation,
   buildCvTailoringPrompt,
   parseTailoringNotes,
+  parseCvDraft,
 } from './output-assist';
-export type { CvTailoringInput, CvTailoringSuggestion } from './output-assist';
+export type { CvTailoringInput, CvTailoringSuggestion, CvDraft } from './output-assist';
 
 // Task 28.1 — opportunity-driven CV tailoring primitives (R30.5, R30.6, R30.8,
 // R30.9, R30.10, R35.6): the in-session-only TargetOpportunity (a tailoring

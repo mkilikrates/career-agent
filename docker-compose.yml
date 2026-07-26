@@ -85,7 +85,7 @@ services:
   # and is NOT started by a plain `docker compose up` (R53.3).
   localai:
     # Pinned LocalAI tag; bump this as newer releases are validated.
-    image: localai/localai:v3.0.0
+    image: localai/localai:v4.6.2
     profiles: ["stt"]
     depends_on:
       # Wait for the whisper model to finish downloading before the STT server
@@ -124,7 +124,7 @@ services:
   # Whatever you install here must match the STT-model name entered in the app's
   # Local-provider setup.
   localai-pull:
-    image: localai/localai:v3.0.0
+    image: localai/localai:v4.6.2
     profiles: ["stt"]
     environment:
       # Install into the same models directory the localai server reads from.

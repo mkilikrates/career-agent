@@ -297,7 +297,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
     - Static bundle loads from `file://`, the privacy notice renders, and no network call occurs except via the Egress Gate
     - _Requirements: 1.1, 1.3, 1.4_
 
-- [~] 20. Final checkpoint
+- [ ] 20. Final checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 21. Completed since original plan (UI shell + provider integrations)
@@ -594,7 +594,15 @@ Every task references the requirements it implements. Each of the 18 Correctness
     { "id": 48, "tasks": ["24.6", "27.4", "29.6"] },
     { "id": 49, "tasks": ["25.3", "27.5", "27.6", "28.2"] },
     { "id": 50, "tasks": ["32.1", "32.2", "32.3"] },
-    { "id": 51, "tasks": ["32.4", "32.5"] }
+    { "id": 51, "tasks": ["32.4", "32.5"] },
+    { "id": 52, "tasks": ["41.1", "41.4", "41.5"] },
+    { "id": 53, "tasks": ["41.2", "41.3"] },
+    { "id": 54, "tasks": ["41.6", "41.7"] },
+    { "id": 55, "tasks": ["41.8"] },
+    { "id": 56, "tasks": ["41.9", "41.10", "41.11", "41.12"] },
+    { "id": 57, "tasks": ["41.13"] },
+    { "id": 58, "tasks": ["43.1", "43.2", "43.3"] },
+    { "id": 59, "tasks": ["43.4"] }
   ]
 }
 ```
@@ -982,3 +990,153 @@ These tasks were added after the original plan. Section 30 records work already 
     - Update docs/pt-BR/user-guide.md with the same
     - Update CHANGELOG.md
     - _Requirements: 74, 75, 76, 77, 41.8_
+
+- [x] 41. Prompt and extraction quality enhancements (R71.13, R71.15–17, R71.5–6, R20.6, R47.2, R62.3, R62.5, R22.6, R30.9–14)
+  - [x] 41.1 Skill extraction dedup improvement — atomic naming instruction and cross-chunk consolidation
+    - In `src/core/skills/career-extraction.ts`, update `CAREER_EXTRACTION_INSTRUCTION` to add an explicit rule for the `technologies` field: instruct the model to list each technology as a **separate, standalone, atomic item** (e.g. "S3", "Lambda", "DynamoDB" — NOT "AWS (S3, Lambda, DynamoDB)")
+    - Add the instruction text: "For technologies: list each technology as a separate, standalone item. Write 'S3', 'Lambda', 'DynamoDB' — NOT 'AWS (S3, Lambda, DynamoDB)'. Each entry should be one atomic skill name without embedded sub-skills or vendor-prefixed groupings."
+    - _Requirements: 71.13, 71.15_
+
+  - [x] 41.2 Cross-chunk consolidation pass — vendor-prefix skill deduplication
+    - Create a new export function `consolidateExtraction(extraction: CareerExtraction): CareerExtraction` in `src/core/skills/career-extraction.ts`
+    - Implement sub-pass 1: vendor-prefix skill dedup — scan `technicalSkills` and per-position `technologies` arrays; when both a vendor-qualified form (`"AWS S3"`) and its shorter canonical form (`"S3"`) exist, collapse to the shorter form keeping the earliest `since` date
+    - Detection logic: for each skill, check if another skill in the set is a suffix of it after stripping a known vendor prefix (AWS, Azure, GCP, Google, Microsoft, HashiCorp, etc.) or if one is a substring-tail match (e.g. `"AWS Lambda"` contains `"Lambda"`)
+    - Call `consolidateExtraction` in the ingestion flow after `mergeCareerExtractions()` returns and before `careerExtractionToItems()` is called
+    - _Requirements: 71.15_
+
+  - [x] 41.3 Cross-chunk consolidation pass — fuzzy position deduplication
+    - In `consolidateExtraction`, implement sub-pass 2: fuzzy position dedup — when two positions share a fuzzy match on (company + title) AND overlapping date ranges, keep the entry with the richest data (most technologies + longest description + most achievements)
+    - Fuzzy matching: case-insensitive, collapse whitespace, treat common abbreviations as equivalent (Sr./Senior, Jr./Junior, Eng./Engineer, SRE/Site Reliability Engineer, Dev/Developer, Mgr/Manager)
+    - Date overlap: two positions overlap if their [start, end] intervals intersect (treat missing end as "present")
+    - _Requirements: 71.16_
+
+  - [x] 41.4 Cross-chunk consolidation pass — synonym competency deduplication
+    - In `consolidateExtraction`, implement sub-pass 3: synonym competency dedup — load synonym groups from `src/core/config/competency_synonyms.yaml` (create the file with initial groups); for each core competency in the extraction, replace with the group's canonical form (first entry) and deduplicate
+    - Create `src/core/config/competency_synonyms.yaml` with initial synonym groups: Leadership/Team Leadership/People Leadership, Communication/Effective Communication/Written Communication, Problem Solving/Problem-Solving/Analytical Problem Solving, Stakeholder Management/Stakeholder Engagement, Change Management/Organisational Change Management, Innovation/Creative Innovation, Mentoring/Coaching & Mentoring, Collaboration/Cross-functional Collaboration
+    - Add a `loadCompetencySynonyms()` utility that reads and parses the YAML file at build time (import via `?raw` or a Vite plugin) and returns a `Map<string, string>` (lowercase synonym → canonical form)
+    - _Requirements: 71.17_
+
+  - [x] 41.5 Core competencies prompt broadening for all seniority levels
+    - In `src/core/skills/career-extraction.ts`, update the `core_competencies` section of `CAREER_EXTRACTION_INSTRUCTION` to expand the example list to span all seniority levels
+    - Replace the current example list with the expanded set: "Organisation, Customer Focus, Attention to Detail, Time Management, Adaptability, Problem Solving, Analytical Thinking, Teamwork, Communication, Continuous Learning, Quality Assurance, Prioritisation, Self-Motivation, Resilience, Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost Optimization, Technical Vision, Team Building, Process Improvement"
+    - Add a note in the prompt: "These examples span all seniority levels — from entry-level strengths through senior leadership. Infer competencies appropriate to the candidate's demonstrated level."
+    - _Requirements: 71.5, 71.6_
+
+  - [x] 41.6 Role discovery with full ATS data — enrich the payload
+    - In `src/core/role-matcher/role-discovery-payload.ts`, update `RoleDiscoveryPayload` interface to add optional fields: `jobTitles`, `competencies`, `educationSummaries`, `professionalSummary`
+    - Update `buildDiscoveryPayload(map, dest, atsData?)` to accept an optional `AtsCareerData` parameter containing: previous job titles (without employer names), confirmed core competencies, education degrees/fields, and professional summary
+    - Update `buildDiscoveryPrompt(payload)` to include the new fields in the prompt text when present (e.g. "Previous roles: …", "Core competencies: …", "Education: …", "Summary: …")
+    - Wire the caller (`RoleDiscoveryOperation` or the screen) to pass the ATS career data extracted during ingestion
+    - _Requirements: 20.6, 47.2_
+
+  - [x] 41.7 STAR questions — multi-competency format and full ATS context in candidate profile
+    - In `src/core/interview/coach-assist.ts`, update `buildStarQuestionsPrompt` to request a `"competencies"` array field (plural) instead of the singular `"competency"` string in the JSON schema instruction: change the example to `[{"competencies": ["Leadership", "Stakeholder Management"], "question": "..."}]`
+    - Update `parseQuestionPrompts` to accept both `competencies` (array) and `competency` (string, wrapped into a single-element array) for backward compatibility
+    - Update `buildCandidateProfile` to include additional ATS context when available: previous job titles (without employer names), confirmed core competencies, education degrees/fields, and professional summary — appended as additional lines in the CANDIDATE PROFILE block
+    - Update the `StarQuestion` type (or relevant interface) to use `competencies: string[]` instead of `competency: string`; update all downstream consumers (coaching loop, per-question summary, UI rendering) to handle the array
+    - _Requirements: 62.3, 62.5, 22.6_
+
+  - [x] 41.8 CV tailoring — full ATS-formatted CV draft output
+    - In `src/core/output/output-assist.ts`, rework `buildCvTailoringPrompt(model)` to instruct the model to produce a **complete ATS-formatted CV draft in Markdown** rather than just 5 advisory suggestions — containing: a tailored professional summary, an employment section with bullet emphasis adjusted for the target role, and a skills section ordered by relevance
+    - Include the full confirmed ATS career data in the prompt: employment positions with titles/dates/achievements, core competencies, education, professional summary, and skills with durations
+    - Add explicit No-Fabrication instructions: "Use ONLY the confirmed evidence below. Do NOT invent any skill, metric, date, title, or employer not present in the confirmed data."
+    - In `src/core/output/tailoring.ts`, update `buildTailoringPayload` similarly to produce a full CV draft (with the Target Opportunity as tailoring target), including all confirmed career data
+    - Update `parseTailoringNotes` (or create a new `parseCvDraft`) to handle the new response format — the model returns a full Markdown CV rather than bullet suggestions
+    - Add `CvDraft` type and update `CvTailoringOperation` / `CvTailoringSuggestion` types to accommodate the full-draft response
+    - The draft is **advisory** — present for user review/confirmation before it replaces the deterministic CV (R30.11)
+    - _Requirements: 30.9, 30.10, 30.11, 30.12, 30.13, 30.14_
+
+  - [ ]* 41.9 Tests for skill extraction dedup and consolidation
+    - Unit tests for `consolidateExtraction`: vendor-prefix dedup (AWS S3 + S3 → S3 with earliest since), fuzzy position dedup (Senior SRE + Sr. Site Reliability Engineer at same company → richest kept), synonym competency dedup (Team Leadership + Leadership → Leadership)
+    - Unit test that the updated `CAREER_EXTRACTION_INSTRUCTION` contains the atomic-naming instruction text
+    - Property test: for any `CareerExtraction`, `consolidateExtraction` is idempotent (`consolidateExtraction(consolidateExtraction(x))` equals `consolidateExtraction(x)`)
+    - _Requirements: 71.13, 71.15, 71.16, 71.17_
+
+  - [ ]* 41.10 Tests for role discovery enriched payload
+    - Unit tests for `buildDiscoveryPayload` with ATS data: job titles included, competencies included, education included, summary included, private items excluded for keyed-cloud
+    - Unit test for `buildDiscoveryPrompt` output: contains "Previous roles:", "Core competencies:", "Education:", "Summary:" sections when data is provided
+    - _Requirements: 20.6, 47.2_
+
+  - [ ]* 41.11 Tests for STAR questions multi-competency and full ATS context
+    - Unit tests for `parseQuestionPrompts`: parse `competencies` array field; backward compat with singular `competency` string; generic competency default when absent
+    - Unit test for `buildCandidateProfile` with ATS data: output contains job titles, competencies, education, summary lines
+    - Unit test for `buildStarQuestionsPrompt`: JSON schema instruction shows `"competencies"` array
+    - _Requirements: 62.3, 62.5, 22.6_
+
+  - [ ]* 41.12 Tests for CV tailoring full ATS output
+    - Unit test for `buildCvTailoringPrompt`: prompt requests a full Markdown CV draft, includes all career data, contains No-Fabrication instruction
+    - Unit test for `buildTailoringPayload` with full career data: includes positions, competencies, education, summary, and Target Opportunity text
+    - Unit test for the new `parseCvDraft` (or updated `parseTailoringNotes`): parses a multi-section Markdown CV response
+    - _Requirements: 30.9, 30.10, 30.14_
+
+  - [x] 41.13 Update docs, prompts.md, locale strings, and CHANGELOG
+    - Update `docs/prompts.md` sections 2a (career extraction), 3 (role discovery), 4 (STAR questions), 6 and 7 (CV tailoring) to reflect the new prompt text and response formats
+    - Add new locale strings to `locales/en.json` and `locales/pt-BR.json` for any new UI labels (e.g. consolidation annotations, multi-competency display, full-draft review labels)
+    - Update `docs/en/user-guide.md` and `docs/pt-BR/user-guide.md` with descriptions of the improved extraction quality, enriched role discovery, and full CV draft generation
+    - Add entries to `CHANGELOG.md` under the current version for all 6 enhancements
+    - _Requirements: 41.8, 71, 20.6, 62, 30_
+
+- [ ] 42. Checkpoint — Prompt and extraction enhancements complete
+  - Ensure all tests pass (`npm run typecheck && npm test`), ask the user if questions arise.
+
+- [x] 43. Bug fixes — session review findings
+  - [x] 43.1 Fix AI CV draft never displayed as primary output (OutputScreen)
+    - In `src/ui/OutputScreen.tsx`, update `applyBundle()` to check if the `bundle.suggestions[0]` has a `markdown` field (the full AI-tailored CV draft from `CvTailoringOperation`); when present (AI mode succeeded), set that markdown as the primary CV display (`setCvMarkdown`) instead of always using `renderMarkdown(model)`
+    - Add a toggle button to switch between AI draft view and deterministic view (`renderMarkdown(model)`) so the user can compare during review; track the active view in component state (`'ai-draft' | 'deterministic'`)
+    - When there is no AI draft (script-only mode, AI failure, or `bundle.suggestions` empty), render `renderMarkdown(model)` as before — this is the fallback
+    - Auto-save behaviour: before the user confirms the AI draft, auto-save persists the deterministic version; after the user confirms (via a new "Confirm AI draft" button), persist the AI draft markdown
+    - Add locale strings to `locales/en.json` and `locales/pt-BR.json` for toggle labels (`output.showAiDraft`, `output.showDeterministic`, `output.confirmAiDraft`, `output.aiDraftActive`, `output.deterministicFallback`)
+    - _Requirements: 30.11, 30.12, 30.13_
+
+  - [x] 43.2 Add AI consolidation prompt for dedup before deterministic pass
+    - In `src/core/skills/career-extraction.ts`, create `buildConsolidationPrompt(extraction: CareerExtraction): string` that serializes the merged positions + skills + competencies and asks the model to: identify/merge duplicate positions (OCR noise, company-name variants), identify/merge duplicate skills (vendor-qualified forms, semantic duplicates), and collapse synonymous competencies — returning the result in the same `CareerExtraction` JSON schema
+    - Parse the AI consolidation response using the existing `parseCareerExtraction` parser (same JSON schema contract)
+    - Wire the AI consolidation into the skill-assist flow: after `mergeCareerExtractions()` and BEFORE `consolidateExtraction()`, call `buildConsolidationPrompt` → send through Egress Gate → parse response (only in `ai-only` / `ai-assisted` modes); in `script-only` mode skip the AI call entirely
+    - Reduce `consolidateExtraction()` scope when running after AI consolidation: disable the fuzzy position matching (sub-pass 2), vendor-prefix stripping (sub-pass 1), and synonym resolution (sub-pass 3); keep ONLY exact case-insensitive duplicate collapsing as the lightweight safety net
+    - Add a `consolidateExtractionReduced(extraction: CareerExtraction): CareerExtraction` function (or a `{ reduced: boolean }` options param to the existing function) that performs only exact case-insensitive dedup
+    - Handle AI consolidation failure gracefully: on error or unparseable response, fall back to the full deterministic `consolidateExtraction()` pass and log a non-blocking warning
+    - _Requirements: 71.15, 71.16, 71.17, 71.18_
+
+  - [x] 43.3 Fix phase stepper premature "done" status
+    - In `src/ui/phase-wizard-controller.ts`, replace the positional `index < currentIndex → 'complete'` logic in `phases()` with artefact-presence checks by accepting a `MemoryTree` (or a `MemoryStoreReader` interface subset exposing `has()` and `paths()`) in `PhaseWizardControllerOptions`
+    - Implement the artefact-presence gating per phase: Ingest → `store.has('profile/raw_extractions.md')`, Skill Map → `store.has('profile/skill_map.md')`, Role Discovery → `store.has('profile/role_preferences.md')`, Interview Coaching → `store.paths().some(p => p.startsWith('interviews/'))`, Output → `store.paths().some(p => p.startsWith('outputs/cv_'))`, Memory → always accessible (no gating)
+    - A phase shows `'complete'` only when its artefact is present in the store
+    - A phase shows `'in-progress'` when it's the current phase OR when it has been visited (persisted) but its artefact is not yet present
+    - A phase shows `'pending'` when it has no artefact and isn't current/visited
+    - Update the `PhaseWizardController` constructor and `createMemoryTreePersistence`/`createMemoryTreeResumeReader` call sites to pass the store reference
+    - Update `src/ui/phase-wizard-controller.test.ts` to cover: phase with artefact present → `'complete'`, phase before current index but missing artefact → `'in-progress'` (not prematurely `'complete'`), all artefacts present → correct statuses
+    - Add locale strings if any status label text changes (e.g. `phase.visited`, `phase.incomplete`)
+    - _Requirements: 48.2, 48.3, 48.4_
+
+  - [x] 43.4 Harden employment dedup for OCR-garbled and variant company names
+    - In `src/core/output/cv-model.ts`, update `deduplicateEmployment()` to normalize the company key by stripping all non-alphanumeric characters and lowercasing before comparison (so "T RIP A DVISOR" → "tripadvisor", "FINOA (GmbH)" → "finoa", "Globo.com" → "globocom" all match their clean forms)
+    - Do the same for the title key: strip non-alphanumeric, collapse to a canonical form before comparison
+    - Add common suffix stripping for company names: remove parenthetical qualifiers like "(GmbH)", "(Ltd)", "(Inc)", "(SARL)", "(Pty)", "(LLC)" before comparison
+    - Also apply the same normalization to the `deduplicatePositionsFuzzy` in `career-extraction.ts` by adding a `stripNonAlpha(s: string): string` helper that strips all non-letter/digit characters for comparison purposes
+    - Add tests for OCR-garbled dedup: "T RIP A DVISOR" = "TripAdvisor", "FINOA (GmbH)" = "Finoa", "G LOBO . COM" = "Globo.com"
+    - _Requirements: 76.1, 76.2, 71.16_
+
+  - [x] 43.5 Improve skill dedup for near-duplicates and containing-term relationships
+    - In `src/core/skills/ai-dedup.ts`, extend `suggestAiDedups` with a new strategy: **containing-term detection** — when one skill name fully contains another as a word/token (e.g. "GitHub Enterprise" contains "GitHub", "IP routing" contains "routing"), suggest merging to the shorter canonical form
+    - Add a safeguard: only trigger containing-term if the shorter term is ≥3 chars and the longer term starts with or ends with the shorter term (to avoid "Go" matching "Google")
+    - In `src/core/skills/career-extraction.ts`, apply the same logic in the deterministic `deduplicateVendorPrefixSkills`: when a skill is a substring-tail of another (e.g. "IDS/IPS" contains "IDS"), prefer the compound form
+    - Handle the slash-compound case: "IDS/IPS" should NOT be split (it's in the allowlist), but if both "IDS" and "IDS/IPS" exist, keep only "IDS/IPS" (the richer term)
+    - Add a normalization pass for GitHub variants: "Github", "GitHub", "GitHub Actions", "GitHub Enterprise", "Enterprise Github" — normalize capitalization and keep the most specific form that the user actually uses
+    - Add tests for these dedup improvements
+    - _Requirements: 71.15, 15.1, 76.1_
+
+  - [x] 43.6 Sort and group skills by category and relevance in the CV output
+    - In `src/core/output/cv-model.ts` `buildCvModel()`, sort the `skills` array: first by target-relevant (matched skills first), then by category (Technical → Tools → Domain → Leadership → Communication → Core_Competency), then alphabetically within each group
+    - In `src/core/output/markdown-renderer.ts` `renderSkills()`, group skills by category with a sub-heading or inline label so the CV reads "Technical: AWS, Kubernetes, Terraform... | Leadership: Strategic Planning, Mentoring..." rather than a flat unsorted list
+    - Add tests for the ordering: matched skills appear first, then by category
+    - _Requirements: 30.2, 32.4_
+
+  - [x] 43.7 Update locale strings, docs, and CHANGELOG for all bug fixes
+    - Add all new locale keys introduced in 43.1–43.6 to both `locales/en.json` and `locales/pt-BR.json`
+    - Update `docs/prompts.md` with the new AI consolidation prompt text (section 2a or a new subsection for consolidation)
+    - Update `CHANGELOG.md` with Fixed entries for each of the bugs under the current version
+    - Update `docs/en/user-guide.md` and `docs/pt-BR/user-guide.md` if the AI draft toggle or phase stepper behaviour is user-visible
+    - _Requirements: 41.8_
+
+- [x] 44. Checkpoint — Session review bug fixes complete
+  - Ensure all tests pass (`npm run typecheck && npm test`), ask the user if questions arise.

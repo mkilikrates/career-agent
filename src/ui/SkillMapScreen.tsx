@@ -29,8 +29,11 @@ import {
   saveSkillMap,
   splitMerge,
   buildCareerExtractionPrompt,
+  buildConsolidationPrompt,
   parseCareerExtractionWithTracking,
   mergeCareerExtractions,
+  consolidateExtractionReduced,
+  applyAiConsolidation,
   careerExtractionToItems,
   suggestAiDedups,
   buildRawDiscoveryCorpus,
@@ -244,16 +247,39 @@ export function SkillMapScreen({
         allTransformations.push(...transformations);
       }
       const merged = mergeCareerExtractions(chunkExtractions);
-      const items = careerExtractionToItems(merged);
+
+      // --- AI consolidation (R71.15, R71.18) ---
+      // In ai-only / ai-assisted mode, send the merged extraction to the AI for
+      // context-aware dedup before the deterministic safety net. In script-only
+      // mode, skip the AI call entirely.
+      let consolidated: CareerExtraction;
+      if (assistMode !== 'script-only') {
+        try {
+          const consolidationPrompt = buildConsolidationPrompt(merged);
+          const consolidationReply = await aiAssist(consolidationPrompt);
+          const aiConsolidated = applyAiConsolidation(merged, consolidationReply);
+          // Run reduced deterministic pass as safety net (exact case-insensitive only).
+          consolidated = consolidateExtractionReduced(aiConsolidated);
+        } catch {
+          // AI consolidation failed — fall back to full deterministic pass.
+          console.warn('[SkillMap] AI consolidation failed, falling back to deterministic pass');
+          consolidated = consolidateExtractionReduced(merged);
+        }
+      } else {
+        // Script-only mode: reduced deterministic pass only (R71.17).
+        consolidated = consolidateExtractionReduced(merged);
+      }
+
+      const items = careerExtractionToItems(consolidated);
 
       // Run dedup suggestions on the extracted standalone skills.
-      const dedups = suggestAiDedups(merged.skills);
+      const dedups = suggestAiDedups(consolidated.skills);
 
-      if (merged.positions.length === 0 && merged.education.length === 0 && merged.skills.length === 0) {
+      if (consolidated.positions.length === 0 && consolidated.education.length === 0 && consolidated.skills.length === 0) {
         setAiError(t('skillMap.extraction.noResults'));
       } else {
         // Present the extraction for user review (R71.6).
-        setCareerExtraction(merged);
+        setCareerExtraction(consolidated);
         setExtractionItems(items);
         setExtractionReviewed(false);
         // Pre-select all items for convenience.

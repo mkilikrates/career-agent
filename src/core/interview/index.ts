@@ -47,6 +47,7 @@ export {
 export type {
   StarQuestionsInput,
   StarQuestionSuggestion,
+  AtsContext,
   StarSummaryInput,
   StarSummarySuggestion,
   StarTeachingSummary,

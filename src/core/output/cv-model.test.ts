@@ -18,7 +18,7 @@ import {
 import { sourceLine, trailOf } from '@core/provenance';
 import { buildReferenceGraph } from '@core/registry';
 import type { SkillMap } from '@core/skills';
-import { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, NEEDS_METRIC_NOTE } from './cv-model';
+import { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, stripNonAlphaKey, NEEDS_METRIC_NOTE } from './cv-model';
 
 const doc = asDocId('cv.md');
 
@@ -819,6 +819,92 @@ describe('@core/output — deduplicateEmployment (R76.1, R76.2)', () => {
   });
 });
 
+describe('@core/output — deduplicateEmployment OCR-garbled matching (R76.1, R76.2)', () => {
+  it('deduplicates "T RIP A DVISOR" and "TripAdvisor" as same company', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'T RIP A DVISOR',
+        title: 'Engineer',
+        start: '2020-01',
+        technologies: ['React'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'TripAdvisor',
+        title: 'Engineer',
+        start: '2020-01',
+        technologies: ['React', 'TypeScript'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(1);
+  });
+
+  it('deduplicates "FINOA (GmbH)" and "Finoa" as same company', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'FINOA (GmbH)',
+        title: 'Developer',
+        start: '2019-06',
+        technologies: ['Go'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'Finoa',
+        title: 'Developer',
+        start: '2019-06',
+        technologies: ['Go', 'Kubernetes'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(1);
+  });
+
+  it('deduplicates "G LOBO . COM" and "Globo.com" as same company', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'G LOBO . COM',
+        title: 'Software Engineer',
+        start: '2018-03',
+        technologies: ['Java'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'Globo.com',
+        title: 'Software Engineer',
+        start: '2018-03',
+        technologies: ['Java', 'Spring'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(1);
+  });
+
+  it('strips parenthetical corporate suffixes (Ltd), (Inc), (SARL), (Pty), (LLC)', () => {
+    expect(stripNonAlphaKey('Example (Ltd)')).toBe('example');
+    expect(stripNonAlphaKey('Example (Inc)')).toBe('example');
+    expect(stripNonAlphaKey('Example (SARL)')).toBe('example');
+    expect(stripNonAlphaKey('Example (Pty)')).toBe('example');
+    expect(stripNonAlphaKey('Example (LLC)')).toBe('example');
+  });
+
+  it('normalizes OCR-garbled titles before comparison', () => {
+    const items: ExtractedItem[] = [
+      item('I-emp1', 'employment', {
+        employer: 'Acme',
+        title: 'S ENIOR E NGINEER',
+        start: '2020-01',
+        technologies: ['Python'],
+      }),
+      item('I-emp2', 'employment', {
+        employer: 'Acme',
+        title: 'Senior Engineer',
+        start: '2020-01',
+        technologies: ['Python', 'Django'],
+      }),
+    ];
+    const result = deduplicateEmployment(items);
+    expect(result).toHaveLength(1);
+  });
+});
+
 describe('@core/output — cleanEmploymentTitle (R76.3)', () => {
   it('strips company name when it appears as a prefix with separator', () => {
     expect(cleanEmploymentTitle('Acme Corp — Senior Engineer', 'Acme Corp')).toBe(
@@ -927,5 +1013,71 @@ describe('@core/output — deduplication is applied in buildCvModel (R76.4)', ()
     expect(cv.employmentEntries).toBeDefined();
     const entry = cv.employmentEntries![0];
     expect(entry.title).toBe('Senior Engineer');
+  });
+});
+
+describe('@core/output — buildCvModel skill sorting by category priority (R30.2, R32.4)', () => {
+  /** Create a skill entry with a specific category. */
+  const skillWithCategory = (
+    id: string,
+    name: string,
+    category: SkillMapEntry['category'],
+  ): SkillMapEntry => ({
+    id: asSkillId(id),
+    name,
+    category,
+    proficiencySignal: 'Evidence-based.',
+    evidence: [],
+    since: asISODate('2024-01-01'),
+  });
+
+  it('sorts matched skills before unmatched skills', () => {
+    const aws = skillWithCategory('SKILL-aws', 'AWS', 'Technical');
+    const docker = skillWithCategory('SKILL-docker', 'Docker', 'Tools');
+    const map = skillMapOf([docker, aws]);
+    const cv = buildCvModel(role([aws.id]), { skillMap: map });
+    expect(cv.skills[0].name).toBe('AWS');
+    expect(cv.skills[0].targetRelevant).toBe(true);
+    expect(cv.skills[1].name).toBe('Docker');
+    expect(cv.skills[1].targetRelevant).toBe(false);
+  });
+
+  it('sorts by category priority: Technical → Tools → Domain → Leadership → Communication → Core_Competency', () => {
+    const leadership = skillWithCategory('SKILL-lead', 'Strategic Planning', 'Leadership');
+    const technical = skillWithCategory('SKILL-aws', 'AWS', 'Technical');
+    const tools = skillWithCategory('SKILL-docker', 'Docker', 'Tools');
+    const domain = skillWithCategory('SKILL-fintech', 'FinTech', 'Domain');
+    const communication = skillWithCategory('SKILL-present', 'Presentations', 'Communication');
+    const core = skillWithCategory('SKILL-agile', 'Agile', 'Core_Competency');
+    const map = skillMapOf([core, communication, leadership, domain, tools, technical]);
+    const cv = buildCvModel(role([]), { skillMap: map });
+    const categories = cv.skills.map((s) => s.category);
+    expect(categories).toEqual([
+      'Technical',
+      'Tools',
+      'Domain',
+      'Leadership',
+      'Communication',
+      'Core_Competency',
+    ]);
+  });
+
+  it('sorts alphabetically within the same category', () => {
+    const terraform = skillWithCategory('SKILL-tf', 'Terraform', 'Technical');
+    const aws = skillWithCategory('SKILL-aws', 'AWS', 'Technical');
+    const kubernetes = skillWithCategory('SKILL-k8s', 'Kubernetes', 'Technical');
+    const map = skillMapOf([terraform, aws, kubernetes]);
+    const cv = buildCvModel(role([]), { skillMap: map });
+    expect(cv.skills.map((s) => s.name)).toEqual(['AWS', 'Kubernetes', 'Terraform']);
+  });
+
+  it('matched skills retain category priority among themselves', () => {
+    const leadership = skillWithCategory('SKILL-lead', 'Mentoring', 'Leadership');
+    const technical = skillWithCategory('SKILL-aws', 'AWS', 'Technical');
+    const tools = skillWithCategory('SKILL-docker', 'Docker', 'Tools');
+    const map = skillMapOf([leadership, tools, technical]);
+    // All matched — should sort by category priority
+    const cv = buildCvModel(role([leadership.id, technical.id, tools.id]), { skillMap: map });
+    expect(cv.skills.map((s) => s.name)).toEqual(['AWS', 'Docker', 'Mentoring']);
   });
 });

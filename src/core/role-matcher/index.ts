@@ -58,7 +58,7 @@ export {
   buildRoleReviewPrompt,
   approxDurationMonths,
 } from './role-discovery-payload';
-export type { RoleDiscoveryPayload } from './role-discovery-payload';
+export type { RoleDiscoveryPayload, AtsCareerData } from './role-discovery-payload';
 
 // Role-preference capture (R21.1, R21.2): accept/reject suggested roles, add
 // roles the agent did not suggest, then rank and tag the kept roles. A

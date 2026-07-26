@@ -16,7 +16,8 @@
 // would strengthen the point (R30.4).
 
 import { NEEDS_METRIC_MARKER } from './cv-model';
-import type { CvBullet, CvEmploymentEntry, CvEntry, CvModel } from './cv-model';
+import type { CvBullet, CvEmploymentEntry, CvEntry, CvModel, CvSkill } from './cv-model';
+import { SKILL_CATEGORY_ORDER } from './cv-model';
 
 /** Render the contact header (name + verbatim contact lines), when present. */
 const renderHeader = (cv: CvModel): string | undefined => {
@@ -95,10 +96,48 @@ const renderExperience = (cv: CvModel): string | undefined => {
   return `## Experience\n\n${cv.experience.map(renderBullet).join('\n')}`;
 };
 
-/** Render the skills section as a linear bullet list, model order preserved. */
+/**
+ * Render the skills section grouped by category with inline labels (R32.4).
+ * Produces ATS-friendly output like:
+ *   **Technical:** AWS, Kubernetes, Terraform
+ *   **Tools:** Docker, Helm
+ *   **Leadership:** Strategic Planning
+ * Skills are already sorted by the model (target-relevant first, then by
+ * category priority, then alphabetically). We group them and render one line
+ * per non-empty category.
+ */
 const renderSkills = (cv: CvModel): string | undefined => {
   if (cv.skills.length === 0) return undefined;
-  return `## Skills\n\n${cv.skills.map((s) => `- ${s.name}`).join('\n')}`;
+
+  // Group skills by category, preserving model order within each group.
+  const groups = new Map<string, CvSkill[]>();
+  for (const skill of cv.skills) {
+    const existing = groups.get(skill.category);
+    if (existing) {
+      existing.push(skill);
+    } else {
+      groups.set(skill.category, [skill]);
+    }
+  }
+
+  // Render each non-empty category in the defined priority order.
+  const lines: string[] = [];
+  for (const category of SKILL_CATEGORY_ORDER) {
+    const categorySkills = groups.get(category);
+    if (categorySkills && categorySkills.length > 0) {
+      const label = category === 'Core_Competency' ? 'Core Competency' : category;
+      lines.push(`**${label}:** ${categorySkills.map((s) => s.name).join(', ')}`);
+    }
+  }
+
+  // If any skills have a category not in SKILL_CATEGORY_ORDER (defensive), append them.
+  for (const [category, categorySkills] of groups) {
+    if (!SKILL_CATEGORY_ORDER.includes(category as typeof SKILL_CATEGORY_ORDER[number])) {
+      lines.push(`**${category}:** ${categorySkills.map((s) => s.name).join(', ')}`);
+    }
+  }
+
+  return `## Skills\n\n${lines.join('\n')}`;
 };
 
 /** Render a single education / certification entry on one linear line. */

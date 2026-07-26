@@ -306,6 +306,16 @@ Normalisation algorithm (Conservative Merge, R15): two surface terms merge **onl
 
 The default `generate()` path is deterministic and evidence-only (R14) and is unchanged by this feature. Separately, an **opt-in AI skill-discovery flow** (`discover()`) sends its corpus through the Egress Gate **split into chunks rather than a single truncated payload**, so no evidence is silently dropped (R47.5), and asks the user's chosen chat model to propose skills the deterministic extractor may have missed. The corpus depends on the destination scope: for a keyless **Local Provider** running on the user's own device with no third-party egress, it is the **full raw document text** (the `rawText` captured by the Ingestion_Engine and persisted to the user-owned Memory Store at `profile/raw_documents.md`, which never leaves the device per R7.1 and is restored on resume/import per R49, so whole-document discovery survives a reload), so the model can surface skills the structured extractor missed; for a keyed **cloud (third-party) provider**, it is the **structured non-private items only** (the persisted raw text is never read on the cloud path), since raw text carries no per-item private flag (R47.1, R46.4/R46.5). The model only proposes — every AI-discovered skill requires explicit user confirmation before it enters the knowledge base (R47.3), and a confirmed skill is recorded with user-confirmation provenance, consistent with the No-Fabrication Rule (R47.6). Both paths realise the shared **AI Assist Opt-In-First Pattern**: the deterministic `generate()` is the `scriptOnly` path (R14.6, R47.8 — no provider call) and `discover()` is the `aiAssisted` path, chosen via the pre-operation opt-in surfaced on the Skill Map screen (R14.5, R47.7).
 
+**Cross-chunk consolidation (R71.15–R71.18).** After the structured career extraction chunks are merged via `mergeCareerExtractions()` (basic concatenation dedup), the consolidation flow depends on the assist mode:
+
+**AI-only or AI-assisted mode** — two-stage consolidation:
+1. **AI consolidation (first):** The merged extraction is serialized and sent to the model via `buildConsolidationPrompt(extraction: CareerExtraction): string`, asking it to identify and merge duplicate positions (OCR noise, company-name variants), duplicate skills (semantic duplicates, vendor-qualified variants), and synonymous competencies. The AI applies contextual understanding that pattern-based code cannot. The response is parsed back into the same `CareerExtraction` JSON schema (deduplicated).
+2. **Deterministic safety net (second):** `consolidateExtraction()` runs in **reduced scope** — limited to collapsing only **exact case-insensitive duplicates** of skills, positions, and competencies. The fuzzy position matching, vendor-prefix stripping, and synonym resolution are **disabled** when running after AI consolidation, since the AI already handled those context-aware dedup tasks.
+
+**Script-only mode** — `consolidateExtraction()` runs alone with the full deterministic logic (exact case-insensitive dedup only, matching the same reduced scope for consistency with R71.17).
+
+The consolidation produces a maximally-deduplicated extraction before items are presented for user review. See the [Extraction Post-Processing Quality](#extraction-post-processing-quality-r718r7112-r7120r7121) section for implementation details.
+
 ### Role_Matcher
 
 Discovers role types, scores matches using ontological inference, and captures preferences.
@@ -316,26 +326,69 @@ interface RoleMatcher {
   satisfies(required: SkillTerm, owned: SkillTerm[]): boolean;// R17.2, R20.3 (child satisfies parent)
   suggestRoles(map: SkillMap, locale: Locale): RoleSuggestion[]; // R20.1 (employed/freelance/portfolio) — scriptOnly path R20.5
   scoreMatch(role: RoleSpec, map: SkillMap): MatchScore;     // R20.2 (estimate label), R20.3 ontological
-  buildDiscoveryPayload(map: SkillMap, dest: EgressDestination): RoleDiscoveryPayload; // R20.6, R47.2
+  buildDiscoveryPayload(map: SkillMap, careerData: CareerTrajectoryContext, dest: EgressDestination): RoleDiscoveryPayload; // R20.6, R47.2
   recommendRolesAi(map: SkillMap, dest: EgressDestination): Promise<RoleSuggestion[]>; // R47.2 aiAssisted via Egress Gate
   capturePreferences(p: RolePreferenceInput[]): void;        // R21.1-21.2 (accept/reject/add/rank/tag)
   save(): void;                                              // R21.3 -> role_preferences.md
 }
 
-// AI-assist input derived from the skill map; deliberately employer-free, level-inferring (R20.6, R47.2)
+// AI-assist input derived from the skill map and confirmed career data; deliberately employer-free, level-inferring (R20.6, R47.2)
 interface RoleDiscoveryPayload {
   skills: {
     name: string;                 // user's skill phrasing (no employer/company anywhere)
     approxDurationMonths: number; // approximate experience duration so the model infers level (R20.6)
     category: SkillMapEntry['category'];
   }[];
+  // Career-trajectory context (R20.6, R47.2) — employer-free, level-inferring
+  previousTitles?: string[];       // job titles only, no company names
+  coreCompetencies?: string[];     // confirmed core competencies from extraction
+  education?: string[];            // degree + field pairs (no institution names for cloud)
+  professionalSummary?: string;    // when available from extraction
   // NOTE: contains no employer name, no company name, and no other private item for keyed cloud (R20.6, R47.2, R47.4)
 }
 ```
 
 Ontological matching consults the taxonomy `implements`/`extends` graph so a `PostgreSQL` skill satisfies a `SQL` requirement (R17.2) — but this affects **scoring only**; the taxonomy never rewrites the user's skill terms or CV phrasing (R17.3).
 
-**AI-assist role discovery (opt-in, `aiAssisted` path).** `suggestRoles()` is the deterministic `scriptOnly` path (R20.4/R20.5 — no provider call). When the user opts in, `buildDiscoveryPayload()` derives the request **from the skill map only**: it **excludes every employer and company name** and **includes an approximate per-skill experience duration** so the chosen model can infer a level of experience without ever seeing where the user worked (R20.6, R47.2). The payload is sent via `recommendRolesAi()` through the **Egress Gate**; for a keyed cloud (third-party) destination, every item marked private is excluded (R47.4, R46.4). Returned roles are suggestions the user must explicitly accept before they enter preferences (R47.3). Property 22 verifies the employer-exclusion and duration-inclusion invariants.
+**AI-assist role discovery (opt-in, `aiAssisted` path).** `suggestRoles()` is the deterministic `scriptOnly` path (R20.4/R20.5 — no provider call). When the user opts in, `buildDiscoveryPayload()` derives the request **from the skill map and confirmed career data**: it **excludes every employer and company name** and **includes an approximate per-skill experience duration** so the chosen model can infer a level of experience without ever seeing where the user worked. Additionally, the payload includes **career-trajectory context** — the user's previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary (when available) — so the model can suggest roles that match the person's career arc rather than only their skill list (R20.6, R47.2). The payload is sent via `recommendRolesAi()` through the **Egress Gate**; for a keyed cloud (third-party) destination, every item marked private is excluded (R47.4, R46.4). Returned roles are suggestions the user must explicitly accept before they enter preferences (R47.3). Property 22 verifies the employer-exclusion and duration-inclusion invariants.
+
+The enriched `RoleDiscoveryPayload` carries:
+
+```typescript
+interface RoleDiscoveryPayload {
+  skills: {
+    name: string;                 // user's skill phrasing (no employer/company anywhere)
+    approxDurationMonths: number; // experience duration so the model infers a level (R20.6)
+    category: SkillCategory;
+  }[];
+  // Career-trajectory context (R20.6, R47.2) — employer-free, level-inferring
+  previousTitles?: string[];       // job titles only, no company names
+  coreCompetencies?: string[];     // confirmed core competencies from extraction
+  education?: string[];            // degree + field pairs (no institution names for cloud)
+  professionalSummary?: string;    // when available from extraction
+  // NOTE: contains no employer name, no company name, and no other private item for keyed cloud (R20.6, R47.2, R47.4)
+}
+```
+
+The prompt built from this payload passes the titles, competencies, education, and summary as additional context lines so the model understands the candidate's trajectory:
+
+```
+Based ONLY on the following skills, experience durations, and career context,
+suggest up to 5 realistic job roles that fit, inferring a level of experience
+from the durations and career trajectory. Do not assume any employer or industry
+beyond what the skills and context imply. Return one role per line as
+"Title — short reason". No preamble.
+
+Skills:
+- <skill name> (<category>, ~<duration>)
+...
+
+Career context:
+- Previous titles: <title1>, <title2>, ...
+- Core competencies: <comp1>, <comp2>, ...
+- Education: <degree1>, <degree2>, ...
+- Summary: <professional summary>
+```
 
 ### Interview_Coach
 
@@ -383,7 +436,15 @@ interface StarTeachingSummary { // R28.7 teaching artefact, distinct from the po
 
 The content/delivery firewall (R27) is a hard structural boundary: `analyse()` operates only on transcript text classified as *content*; delivery signals (pace, fillers, accent, disfluencies, transcription artefacts) are never computed in Phase 1 and can never enter the skill map or CV path. Follow-ups are drawn from a fixed bank of open prompts; the coach is structurally prevented from proposing facts (R24.3).
 
-**AI STAR question generation (opt-in, supplement-only).** `generateQuestions()` is the deterministic `scriptOnly` path (R22.5 — no provider call) producing at least one behavioural question per matched core skill, one gap-skill question, and one motivation question grounded in the Requirement 20 match (R22.1, R22.2). When the user opts in, `generateQuestionsAi()` requests additional questions through the **Egress Gate** using a prompt that frames the chosen model as a **recruiter for the specific target position** (R22.6); the AI questions **supplement, never replace** the script questions (the returned set is always a superset of the script questions). For a keyed cloud (third-party) destination, every private item is excluded from the request (R22.7, R46.4). If the provider call fails, the coach surfaces a non-blocking error and **preserves pending coaching state** so the script questions remain available (R22.8). AI-generated questions are **practice prompts, not factual claims**, and are therefore *not* gated by the No-Fabrication harness in Requirement 37 (R22.9). Both questions and responses (script and AI) are stored in the per-role interview file keyed to the Role Slug (R22.3).
+**AI STAR question generation (opt-in, supplement-only).** `generateQuestions()` is the deterministic `scriptOnly` path (R22.5 — no provider call) producing at least one behavioural question per matched core skill, one gap-skill question, and one motivation question grounded in the Requirement 20 match (R22.1, R22.2). When the user opts in, `generateQuestionsAi()` requests additional questions through the **Egress Gate** using a prompt that frames the chosen model as a **recruiter for the specific target position** (R22.6); the AI questions **supplement, never replace** the script questions (the returned set is always a superset of the script questions). The candidate profile sent with the prompt includes the user's **previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary** (when available) alongside the existing matched and gap skill lists, so the model can write questions grounded in the candidate's actual experience trajectory (R22.6, R62.5). For a keyed cloud (third-party) destination, every private item is excluded from the request (R22.7, R46.4). If the provider call fails, the coach surfaces a non-blocking error and **preserves pending coaching state** so the script questions remain available (R22.8). AI-generated questions are **practice prompts, not factual claims**, and are therefore *not* gated by the No-Fabrication harness in Requirement 37 (R22.9). Both questions and responses (script and AI) are stored in the per-role interview file keyed to the Role Slug (R22.3).
+
+**Multi-competency question format (R62.3).** Each AI-generated question is tagged with a **`competencies` array** (e.g. `["Leadership", "Stakeholder Management"]`) rather than a single `competency` string, so that a single question may assess multiple correlated skills. The prompt requests:
+
+```json
+[{"competencies": ["Leadership", "Stakeholder Management"], "question": "Tell me about a time you had to align multiple stakeholders behind a controversial decision."}]
+```
+
+The parser (`parseQuestionPrompts`) accepts both the multi-competency `"competencies"` array format and the legacy single `"competency"` string format (normalising the latter to a single-element array). The competency list is retained for use in the adaptive coaching loop and per-question summary (R62.3, R63.2, R63.6) and is surfaced alongside the per-question summary after the loop ends.
 
 **In-browser audio recording (R26.4, R26.6–R26.10).** This **reverses the prior "no live audio capture" decision** for Phase 1 — recording is now in scope; **live *video* capture remains out of scope**. The `recordAudio()` path returns a `RecordingController` backed by the browser **`MediaRecorder`** API with **start / stop / re-record / discard** actions. The controller requests **microphone permission before recording** (R26.4); if permission is denied, the coach presents an error explaining recording is unavailable and offers the **upload path and the text-answer path** instead (R26.10). A recording is limited to **≤600 seconds** (R26.4) and the same **≤25MB** guard as uploads; oversized or unsupported takes are rejected with the reason while retaining the prior answer state (parity with R26.9). On stop, `transcribeRecording()` sends the take to the user's **chosen STT provider through the Egress Gate after PII pre-screening** (R26.6), optionally translating to English (R26.5). The transcript is **presented for confirmation/correction** before any further processing (R26.7); once confirmed, it is **fed into the coaching loop and sent to the chosen chat provider through the Egress Gate** (R26.8). If **no STT provider is configured** when transcription is attempted, the coach prompts the user to configure one and **preserves the captured audio** (R26.11). Uploaded audio (`uploadAudio()`) follows the identical gated path and accepts MP3/WAV ≤25MB and ≤600s, rejecting otherwise with a reason (R26.1, R26.9). The coaching answer-input UI surfaces the three answer-input modes — **type text**, **upload audio**, and **In-Browser Audio Recording** — as a clear, selectable choice (R26.12); the type-text and upload-audio paths are **always offered**, while the record path is offered **only where microphone access is available** (R26.12), falling back to text/upload when it is not (R26.10). The framework shell (`CoachingScreen`) provides the **`MediaRecorder`-backed `AudioRecorderPort`** that `createRecordingController` wraps — the only DOM seam for recording — so `@core` stays framework-agnostic (R26.4).
 
@@ -398,7 +459,7 @@ Compiles confirmed Markdown into ATS-safe Markdown (primary), Typst-Wasm PDF, an
 ```typescript
 interface OutputEngine {
   generateCv(req: CvRequest): CvBundle;       // R30, R32 — see CvRequest below
-  buildTailoringPayload(src: ConfirmedEvidence, opp: TargetOpportunity, dest: EgressDestination): RedactedPayload; // R30.6, R30.9, R30.10
+  buildTailoringPayload(src: ConfirmedEvidence, opp: TargetOpportunity | undefined, role: RolePreference, dest: EgressDestination): string; // R30.9, R30.10, R30.14 — full ATS CV draft prompt
   renderMarkdown(cv: CvModel): string;        // R32.1 primary
   renderPdf(md: string, tmpl: AtsTemplate): Uint8Array;  // R32.2 Typst-Wasm, R42.4 a11y
   renderDocx(cv: CvModel): Uint8Array;        // R32.3 structured rich-text
@@ -431,10 +492,81 @@ Fidelity rule (R32.5): all three formats are derived from a single `CvModel` pro
 **Opportunity-driven tailoring flow (opt-in-first).** When the user requests a CV, the Output_Engine **first asks whether the user has a Target Opportunity** to tailor toward (R30.5; the same prompt is reachable from the new-CV re-entry point, R35.6). The flow then branches:
 
 - **No Target Opportunity, or AI declined** → `generateCv` runs the **script-only** path: a tailored CV assembled deterministically from confirmed evidence only, and the UI **indicates that script-only generation was used** (R30.7).
-- **Target Opportunity provided + AI assist opted in** → the user uploads or pastes the job posting text (R30.6). `buildTailoringPayload()` passes the Target Opportunity text **through the Egress Gate with PII pre-screening** (R30.9, R6) and, for a keyed cloud (third-party) destination, **excludes every item marked private** (R30.10, R46.4). The model tailors *emphasis and ordering* using **only confirmed evidence from the confirmed skill map and interview files** (R30.6). The Target Opportunity is a **tailoring target only and never a claim source**: any skill, metric, date, title, or employer name that appears only in the job posting (and not in confirmed evidence) is **excluded**, preserving the No-Fabrication Rule (R30.8, R30.9, R37). 
+- **Target Opportunity provided + AI assist opted in** → the user uploads or pastes the job posting text (R30.6). The AI-tailored CV is produced as a **complete ATS-formatted CV draft** (see below).
+- **No Target Opportunity + AI assist opted in** → same as above but without posting-specific adaptation.
 - **AI tailoring request fails** → the engine **falls back to script-only generation** and indicates it did so (R30.7), consistent with the shared opt-in-first fallback.
 
-Because both branches emit only confirmed evidence, the No-Fabrication guarantee (Property 1) ranges over Target-Opportunity-tailored CVs as well as script-only CVs.
+**Full ATS CV draft generation (R30.9, R30.10, R30.14).** When AI-assisted tailoring is performed, the Output_Engine instructs the model to produce a **complete ATS-formatted CV draft in Markdown** rather than a set of advisory edit suggestions. The prompt carries the **full confirmed ATS career data** — employment positions with titles, dates, locations, and achievements; core competencies; education; professional summary; and skills with durations (R30.14) — and instructs the model to:
+
+- Produce a tailored **professional summary** targeting the role
+- Produce an **employment section** with bullet emphasis and phrasing adjusted for the target role
+- Produce a **skills section** ordered by relevance to the role
+- Use **only** confirmed evidence (No-Fabrication Rule, R37)
+- **Exclude** any skill, metric, date, title, or employer name not present in confirmed evidence (R30.8)
+
+When a **Target Opportunity** is present (R30.10), the model additionally adapts wording and emphasis toward the specific posting's language and priorities — but the exclusion rule still applies: any item appearing **only** in the Target Opportunity text and not in confirmed evidence is excluded.
+
+The prompt template for full-draft generation:
+
+```
+You are producing a complete ATS-formatted CV draft in Markdown for the role of
+"<role.title>". Use ONLY the confirmed career data below — do NOT add, infer,
+or import any skill, metric, date, title, or employer not present in the
+confirmed evidence. Do NOT invent experience or outcomes.
+
+Produce a complete CV in Markdown with the following sections:
+1. Professional Summary (2-3 sentences targeting this role)
+2. Experience (employment entries with adjusted bullet emphasis for the role)
+3. Skills (ordered by relevance to this role)
+4. Education
+5. Core Competencies (if applicable)
+
+Confirmed career data:
+- Professional summary: <summary>
+- Positions:
+  - <title> at <company> (<start> – <end>): <achievements...>, technologies: <...>
+  ...
+- Core competencies: <comp1>, <comp2>, ...
+- Education: <degree> at <institution> (<start> – <end>)
+  ...
+- Skills: <skill1> (~N years), <skill2> (~N years), ...
+
+[When Target Opportunity present:]
+Target Opportunity (tailoring target only — NOT a source of facts):
+<job posting text>
+
+Adapt emphasis and phrasing toward this posting's language and priorities,
+but EXCLUDE any item appearing only in the posting and not in confirmed evidence.
+```
+
+**AI draft as primary output (R30.11, R30.12, R30.13).** When the AI produces a `CvDraft`, `applyBundle()` checks whether `bundle.suggestions[0]` contains a `CvDraft` object. When present, the draft's `markdown` field IS the **primary CV output** displayed to the user — not an advisory note. The deterministic `renderMarkdown(model)` rendering serves only as a **fallback** (AI call failure, user declined AI, or script-only mode). During the review step the UI provides a **toggle** ("AI Draft" vs "Deterministic") so the user can compare both renderings side-by-side before confirming (R30.12). `genNote` reflects which version is currently displayed (e.g. `"Showing: AI draft"` or `"Showing: deterministic"`).
+
+**Auto-save semantics:** The deterministic CvModel version is the auto-saved CV **until** the user explicitly confirms the AI draft. After confirmation, the AI draft becomes the persisted authoritative CV version (R30.13). This means:
+
+- Before confirmation → auto-save persists the deterministic version (safe, grounded fallback)
+- After confirmation → auto-save persists the confirmed AI draft
+
+```typescript
+interface CvBundle {
+  model: CvModel;                       // deterministic rendering (always computed)
+  suggestions?: CvDraftSuggestion[];    // AI draft when AI-assisted mode succeeds
+  mode: CvGenerationMode;               // 'ai-tailored' | 'script-only'
+}
+
+interface CvDraftSuggestion {
+  markdown: string;                     // the complete AI-generated CV in Markdown
+  role: RolePreference;
+  opportunity?: TargetOpportunity;
+}
+
+// applyBundle() logic:
+// if (bundle.suggestions?.[0]) → display suggestions[0].markdown as primary
+// else → display renderMarkdown(bundle.model)
+```
+
+The Target Opportunity text is passed through the Egress Gate with PII pre-screening (R30.14, R6), and for a keyed cloud (third-party) destination, every item marked private is excluded from the payload (R30.15, R46.4).
+
+Because both branches (script-only and AI-tailored) emit only confirmed evidence, the No-Fabrication guarantee (Property 1) ranges over Target-Opportunity-tailored CVs as well as script-only CVs.
 
 Implementation notes: Markdown is the primary download; DOCX is produced by the pure-JS `docx` OOXML builder (deterministic output); the ATS-safe PDF is compiled by Typst-to-WebAssembly with the **compiler wasm bundled locally** (Vite `?url`, no CDN — R32.6) and loaded lazily on first compile. PDF compilation **fails gracefully**: a Typst error reports the PDF failure without blocking the Markdown and DOCX outputs (R32.7). The LinkedIn report is advisory only (R31), and CV versioning/diffing stores immutable versions and summarises added/removed/reordered accomplishments and emphasised skills (R33).
 
@@ -611,12 +743,12 @@ The shell is a React + Vite static single-page app built around a **`PhaseWizard
 - **ProviderSetup** — select chat and STT providers per-capability (R44); keyed cloud key entry + validation (R4, R45) or keyless Local Provider config (base URL, chat model, STT model) via `local-config` (R43); privacy statement reflects cloud vs fully-offline local (R1.4, R1.5).
 - **IngestScreen** — multi-file upload + direct paste + per-document staging review/removal (R8.6, R8.7), then grouped extraction review (R12). Per document it also offers a **read-only Conversion Preview** of the full converted text (`rawText`, threaded through the shell from the Memory Store's `profile/raw_documents.md`), with **low-confidence PDF regions indicated** (R8.5); the preview is inspection-only (no in-place editing of converted text), lets the user **discard** a document and paste equivalent text via the existing paste path (R8.6), and shows a **"no converted text to preview"** notice for documents with no prose body such as a LinkedIn ZIP (R64.1–R64.5). Before any file content is sent to a provider it presents the **per-file send-control panel** — whole-file vs per-detection allow/redact, each Sensitive Detection shown with its category, cloud-defaults-to-redacted, whole-file offered even with no detections, decisions persisted and reapplied on re-stage (R6.6, R57).
 - **SkillMapScreen** — review/edit the skill map with an opt-in AI skill-discovery flow that sends its corpus through the Egress Gate **in chunks (never truncated, R47.5)**: the **full raw document text** (whole-document content) for a keyless Local Provider on the user's own device, or the **structured non-private items only** for a keyed cloud (third-party) provider, since raw text carries no per-item private flag (R47.1, R46.4); the opt-in-first choice (script-only vs script + AI) is presented before extraction runs (R47.7); every suggestion requires explicit user confirmation (R47.3) and confirmed skills are recorded with user-confirmation provenance (R47.6). This is distinct from the deterministic, evidence-only `generate()` path (R14), which is unchanged.
-- **RoleDiscoveryScreen** — suggested roles via deterministic matching (R20.1) with an opt-in AI recommend whose payload is built from the skill map, **excludes every employer/company name**, and **includes approximate per-skill experience duration** (R20.6, R47.2); the opt-in-first choice precedes the operation (R20.4); accept/reject/add/rank/tag (R21); every AI suggestion confirmed before entry (R47.3).
-- **CoachingScreen** — the full guided STAR loop (open follow-ups, Soft-Close, Pass, progress, mid-question persistence/resume) plus: opt-in **AI STAR question generation** (recruiter-persona, supplement-only, R22.4–22.9); **audio upload and in-browser recording** (start/stop/re-record/discard, mic-permission handling, ≤25MB/≤600s) with STT through the gate, optional translate-to-English, and confirm/correct transcript (R26); refine → confirm talking point; opt-in **educational STAR summary** (R28.7); end-of-session skill sync (R22–R29).
-- **OutputScreen** — first asks whether the user has a **Target Opportunity** and accepts uploaded/pasted job-posting text; offers opt-in **AI tailoring using only confirmed evidence**, falling back to script-only generation (and indicating it) when declined or on failure (R30.5–30.10, R35.6); Markdown / DOCX / Typst-PDF downloads + advisory LinkedIn report (R30–R33).
+- **RoleDiscoveryScreen** — suggested roles via deterministic matching (R20.1) with an opt-in AI recommend whose payload is built from the skill map and confirmed career data, **excludes every employer/company name**, **includes approximate per-skill experience duration**, and **includes career-trajectory context** (previous job titles, core competencies, education, professional summary) so the model matches the person's career arc (R20.6, R47.2); the opt-in-first choice precedes the operation (R20.4); accept/reject/add/rank/tag (R21); every AI suggestion confirmed before entry (R47.3). (R47.3).
+- **CoachingScreen** — the full guided STAR loop (open follow-ups, Soft-Close, Pass, progress, mid-question persistence/resume) plus: opt-in **AI STAR question generation** (behaviour-first, multi-competency tagging, enriched candidate profile with career trajectory context, supplement-only, R22.4–22.9, R62); **audio upload and in-browser recording** (start/stop/re-record/discard, mic-permission handling, ≤25MB/≤600s) with STT through the gate, optional translate-to-English, and confirm/correct transcript (R26); refine → confirm talking point; opt-in **educational STAR summary** (R28.7); end-of-session skill sync (R22–R29).
+- **OutputScreen** — first asks whether the user has a **Target Opportunity** and accepts uploaded/pasted job-posting text; offers opt-in **AI tailoring that produces a complete ATS-formatted CV draft** using only confirmed evidence (with the full ATS career data in the prompt), falling back to script-only generation (and indicating it) when declined or on failure (R30.5–30.16, R35.6). When an AI draft is available it is shown as the **primary CV output**; the deterministic rendering is accessible via an "AI Draft / Deterministic" **toggle** so the user can compare both before confirming (R30.11, R30.12). The AI draft becomes the saved version only after explicit confirmation (R30.13). Markdown / DOCX / Typst-PDF downloads + advisory LinkedIn report (R30–R33).
 - **MemoryScreen** — export/import the Memory Store + session log view (R3, R34).
 
-Phase **status badges** derive from pipeline position (R48.2), and the user may navigate to any available phase screen (R48.3, R35.2). The composition-root **`runtime.ts`** wires everything: it is the **only** place that constructs provider adapters and the Egress Gate; UI screens reach providers exclusively via the orchestrator / gate (Requirements 6, 7).
+Phase **status badges** derive from persisted confirmation state rather than pipeline position (R48.2, R48.4). A phase shows "done" **only** when its confirmed artefact exists in the Memory Store (e.g. `profile/skill_map.md` saved → Skill Map phase done, `profile/role_preferences.md` saved → Role Discovery done, interview files present → Interview Coaching done) OR the resume summary explicitly reports it as complete. The `PhaseWizardController.phases()` method checks the Memory Store for the presence of each phase's confirmed artefact rather than using positional inference from `currentIndex`. A phase that has been visited but whose artefact is not yet persisted shows "in progress" (R48.3). The user may navigate to any available phase screen (R48.5, R35.2). The composition-root **`runtime.ts`** wires everything: it is the **only** place that constructs provider adapters and the Egress Gate; UI screens reach providers exclusively via the orchestrator / gate (Requirements 6, 7).
 
 ### UI/UX Architecture (R58)
 
@@ -1194,7 +1326,7 @@ The properties below were derived from the acceptance-criteria prework and conso
 
 ### Property 22: Role-discovery AI payload minimisation
 
-*For any* skill map, the role-discovery AI-assist payload contains no employer or company name and includes an approximate experience duration for every skill it carries; and for a keyed cloud (third-party) destination it excludes every item marked private.
+*For any* skill map and career trajectory context, the role-discovery AI-assist payload contains no employer or company name (including in previous job titles, which carry titles only), includes an approximate experience duration for every skill it carries, and for a keyed cloud (third-party) destination excludes every item marked private.
 
 **Validates: Requirements 20.6, 47.2, 47.4**
 
@@ -1288,17 +1420,19 @@ Both the Skill Map and Role Discovery screens provide a free-text input (comma- 
 
 ### Behaviour-first STAR questions with competency tagging (R62)
 
-The `star_questions` prompt no longer frames a recruiter for a specific position. It asks the model to first infer the behaviours/qualities most important for the target role (any field/seniority), then write behaviour-first STAR questions with at most one technical-depth question; skills are background context only. The output format is a **structured JSON array** — each element an object `{ "competency", "question" }` — which is self-delimiting, so any model preamble or trailing chatter falls outside the array and is ignored. The competency is hidden during Q&A and shown in the summary, and is carried into the coaching loop.
+The `star_questions` prompt no longer frames a recruiter for a specific position. It asks the model to first infer the behaviours/qualities most important for the target role (any field/seniority), then write behaviour-first STAR questions with at most one technical-depth question; skills are background context only. The output format is a **structured JSON array** — each element an object `{ "competencies", "question" }` where `"competencies"` is an **array of one or more** behaviours or qualities that question probes (e.g. `["Leadership", "Stakeholder Management"]`) — so a single question may assess multiple correlated skills. The format is self-delimiting, so any model preamble or trailing chatter falls outside the array and is ignored. The competency list is hidden during Q&A and shown in the summary, and is carried into the coaching loop.
 
-Parsing is **tolerant and layered** so a local model that ignores the exact format still yields questions (R62.5): `parseQuestionPrompts` first locates and parses the JSON array anywhere in the reply (tolerating code fences and surrounding text); validates each element to `{ competency, question }`, defaulting a **generic competency** for any element that omits one. If no usable JSON is found, it falls back to a **positive-criteria line scan** that keeps every line reading as a question — a `<competency> :: <question>` line (competency preserved), a line ending in `?`, or a line opening with a behavioural lead-in (Tell/Describe/Share/Explain/Walk/Give/How/What/Why/…) — assigning the generic competency when none is present, and dropping everything else (preamble, headers, chatter). The result is empty **only** when the reply contains no usable question text; on an empty result the UI keeps the deterministic script questions (R22.6/R22.8). The generic competency label is supplied by the UI from `locales/` so no user-facing string is hardcoded in `@core`.
+**Enriched candidate profile (R62.5, R22.6).** The candidate profile sent alongside the question prompt now includes the full ATS career data: **previous job titles** (without employer names), **confirmed core competencies**, **education degrees and fields**, and the **professional summary** (when available), in addition to the existing matched and gap skill lists with evidence counts and experience years. This gives the model sufficient context to write questions grounded in the candidate's actual experience trajectory — not just their skill list.
+
+Parsing is **tolerant and layered** so a local model that ignores the exact format still yields questions (R62.5): `parseQuestionPrompts` first locates and parses the JSON array anywhere in the reply (tolerating code fences and surrounding text); validates each element to `{ competencies, question }` (accepting both `"competencies"` array and legacy `"competency"` string, normalising the latter to a single-element array), defaulting a **generic competency** for any element that omits one. If no usable JSON is found, it falls back to a **positive-criteria line scan** that keeps every line reading as a question — a `<competency> :: <question>` line (competency preserved), a line ending in `?`, or a line opening with a behavioural lead-in (Tell/Describe/Share/Explain/Walk/Give/How/What/Why/…) — assigning the generic competency when none is present, and dropping everything else (preamble, headers, chatter). The result is empty **only** when the reply contains no usable question text; on an empty result the UI keeps the deterministic script questions (R22.6/R22.8). The generic competency label is supplied by the UI from `locales/` so no user-facing string is hardcoded in `@core`.
 
 ### Adaptive STAR coaching loop (R63)
 
 The real coaching value runs when AI is in play (ai-only or both); script-only remains the manual, no-provider path for learning the STAR format. A user may also bring their own question + a real answer through the loop.
 
-The chat model is **stateless across turns**, so every loop call carries the full context: the competency, the original question, and all answers so far. Three new gate-routed AI operations (each a strict, parseable reply format):
+The chat model is **stateless across turns**, so every loop call carries the full context: the competencies (one or more behaviours the question probes), the original question, and all answers so far. Three new gate-routed AI operations (each a strict, parseable reply format):
 
-1. **Adequacy/follow-up** (one call per turn) — input `{role, competency, question, answer-so-far}`; reply:
+1. **Adequacy/follow-up** (one call per turn) — input `{role, competencies, question, answer-so-far}`; reply:
    ```
    SITUATION: covered | missing
    TASK: covered | missing
@@ -1309,7 +1443,7 @@ The chat model is **stateless across turns**, so every loop call carries the ful
    ```
    Loop while `ENOUGH=no` and a follow-up exists, capped at **3** AI follow-ups; on reaching the cap, the user is offered a "dig deeper" opt-in to continue if the model still has a follow-up. The user may stop at any round (Soft-Close).
 
-2. **Per-question summary** (on loop end) — input `{role, competency, question, full answer}`; reply:
+2. **Per-question summary** (on loop end) — input `{role, competencies, question, full answer}`; reply:
    ```
    SUMMARY: <2–3 sentences, first person, past tense>
    STAR: <which of S/T/A/R were covered>
@@ -1484,7 +1618,18 @@ The existing `store.logConfirmation(...)` calls and `saveInterview(...)`/`saveSk
 #### Integration with Existing Architecture
 
 - **XState orchestrator** (`statechart.ts`): unchanged. It still models the 6-phase FSM. The view routing (`AppView`) drives which phase card is shown, but the orchestrator still tracks phase transitions and resume state.
-- **PhaseWizardController**: still used, but its `goToPhase()` now drives the `AppView` update rather than scrolling within a single page. The `phases()` + status data feeds the sidebar stepper.
+- **PhaseWizardController**: still used, but its `goToPhase()` now drives the `AppView` update rather than scrolling within a single page. The `phases()` method derives status from **persisted confirmation state** — it checks whether the confirmed artefact for each phase exists in the Memory Store (R48.2, R48.4), rather than marking everything before `currentIndex` as complete. The phase-to-artefact mapping is:
+
+  | Phase | Confirmed artefact |
+  |---|---|
+  | Ingest | `profile/raw_extractions.md` persisted |
+  | Skill Map | `profile/skill_map.md` persisted |
+  | Role Discovery | `profile/role_preferences.md` persisted |
+  | Interview Coaching | At least one `interviews/interview_*.md` file persisted |
+  | Output | At least one `outputs/cv_*.md` file persisted |
+  | Memory & Maintenance | Always accessible (no gating artefact) |
+
+  On session resume, the resume summary may also explicitly report a phase as complete (e.g. from the `SessionSummary.phaseStates` map). The stepper reflects this combined state so a phase is never marked "done" by positional inference alone.
 - **MemoryTree / Storage_Adapter**: unchanged. The "Save & Exit" button calls the existing `export()` path from the Memory screen. Auto-save is already happening; we just add the visible status feedback.
 - **Design system tokens**: the shell layout uses the existing `tokens.spacing`, `tokens.color`, etc. New structural components (`AppShell`, `NavSidebar`, `PhaseStepper`) are added to the design-system layer.
 
@@ -1735,24 +1880,41 @@ A `splitCompoundSkills(technologies: string[]): string[]` utility expands parent
 | `"CDK (TypeScript)"` | `["CDK", "TypeScript"]` |
 | `"Node.js"` | `["Node.js"]` (not a parenthetical) |
 
-A small allowlist of known compound names (`CI/CD`, `TCP/IP`, `IDS/IPS`, `Node.js`, `C#`, `C++`, `.NET`) prevents false splits. Applied to each position's `technologies` array before `careerExtractionToItems()` creates skill entries.
+A small allowlist of known compound names (`CI/CD`, `TCP/IP`, `IDS/IPS`, `Node.js`, `C#`, `C++`, `.NET`, `GitLab CI/CD`) prevents false splits. Applied to each position's `technologies` array before `careerExtractionToItems()` creates skill entries.
+
+#### 3a. Atomic skill naming instruction in the extraction prompt (R71.13)
+
+The extraction prompt includes an explicit instruction to the model to list each technology as a **separate, standalone, atomic item** in the `technologies` field rather than embedding sub-skills inside vendor-qualified groupings:
+
+```
+- For technologies: list each technology as a separate, standalone item.
+  Write "S3", "Lambda", "DynamoDB" — NOT "AWS (S3, Lambda, DynamoDB)".
+  Each entry should be one atomic skill name without embedded sub-skills
+  or vendor-prefixed groupings.
+```
+
+This upstream instruction works in tandem with the downstream `splitCompoundSkills()` safety net: even if a model ignores the instruction and produces compound entries, the splitter catches them. But by instructing the model to produce atomic names directly, the extraction yields **consistent, deduplicate-friendly skill names** that reduce post-processing overhead and produce cleaner initial extractions for user review.
 
 #### 3. Core competency inference guidance (R71.5, R71.6)
 
-The extraction prompt is strengthened to explicitly instruct the model to **infer** behavioural competencies from career patterns, not just extract literal keywords. The prompt now includes:
+The extraction prompt is strengthened to explicitly instruct the model to **infer** behavioural competencies from career patterns, not just extract literal keywords. The prompt explicitly states that the provided examples are **not a comprehensive list** and that the model should infer competencies appropriate to the candidate's demonstrated seniority level — from entry-level strengths through senior leadership:
 
 ```
-For core_competencies: INFER soft skills, leadership qualities, and behavioural
-strengths demonstrated by the person's career pattern, achievements, and
-education. Do not limit yourself to explicitly stated keywords — look at what
-the career history DEMONSTRATES. Examples include (but are not limited to):
-Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic
-Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost
-Optimization, Technical Vision, Team Building, Process Improvement, Agile
-Transformation, Communication, Problem Solving.
+For core_competencies: INFER behavioural competencies from career patterns
+and achievements, not only literal keywords. Look at role progression, scope
+of responsibility, cross-team work, and quantified outcomes to identify
+competencies the candidate demonstrates even if they are not explicitly named.
+Examples of competencies to look for: Organisation, Customer Focus, Attention
+to Detail, Time Management, Adaptability, Problem Solving, Analytical Thinking,
+Teamwork, Communication, Continuous Learning, Quality Assurance, Prioritisation,
+Self-Motivation, Resilience, Leadership, Innovation, Stakeholder Management,
+Crisis Management, Strategic Planning, Mentoring, Cross-functional
+Collaboration, Change Management, Cost Optimization, Technical Vision, Team
+Building, Process Improvement. Include both explicitly stated and
+pattern-inferred competencies distinct from technical skills.
 ```
 
-This addresses the observed gap where local models return an empty `core_competencies` array because competencies are demonstrated (e.g. a crisis rescue STAR answer) rather than literally named.
+The expanded example list spans all seniority levels (from entry-level competencies like Organisation, Customer Focus, Attention to Detail through senior competencies like Strategic Planning, Technical Vision, Cost Optimization) so the model calibrates its inference to whatever level the candidate's career history demonstrates. This addresses the observed gap where local models return an empty `core_competencies` array because competencies are demonstrated (e.g. a crisis rescue STAR answer) rather than literally named.
 
 #### 4. Role match scoring for user-added roles (R71.21, R71.20)
 
@@ -1764,6 +1926,47 @@ When a user adds a role (R21.1), `scoreMatch()` currently returns 0% with empty 
 - Compute a percentage score from `matchedSkills.length / (matchedSkills.length + gapSkills.length)`
 
 This makes user-added and AI-suggested roles comparable in the UI.
+
+#### 5. Cross-chunk consolidation pass (R71.15, R71.16, R71.17, R71.18)
+
+After `mergeCareerExtractions()` combines per-chunk results into a single extraction, a **two-stage consolidation** runs to eliminate duplicates that survived the basic merge. The ordering ensures the AI handles context-aware dedup first, and the deterministic pass acts only as a lightweight safety net.
+
+**Stage 1: AI consolidation (AI-only / AI-assisted mode only, R71.15).** The merged extraction is serialized into a consolidation prompt via `buildConsolidationPrompt(extraction: CareerExtraction): string` and sent to the model through the Egress Gate. The prompt instructs the model to:
+
+- Identify and merge duplicate positions (OCR noise, company-name variants, abbreviations like "Sr." vs "Senior")
+- Identify and merge duplicate skills (vendor-qualified variants like "AWS S3" + "S3", semantic duplicates)
+- Collapse synonymous core competencies to the shorter canonical form
+- Preserve the **earliest `since` date** when merging duplicate skills (R71.18)
+- Keep the **richest data** (most technologies, longest description, most achievements) when merging duplicate positions (R71.18)
+
+The response uses the **same `CareerExtraction` JSON schema** as the extraction itself (deduplicated), and is parsed by the existing extraction response parser. On AI failure, the system falls back to the deterministic-only path.
+
+```typescript
+function buildConsolidationPrompt(extraction: CareerExtraction): string;
+// → serializes positions, skills, competencies into the prompt
+// → instructs model to return deduplicated CareerExtraction JSON
+// → explicitly lists dedup strategies: OCR noise, company variants,
+//   vendor-qualified skills, semantic duplicates, synonym competencies
+
+function parseConsolidationResponse(raw: string): CareerExtraction;
+// → same JSON schema as extraction; reuses existing parser
+```
+
+**Stage 2: Deterministic safety net (`consolidateExtraction`, R71.16, R71.17).** After AI consolidation completes (or immediately after merging in script-only mode), the deterministic pass runs in **reduced scope**:
+
+- **Exact case-insensitive duplicate collapsing only** — two skills/positions/competencies merge only if their names are identical after lowercasing and trimming whitespace
+- **No fuzzy position matching** — the Levenshtein/fuzzy (company + title) comparison is disabled when running after AI consolidation
+- **No vendor-prefix stripping** — the "AWS S3" → "S3" collapse is handled by the AI; the deterministic pass does not replicate it
+- **No synonym resolution** — competency synonym groups are handled by the AI; the deterministic pass only catches exact duplicates the AI missed
+
+In **script-only mode** (R71.17), only this deterministic pass runs (no AI consolidation call), applying the same exact-case-insensitive-duplicate-only logic — there is no fuzzy/synonym path in any mode.
+
+**Consolidation ordering summary:**
+
+| Mode | Stage 1 (AI) | Stage 2 (deterministic) |
+|---|---|---|
+| AI-only / AI-assisted | ✓ Full context-aware dedup | ✓ Exact case-insensitive only (safety net) |
+| Script-only | — | ✓ Exact case-insensitive only |
 
 ### Zip Export with Session Import (R72)
 

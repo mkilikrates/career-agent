@@ -15,9 +15,11 @@
 // Privacy boundary (R7, R46.4): this module only BUILDS the prompt text and
 // PARSES the reply — actual transmission flows through the single Egress Gate.
 
+import matter from 'gray-matter';
 import { asDocId, asItemId } from '@core/types';
 import type { ExtractedItem } from '@core/types';
 import { sourceLine, trailOf } from '@core/provenance';
+import { stripVendorPrefix, isContainingTerm, normalizeGitHubCasing } from './ai-dedup';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,11 +131,13 @@ export const CAREER_EXTRACTION_INSTRUCTION =
   '}\n\n' +
   'Rules:\n' +
   '- For positions: extract title, company, location (city/region when present), start/end dates, a brief role description, quantified achievements (use numbers where possible), and technologies/skills used in that role. Map skills and technologies to each specific position where they were used.\n' +
+  '- For technologies: list each technology as a separate, standalone item. Write \'S3\', \'Lambda\', \'DynamoDB\' — NOT \'AWS (S3, Lambda, DynamoDB)\'. Each entry should be one atomic skill name without embedded sub-skills or vendor-prefixed groupings.\n' +
   '- For education: extract institution, degree/course, start/end dates, and skills gained.\n' +
   '- For technical_skills: list standalone technical skills not tied to a specific position or course. Include an approximate start year if determinable.\n' +
   '- For core_competencies: INFER behavioural competencies from career patterns and achievements, not only literal keywords. ' +
   'Look at role progression, scope of responsibility, cross-team work, and quantified outcomes to identify competencies the candidate demonstrates even if they are not explicitly named. ' +
-  'Examples of competencies to look for: Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost Optimization, Technical Vision, Team Building, Process Improvement. ' +
+  'Examples of competencies to look for: Organisation, Customer Focus, Attention to Detail, Time Management, Adaptability, Problem Solving, Analytical Thinking, Teamwork, Communication, Continuous Learning, Quality Assurance, Prioritisation, Self-Motivation, Resilience, Leadership, Innovation, Stakeholder Management, Crisis Management, Strategic Planning, Mentoring, Cross-functional Collaboration, Change Management, Cost Optimization, Technical Vision, Team Building, Process Improvement. ' +
+  'These examples span all seniority levels — from entry-level strengths through senior leadership. Infer competencies appropriate to the candidate\'s demonstrated level. ' +
   'Include both explicitly stated and pattern-inferred competencies distinct from technical skills.\n' +
   '- For languages: list spoken/written languages with proficiency levels (e.g. "Native", "Fluent", "Professional", "Intermediate", "Basic").\n' +
   '- For hobbies: list hobbies and interests if mentioned.\n' +
@@ -980,6 +984,707 @@ function mergeAdditionalInfo(chunks: readonly CareerExtraction[]): ExtractedAddi
     }
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-chunk consolidation pass (R71.15, R71.16, R71.17)
+// ---------------------------------------------------------------------------
+
+/** Known vendor prefixes for skill deduplication (same list as ai-dedup). */
+const VENDOR_PREFIXES_FOR_CONSOLIDATION: readonly string[] = [
+  'google cloud',
+  'red hat',
+  'amazon',
+  'azure',
+  'cloudflare',
+  'atlassian',
+  'datadog',
+  'elastic',
+  'github',
+  'gitlab',
+  'google',
+  'hashicorp',
+  'ibm',
+  'jetbrains',
+  'microsoft',
+  'oracle',
+  'vmware',
+  'aws',
+  'gcp',
+].sort((a, b) => b.length - a.length);
+
+/**
+ * Default competency synonyms YAML content (R71.17).
+ * The first entry in each group is the canonical form.
+ * Shipped inline following the same pattern as DEFAULT_CONFUSABLES_YAML.
+ */
+export const DEFAULT_COMPETENCY_SYNONYMS_YAML = `# config/competency_synonyms.yaml — synonym groups for core competency consolidation (R71.17)
+# Within each group, the FIRST entry is the canonical form.
+# This file can be extended without code changes.
+synonym_groups:
+  - ["Leadership", "Team Leadership", "People Leadership"]
+  - ["Communication", "Effective Communication", "Written Communication"]
+  - ["Problem Solving", "Problem-Solving", "Analytical Problem Solving"]
+  - ["Stakeholder Management", "Stakeholder Engagement"]
+  - ["Change Management", "Organisational Change Management"]
+  - ["Innovation", "Creative Innovation"]
+  - ["Mentoring", "Coaching & Mentoring"]
+  - ["Collaboration", "Cross-functional Collaboration"]
+`;
+
+/**
+ * Load competency synonym groups from YAML text and return a map from
+ * lowercase synonym → canonical form (first entry in each group).
+ * Uses gray-matter (project's existing YAML dependency) for parsing (R71.17).
+ */
+export function loadCompetencySynonyms(yamlText: string): Map<string, string> {
+  const map = new Map<string, string>();
+  let data: Record<string, unknown> = {};
+  try {
+    // gray-matter expects front-matter delimiters; wrap content if needed.
+    const wrapped = yamlText.trimStart().startsWith('---')
+      ? yamlText
+      : `---\n${yamlText}\n---`;
+    const parsed = matter(wrapped);
+    data = (parsed.data ?? {}) as Record<string, unknown>;
+  } catch {
+    return map;
+  }
+
+  const groups = data['synonym_groups'];
+  if (!Array.isArray(groups)) return map;
+
+  for (const group of groups) {
+    if (!Array.isArray(group) || group.length < 2) continue;
+    const canonical = String(group[0]).trim();
+    if (!canonical) continue;
+    // Map every entry (including the canonical itself) to the canonical form.
+    for (const entry of group) {
+      const key = String(entry).trim().toLowerCase();
+      if (key) map.set(key, canonical);
+    }
+  }
+
+  return map;
+}
+
+/** Common abbreviation equivalences for fuzzy position matching (R71.16). */
+const ABBREVIATION_MAP: ReadonlyArray<readonly [string, string]> = [
+  ['sr.', 'senior'],
+  ['sr', 'senior'],
+  ['jr.', 'junior'],
+  ['jr', 'junior'],
+  ['eng.', 'engineer'],
+  ['eng', 'engineer'],
+  ['sre', 'site reliability engineer'],
+  ['dev', 'developer'],
+  ['mgr', 'manager'],
+];
+
+/**
+ * Strip all non-letter/digit characters from a string (R76.1, R76.2).
+ * Used for OCR-garbled name matching: "T RIP A DVISOR" → "tripadvisor".
+ */
+export function stripNonAlpha(s: string): string {
+  return s.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+}
+
+/**
+ * Normalise a string for fuzzy position matching: lowercase, collapse
+ * whitespace, expand common abbreviations, then strip all non-alpha chars
+ * for OCR-garbled resilience (R71.16, R76.1).
+ */
+function fuzzyNormalize(input: string): string {
+  let s = input.toLowerCase().replace(/\s+/g, ' ').trim();
+  // Expand abbreviations — handle dotted abbreviations first (longest match).
+  // Use word-boundary-aware replacement that accounts for dots.
+  for (const [abbr, full] of ABBREVIATION_MAP) {
+    if (abbr.includes('.')) {
+      // For dotted abbreviations like "sr.", match as standalone token.
+      // The dot makes \b unreliable, so use a lookahead/lookbehind approach.
+      const escaped = abbr.replace(/\./g, '\\.');
+      const pattern = new RegExp(`(?<=^|\\s)${escaped}(?=\\s|$)`, 'gi');
+      s = s.replace(pattern, full);
+    } else {
+      // For plain abbreviations, use word boundaries.
+      const pattern = new RegExp(`\\b${abbr}\\b`, 'gi');
+      s = s.replace(pattern, full);
+    }
+  }
+  s = s.replace(/\s+/g, ' ').trim();
+  // Final pass: strip all non-alphanumeric for OCR-garbled resilience (R76.1).
+  return stripNonAlpha(s);
+}
+
+/**
+ * Check if two date ranges overlap. A missing end date is treated as "present"
+ * (i.e. extends to infinity). Date strings are ISO-ish (YYYY or YYYY-MM) and
+ * are compared lexicographically. Returns true if intervals intersect (R71.16).
+ */
+function datesOverlap(
+  start1?: string,
+  end1?: string,
+  start2?: string,
+  end2?: string,
+): boolean {
+  // If both positions have no start date, we cannot determine overlap — assume they might overlap.
+  if (!start1 && !start2) return true;
+  // Treat missing end as far-future.
+  const effectiveEnd1 = end1 ?? '9999';
+  const effectiveEnd2 = end2 ?? '9999';
+  // Treat missing start as far-past.
+  const effectiveStart1 = start1 ?? '0000';
+  const effectiveStart2 = start2 ?? '0000';
+  // Two intervals [s1, e1] and [s2, e2] overlap iff s1 <= e2 AND s2 <= e1.
+  return effectiveStart1 <= effectiveEnd2 && effectiveStart2 <= effectiveEnd1;
+}
+
+/**
+ * Score how "rich" a position entry is for choosing the best duplicate (R71.16).
+ */
+function positionRichnessScore(pos: ExtractedPosition): number {
+  let score = pos.technologies.length;
+  if (pos.description) score += pos.description.length;
+  if (pos.achievements) score += pos.achievements.length * 10;
+  return score;
+}
+
+/**
+ * Sub-pass 1: Vendor-prefix skill deduplication (R71.15).
+ *
+ * For each skill, applies multiple dedup strategies in order:
+ *   a) Vendor-prefix collapse: "AWS S3" + "S3" → keep "S3"
+ *   b) Containing-term: "GitHub Enterprise" + "GitHub" → keep "GitHub"
+ *   c) Slash-compound preference: "IDS" + "IDS/IPS" → keep "IDS/IPS" (richer term)
+ *   d) GitHub normalization: normalise casing variants and keep most specific form
+ *
+ * All strategies keep the earliest `since` date.
+ */
+function deduplicateVendorPrefixSkills(
+  skills: readonly ExtractedStandaloneSkill[],
+): ExtractedStandaloneSkill[] {
+  if (skills.length === 0) return [];
+
+  // Normalize GitHub casing first.
+  const normalized = skills.map((s) => ({
+    ...s,
+    name: normalizeGitHubCasing(s.name),
+  }));
+
+  // Build a map from lowercase name → skill entry (keeping earliest since).
+  const map = new Map<string, ExtractedStandaloneSkill>();
+  for (const skill of normalized) {
+    const key = skill.name.toLowerCase().trim();
+    const existing = map.get(key);
+    if (!existing) {
+      map.set(key, skill);
+    } else if (skill.since && (!existing.since || skill.since < existing.since)) {
+      map.set(key, skill);
+    }
+  }
+
+  // --- Strategy (a): Vendor-prefix duplicates ---
+  const toRemove = new Set<string>();
+  for (const [key, skill] of map) {
+    const base = stripVendorPrefix(skill.name);
+    if (!base) continue;
+    const baseKey = base.toLowerCase().trim();
+    if (map.has(baseKey) && baseKey !== key) {
+      // The base form exists — collapse the vendor-qualified entry into the base.
+      const baseSkill = map.get(baseKey)!;
+      if (skill.since && (!baseSkill.since || skill.since < baseSkill.since)) {
+        map.set(baseKey, { name: baseSkill.name, since: skill.since });
+      }
+      toRemove.add(key);
+    }
+  }
+
+  // Also handle the substring-tail match case: "AWS Lambda" contains "Lambda".
+  for (const [key, skill] of map) {
+    if (toRemove.has(key)) continue;
+    const lower = skill.name.toLowerCase().trim();
+    for (const [otherKey, otherSkill] of map) {
+      if (otherKey === key || toRemove.has(otherKey)) continue;
+      const otherLower = otherSkill.name.toLowerCase().trim();
+      if (lower.length > otherLower.length) {
+        const prefixCandidate = lower.slice(0, lower.length - otherLower.length).trim();
+        if (lower.endsWith(otherLower) && isKnownVendorPrefix(prefixCandidate)) {
+          const otherEntry = map.get(otherKey)!;
+          if (skill.since && (!otherEntry.since || skill.since < otherEntry.since)) {
+            map.set(otherKey, { name: otherEntry.name, since: skill.since });
+          }
+          toRemove.add(key);
+          break;
+        }
+      }
+    }
+  }
+
+  // --- Strategy (c): Slash-compound preference ---
+  // If both "IDS" and "IDS/IPS" exist, keep the compound (richer) form.
+  for (const [key, skill] of map) {
+    if (toRemove.has(key)) continue;
+    const lower = skill.name.toLowerCase().trim();
+    // Check if this is a simple term that is a component of a slash-compound in the map.
+    if (lower.includes('/')) continue; // Skip compound terms themselves
+    for (const [otherKey, otherSkill] of map) {
+      if (otherKey === key || toRemove.has(otherKey)) continue;
+      const otherLower = otherSkill.name.toLowerCase().trim();
+      if (!otherLower.includes('/')) continue;
+      // Check if the simple term is a slash-component of the compound term.
+      const parts = otherLower.split('/').map((p) => p.trim());
+      if (parts.includes(lower)) {
+        // The simple term is a component — prefer the compound form.
+        const otherEntry = map.get(otherKey)!;
+        if (skill.since && (!otherEntry.since || skill.since < otherEntry.since)) {
+          map.set(otherKey, { name: otherEntry.name, since: skill.since });
+        }
+        toRemove.add(key);
+        break;
+      }
+    }
+  }
+
+  // --- Strategy (b): Containing-term detection ---
+  // When one skill fully contains another as prefix/suffix, keep the shorter form.
+  // But if the longer form is more specific GitHub variant, handle via GitHub pass below.
+  for (const [key, skill] of map) {
+    if (toRemove.has(key)) continue;
+    for (const [otherKey, otherSkill] of map) {
+      if (otherKey === key || toRemove.has(otherKey)) continue;
+      const shorter = skill.name.length <= otherSkill.name.length ? skill : otherSkill;
+      const longer = skill.name.length <= otherSkill.name.length ? otherSkill : skill;
+      const shorterKey = shorter.name.toLowerCase().trim();
+      const longerKey = longer.name.toLowerCase().trim();
+
+      if (shorterKey === longerKey) continue;
+      if (!isContainingTerm(shorter.name, longer.name)) continue;
+
+      // Containing-term detected — collapse longer into shorter.
+      const longerMapKey = longerKey;
+      if (toRemove.has(longerMapKey)) continue;
+
+      const shorterEntry = map.get(shorterKey)!;
+      const longerEntry = map.get(longerMapKey)!;
+      if (longerEntry.since && (!shorterEntry.since || longerEntry.since < shorterEntry.since)) {
+        map.set(shorterKey, { name: shorterEntry.name, since: longerEntry.since });
+      }
+      toRemove.add(longerMapKey);
+    }
+  }
+
+  // --- Strategy (d): GitHub variant normalization ---
+  // Among remaining GitHub-prefixed skills, keep the most specific form.
+  // e.g. if "GitHub" and "GitHub Actions" both exist, keep both (they're distinct).
+  // But "Enterprise GitHub" and "GitHub Enterprise" → normalize to "GitHub Enterprise".
+  // Normalize "Enterprise GitHub" → "GitHub Enterprise" pattern
+  for (const [key, skill] of map) {
+    if (toRemove.has(key)) continue;
+    const lower = skill.name.toLowerCase().trim();
+    if (lower.endsWith(' github') && !lower.startsWith('github')) {
+      // Flip to "GitHub <Prefix>" form
+      const prefix = skill.name.slice(0, skill.name.length - ' github'.length).trim();
+      const canonical = `GitHub ${prefix}`;
+      const canonicalKey = canonical.toLowerCase().trim();
+      if (map.has(canonicalKey) && canonicalKey !== key) {
+        // Both forms exist — remove the reversed one
+        const canonEntry = map.get(canonicalKey)!;
+        if (skill.since && (!canonEntry.since || skill.since < canonEntry.since)) {
+          map.set(canonicalKey, { name: canonEntry.name, since: skill.since });
+        }
+        toRemove.add(key);
+      } else if (!map.has(canonicalKey)) {
+        // Only reversed form exists — rename it
+        map.delete(key);
+        map.set(canonicalKey, { name: canonical, since: skill.since });
+      }
+    }
+  }
+
+  for (const key of toRemove) {
+    map.delete(key);
+  }
+
+  return [...map.values()];
+}
+
+/**
+ * Deduplicate a technologies string array using vendor-prefix, containing-term,
+ * and slash-compound logic (R71.15, R76.1).
+ * Returns the deduplicated array keeping shorter canonical forms (or richer
+ * compound forms for slash-compounds).
+ */
+function deduplicateVendorPrefixTechnologies(technologies: readonly string[]): string[] {
+  if (technologies.length === 0) return [];
+
+  // Normalize GitHub casing first.
+  const seen = new Map<string, string>(); // lowercase → original casing
+  for (const tech of technologies) {
+    const normalized = normalizeGitHubCasing(tech);
+    const key = normalized.toLowerCase().trim();
+    if (!seen.has(key)) {
+      seen.set(key, normalized);
+    }
+  }
+
+  const toRemove = new Set<string>();
+
+  // Vendor-prefix collapse.
+  for (const [key, tech] of seen) {
+    if (toRemove.has(key)) continue;
+    const base = stripVendorPrefix(tech);
+    if (!base) continue;
+    const baseKey = base.toLowerCase().trim();
+    if (seen.has(baseKey) && baseKey !== key) {
+      toRemove.add(key);
+    }
+  }
+
+  // Substring-tail match (vendor-prefix in tail position).
+  for (const [key, tech] of seen) {
+    if (toRemove.has(key)) continue;
+    const lower = tech.toLowerCase().trim();
+    for (const [otherKey, _otherTech] of seen) {
+      if (otherKey === key || toRemove.has(otherKey)) continue;
+      const otherLower = _otherTech.toLowerCase().trim();
+      if (lower.length > otherLower.length) {
+        const prefixCandidate = lower.slice(0, lower.length - otherLower.length).trim();
+        if (lower.endsWith(otherLower) && isKnownVendorPrefix(prefixCandidate)) {
+          toRemove.add(key);
+          break;
+        }
+      }
+    }
+  }
+
+  // Slash-compound preference: "IDS" + "IDS/IPS" → keep "IDS/IPS".
+  for (const [key, tech] of seen) {
+    if (toRemove.has(key)) continue;
+    const lower = tech.toLowerCase().trim();
+    if (lower.includes('/')) continue;
+    for (const [otherKey, otherTech] of seen) {
+      if (otherKey === key || toRemove.has(otherKey)) continue;
+      const otherLower = otherTech.toLowerCase().trim();
+      if (!otherLower.includes('/')) continue;
+      const parts = otherLower.split('/').map((p) => p.trim());
+      if (parts.includes(lower)) {
+        toRemove.add(key);
+        break;
+      }
+    }
+  }
+
+  // Containing-term: "GitHub Enterprise" + "GitHub" → keep "GitHub".
+  for (const [key, tech] of seen) {
+    if (toRemove.has(key)) continue;
+    for (const [otherKey, otherTech] of seen) {
+      if (otherKey === key || toRemove.has(otherKey)) continue;
+      const shorter = tech.length <= otherTech.length ? tech : otherTech;
+      const longer = tech.length <= otherTech.length ? otherTech : tech;
+      const longerKey = longer.toLowerCase().trim();
+      if (toRemove.has(longerKey)) continue;
+      if (!isContainingTerm(shorter, longer)) continue;
+      toRemove.add(longerKey);
+    }
+  }
+
+  for (const k of toRemove) {
+    seen.delete(k);
+  }
+
+  return [...seen.values()];
+}
+
+/** Check if a string is a known vendor prefix (case-insensitive). */
+function isKnownVendorPrefix(candidate: string): boolean {
+  const lower = candidate.toLowerCase().trim();
+  return VENDOR_PREFIXES_FOR_CONSOLIDATION.includes(lower);
+}
+
+/**
+ * Sub-pass 2: Fuzzy position deduplication (R71.16).
+ *
+ * When two positions share a fuzzy match on (company + title) AND overlapping
+ * date ranges, keep the entry with the richest data.
+ */
+function deduplicatePositionsFuzzy(
+  positions: readonly ExtractedPosition[],
+): ExtractedPosition[] {
+  if (positions.length <= 1) return [...positions];
+
+  // Build normalized keys for comparison.
+  const entries = positions.map((pos) => ({
+    pos,
+    normalizedCompany: fuzzyNormalize(pos.company),
+    normalizedTitle: fuzzyNormalize(pos.title),
+  }));
+
+  const removed = new Set<number>();
+
+  for (let i = 0; i < entries.length; i++) {
+    if (removed.has(i)) continue;
+    for (let j = i + 1; j < entries.length; j++) {
+      if (removed.has(j)) continue;
+      const a = entries[i];
+      const b = entries[j];
+
+      // Check fuzzy match on company AND title.
+      if (a.normalizedCompany !== b.normalizedCompany) continue;
+      if (a.normalizedTitle !== b.normalizedTitle) continue;
+
+      // Check date overlap.
+      if (!datesOverlap(a.pos.start, a.pos.end, b.pos.start, b.pos.end)) continue;
+
+      // Keep the richer entry.
+      const scoreA = positionRichnessScore(a.pos);
+      const scoreB = positionRichnessScore(b.pos);
+      if (scoreB > scoreA) {
+        removed.add(i);
+        break; // i is removed, skip to next i
+      } else {
+        removed.add(j);
+      }
+    }
+  }
+
+  return entries
+    .filter((_, idx) => !removed.has(idx))
+    .map((e) => e.pos);
+}
+
+/**
+ * Sub-pass 3: Synonym competency deduplication (R71.17).
+ *
+ * Replaces each core competency with its group's canonical form (first entry)
+ * and deduplicates.
+ */
+function deduplicateCompetencySynonyms(
+  competencies: readonly string[],
+  synonymMap: Map<string, string>,
+): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const competency of competencies) {
+    const key = competency.toLowerCase().trim();
+    // Replace with canonical form if found in synonym map.
+    const canonical = synonymMap.get(key) ?? competency;
+    const canonicalKey = canonical.toLowerCase().trim();
+    if (!seen.has(canonicalKey)) {
+      seen.add(canonicalKey);
+      result.push(canonical);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Cross-chunk consolidation pass (R71.15, R71.16, R71.17).
+ *
+ * Runs three sub-passes on a merged CareerExtraction to eliminate duplicates
+ * that survived the basic merge:
+ *   1. Vendor-prefix skill dedup (R71.15)
+ *   2. Fuzzy position dedup (R71.16)
+ *   3. Synonym competency dedup (R71.17)
+ *
+ * Called after `mergeCareerExtractions()` and before `careerExtractionToItems()`.
+ */
+export function consolidateExtraction(extraction: CareerExtraction): CareerExtraction {
+  // Sub-pass 1: Vendor-prefix skill deduplication.
+  const consolidatedSkills = deduplicateVendorPrefixSkills(extraction.technicalSkills);
+  const consolidatedPositions = extraction.positions.map((pos) => ({
+    ...pos,
+    technologies: deduplicateVendorPrefixTechnologies(pos.technologies),
+  }));
+
+  // Sub-pass 2: Fuzzy position deduplication.
+  const dedupedPositions = deduplicatePositionsFuzzy(consolidatedPositions);
+
+  // Sub-pass 3: Synonym competency deduplication.
+  const synonymMap = loadCompetencySynonyms(DEFAULT_COMPETENCY_SYNONYMS_YAML);
+  const dedupedCompetencies = deduplicateCompetencySynonyms(
+    extraction.coreCompetencies,
+    synonymMap,
+  );
+
+  return {
+    ...extraction,
+    technicalSkills: consolidatedSkills,
+    skills: consolidatedSkills, // backward compat alias
+    positions: dedupedPositions,
+    coreCompetencies: dedupedCompetencies,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// AI Consolidation prompt (R71.15, R71.16, R71.17, R71.18)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a consolidation prompt that asks the model to identify and merge
+ * duplicate positions, skills, and competencies in a merged CareerExtraction.
+ * The model must return the same JSON schema so `parseCareerExtraction` can
+ * parse the response. Only positions, skills, and competencies are included
+ * (not education, languages, etc.) to keep the prompt concise.
+ */
+export function buildConsolidationPrompt(extraction: CareerExtraction): string {
+  const payload = {
+    positions: extraction.positions.map((p) => ({
+      title: p.title,
+      company: p.company,
+      ...(p.location ? { location: p.location } : {}),
+      ...(p.start ? { start: p.start } : {}),
+      ...(p.end ? { end: p.end } : {}),
+      ...(p.description ? { description: p.description } : {}),
+      ...(p.achievements && p.achievements.length > 0 ? { achievements: p.achievements } : {}),
+      technologies: p.technologies,
+    })),
+    technical_skills: extraction.technicalSkills.map((s) => ({
+      name: s.name,
+      ...(s.since ? { since: s.since } : {}),
+    })),
+    core_competencies: extraction.coreCompetencies,
+  };
+
+  const json = JSON.stringify(payload, null, 2);
+
+  return (
+    'You are deduplicating a structured career extraction. The following JSON contains ' +
+    'positions, technical skills, and core competencies that may have duplicates from OCR noise, ' +
+    'company-name variants, vendor-qualified skill forms, or synonymous competencies.\n\n' +
+    'Your task:\n' +
+    '1. MERGE duplicate positions: same role at the same company expressed differently ' +
+    '(e.g. "Sr. Engineer" vs "Senior Engineer", "Acme Corp" vs "Acme Corporation", OCR typos). ' +
+    'When merging, keep the RICHEST entry (most technologies, longest description, most achievements) ' +
+    'and preserve the earliest start date.\n' +
+    '2. MERGE duplicate skills: vendor-qualified variants (e.g. "AWS S3" and "S3" → keep "S3"), ' +
+    'semantic duplicates (e.g. "Kubernetes" and "K8s" → keep "Kubernetes"). ' +
+    'When merging, preserve the EARLIEST `since` date.\n' +
+    '3. COLLAPSE synonymous competencies to the shorter canonical form ' +
+    '(e.g. "Team Leadership" and "Leadership" → "Leadership", "Cross-functional Collaboration" → "Collaboration").\n\n' +
+    'Return ONLY a JSON object with this structure (same schema as input):\n' +
+    '{\n' +
+    '  "positions": [{ "title": "…", "company": "…", "location": "…", "start": "…", "end": "…", "description": "…", "achievements": ["…"], "technologies": ["…"] }],\n' +
+    '  "technical_skills": [{ "name": "…", "since": "…" }],\n' +
+    '  "core_competencies": ["…"]\n' +
+    '}\n\n' +
+    'Rules:\n' +
+    '- Do NOT invent new entries. Only merge/collapse existing ones.\n' +
+    '- Do NOT remove entries that are genuinely distinct.\n' +
+    '- Preserve all fields from the richest entry when merging positions.\n' +
+    '- Return ONLY the JSON, no commentary.\n\n' +
+    'INPUT:\n' +
+    json
+  );
+}
+
+/**
+ * Reduced-scope deterministic consolidation (R71.16, R71.17, R71.18).
+ *
+ * Performs ONLY exact case-insensitive duplicate collapsing as a lightweight
+ * safety net after AI consolidation. Does NOT apply:
+ *   - Vendor-prefix stripping (handled by AI)
+ *   - Fuzzy position matching (handled by AI)
+ *   - Synonym resolution (handled by AI)
+ *
+ * Also used in script-only mode where no AI consolidation runs.
+ */
+export function consolidateExtractionReduced(extraction: CareerExtraction): CareerExtraction {
+  // Exact case-insensitive dedup for technicalSkills.
+  const skillsSeen = new Map<string, ExtractedStandaloneSkill>();
+  for (const skill of extraction.technicalSkills) {
+    const key = skill.name.toLowerCase().trim();
+    const existing = skillsSeen.get(key);
+    if (!existing) {
+      skillsSeen.set(key, skill);
+    } else if (skill.since && (!existing.since || skill.since < existing.since)) {
+      skillsSeen.set(key, { name: existing.name, since: skill.since });
+    }
+  }
+  const dedupedSkills = [...skillsSeen.values()];
+
+  // Exact case-insensitive dedup for positions (same company+title+start).
+  const positionsSeen = new Map<string, ExtractedPosition>();
+  for (const pos of extraction.positions) {
+    const key = [
+      pos.company.toLowerCase().trim(),
+      pos.title.toLowerCase().trim(),
+      (pos.start ?? '').toLowerCase().trim(),
+    ].join('|');
+    const existing = positionsSeen.get(key);
+    if (!existing || positionRichnessScore(pos) > positionRichnessScore(existing)) {
+      positionsSeen.set(key, pos);
+    }
+  }
+  const dedupedPositions = [...positionsSeen.values()];
+
+  // Exact case-insensitive dedup for per-position technologies.
+  const dedupedPositionsWithTech = dedupedPositions.map((pos) => {
+    const techSeen = new Set<string>();
+    const techs: string[] = [];
+    for (const tech of pos.technologies) {
+      const key = tech.toLowerCase().trim();
+      if (!techSeen.has(key)) {
+        techSeen.add(key);
+        techs.push(tech);
+      }
+    }
+    return { ...pos, technologies: techs };
+  });
+
+  // Exact case-insensitive dedup for coreCompetencies.
+  const compSeen = new Set<string>();
+  const dedupedCompetencies: string[] = [];
+  for (const comp of extraction.coreCompetencies) {
+    const key = comp.toLowerCase().trim();
+    if (!compSeen.has(key)) {
+      compSeen.add(key);
+      dedupedCompetencies.push(comp);
+    }
+  }
+
+  return {
+    ...extraction,
+    technicalSkills: dedupedSkills,
+    skills: dedupedSkills,
+    positions: dedupedPositionsWithTech,
+    coreCompetencies: dedupedCompetencies,
+  };
+}
+
+/**
+ * Apply AI consolidation response to a merged extraction (R71.15, R71.18).
+ *
+ * Parses the AI response (same JSON schema), then overlays the AI-deduplicated
+ * positions, skills, and competencies onto the original extraction (preserving
+ * education, languages, hobbies, causes, additionalInfo from the original since
+ * those are not sent to the AI for dedup).
+ */
+export function applyAiConsolidation(
+  original: CareerExtraction,
+  aiReply: string,
+): CareerExtraction {
+  const parsed = parseCareerExtraction(aiReply);
+
+  // If the AI returned an empty/unparseable result, return the original.
+  if (
+    parsed.positions.length === 0 &&
+    parsed.technicalSkills.length === 0 &&
+    parsed.coreCompetencies.length === 0
+  ) {
+    throw new Error('AI consolidation returned empty result');
+  }
+
+  return {
+    ...original,
+    positions: parsed.positions,
+    technicalSkills: parsed.technicalSkills,
+    skills: parsed.technicalSkills,
+    coreCompetencies: parsed.coreCompetencies,
+    // Preserve professionalSummary from parsed if present, else from original
+    professionalSummary: parsed.professionalSummary ?? original.professionalSummary,
+  };
 }
 
 // ---------------------------------------------------------------------------

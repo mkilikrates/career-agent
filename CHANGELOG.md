@@ -5,10 +5,116 @@ All notable changes to Career Agent are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-07-26
+
+### Added
+
+- **AI consolidation dedup prompt runs before deterministic pass in AI modes**
+  (R71.15–R71.18): ensures context-aware deduplication happens first, with the
+  deterministic pass acting only as a lightweight safety net.
+- **Skills grouped by category and sorted by relevance in CV output** (R30.2,
+  R32.4): skills are ordered by target-relevance then category in both the CV
+  model and rendered Markdown.
+- **AI CV draft displayed as primary output with toggle between AI and
+  deterministic views** (R30.11–R30.13): when AI tailoring succeeds, the
+  AI-generated draft is shown as the primary view; users can switch between it
+  and the deterministic version before confirming.
+- **STAR questions now receive full ATS career context** (R22.6, R62.5): job
+  titles, competencies, education, and professional summary are passed to the
+  STAR prompt for better candidate-calibrated questions.
+- **Role discovery receives full ATS career context** (R20.6, R47.2): the
+  role-discovery prompt includes previous titles, competencies, education, and
+  summary for trajectory-aware suggestions.
+- **Extraction items persisted to `raw_extractions.md` on Skill Map confirmation**
+  so downstream phases and session resume have full ATS data available.
+- **Save button added to Ingest screen in AI-only mode** so the phase artefact
+  is persisted and the phase stepper can mark Ingest as complete.
+
+### Changed
+
+- Career context derivation no longer gates on `userConfirmed` — all extracted
+  items (except those marked private for cloud) feed into downstream prompts.
+- Phase stepper derives status from artefact presence in Memory Store, not
+  positional index (R48.2–R48.4).
+- Phase stepper uses the UI's current phase (not the async orchestrator pointer)
+  for consistent display.
+
+### Fixed
+
+- AI CV draft was shown only as an advisory note instead of primary output in
+  AI-only mode.
+- Phase stepper showed "done" for phases that were merely navigated past without
+  confirmation.
+- Phase stepper showed "in progress" for phases ahead of the current one due to
+  orchestrator/UI desync.
+- Employment dedup handles OCR-garbled company names (e.g. "T RIP A DVISOR" =
+  "TripAdvisor").
+- Skill dedup catches containing-term relationships, slash-compound retention,
+  and GitHub casing variants.
+- Education entries in prompts stripped of markdown bold formatting artifacts.
+- Professional summary stripped of duplicate "Summary:" prefix in prompts.
+- Education dedup in career context uses case-insensitive comparison.
+- Ingest phase showed "in progress" instead of "done" in AI-only mode because
+  `raw_extractions.md` was never written.
+
 ## [0.4.0] — 2026-07-05
 
 ### Added
 
+- **Skills grouped by category and sorted by relevance in CV output** (R30.2,
+  R32.4): `buildCvModel()` now sorts skills by target-relevance (matched first),
+  then by category (Technical → Tools → Domain → Leadership → Communication →
+  Core_Competency), then alphabetically within each group. `renderSkills()`
+  groups skills by category with bold sub-labels in the rendered Markdown.
+
+- **AI consolidation prompt for dedup** (R71.15, R71.16, R71.17, R71.18):
+  `buildConsolidationPrompt` sends the merged career extraction to the AI for
+  context-aware deduplication (OCR noise, company-name variants, vendor-qualified
+  skills, semantic duplicates, synonymous competencies) before the deterministic
+  safety net. Only active in AI-only/AI-assisted modes; script-only mode skips it.
+- **Reduced deterministic consolidation** (R71.16, R71.17): new
+  `consolidateExtractionReduced` function performs only exact case-insensitive
+  duplicate collapsing as a lightweight safety net after AI consolidation.
+  Replaces the full fuzzy/synonym/vendor-prefix logic when AI handled the
+  context-aware dedup.
+- **Graceful AI consolidation failure handling** (R71.18): on AI error or
+  unparseable response, the system falls back to `consolidateExtractionReduced`
+  and logs a non-blocking warning.
+- **Atomic technology naming in extraction prompt** (R41.8): the career extraction
+  instruction now explicitly tells the model to list each technology as a separate,
+  standalone item ("S3", "Lambda", "DynamoDB") rather than vendor-grouped entries
+  ("AWS (S3, Lambda, DynamoDB)"), producing cleaner skill maps.
+- **Vendor-prefix skill deduplication** (R71.15): `consolidateExtraction()` sub-pass 1
+  collapses vendor-qualified duplicates ("AWS S3" + "S3" → "S3", "Azure DevOps" +
+  "DevOps" → "DevOps") in both standalone skills and per-position technology arrays,
+  keeping the earliest `since` date.
+- **Fuzzy position deduplication** (R71.16): `consolidateExtraction()` sub-pass 2
+  deduplicates positions with fuzzy matching on (company + title) and overlapping
+  dates, keeping the richest entry (most technologies, longest description, most
+  achievements).
+- **Synonym competency deduplication** (R71.17): `consolidateExtraction()` sub-pass 3
+  loads `competency_synonyms.yaml` and canonicalises synonymous competencies to their
+  canonical form (e.g. "Team Leadership" → "Leadership", "Cross-functional
+  Collaboration" → "Collaboration").
+- **Core competencies prompt broadened to all seniority levels** (R71.5): the
+  example list in the extraction instruction expanded to 26 competencies spanning
+  entry-level through senior leadership, with a note about inferring the
+  appropriate level from the candidate's demonstrated career patterns.
+- **Role discovery ATS enrichment** (R20.6): the role-discovery prompt now receives
+  `AtsCareerData` (previous job titles, core competencies, education summaries,
+  professional summary) appended as a "Career context" block so the model can match
+  on the candidate's career trajectory without seeing employer names.
+- **STAR questions multi-competency format** (R62): the STAR question prompt now
+  requests `"competencies"` (an array of one or more behaviours) instead of a
+  singular `"competency"`, and passes `AtsContext` (previous titles, competencies,
+  education, summary) for richer candidate-profile calibration. Backward-compatible
+  parsing accepts the legacy singular field.
+- **CV tailoring full ATS draft** (R30.9, R30.10, R30.14): both the no-posting and
+  Target Opportunity CV tailoring paths now produce a complete ATS-formatted Markdown
+  CV draft (professional summary, experience with adjusted emphasis, skills by
+  relevance, education, core competencies) instead of 5 advisory bullet suggestions.
+  The draft includes full confirmed career data and explicit No-Fabrication
+  instructions, and is presented for user review before acceptance.
 - **Egress transparency and LLM interaction logging** (R74): every prompt sent
   to and response received from any provider (cloud or local) is now logged to
   `log/egress_log.md` in the Memory Store. The log is viewable from the Memory &
@@ -64,6 +170,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (which have no structured `requiredSkills`) now parse mentioned skills from
   their description field and match against the confirmed skill map using
   ontological matching, computing a percentage score rather than returning 0%.
+- **AI CV draft now displayed as primary output in AI-only/AI-assisted mode**
+  (R30.11, R30.12, R30.13): when AI tailoring succeeds, the AI-generated CV
+  draft is shown as the primary view with a toggle to switch between the AI
+  draft and the deterministic version. Users confirm the AI draft before it is
+  persisted; until then auto-save keeps the deterministic version.
+- **AI consolidation dedup runs before deterministic pass in AI modes**
+  (R71.15, R71.16, R71.17, R71.18): `buildConsolidationPrompt` sends the merged
+  career extraction to the AI for context-aware deduplication (OCR noise,
+  company-name variants, vendor-qualified skills, semantic duplicates) before
+  the deterministic safety net. On failure, falls back gracefully to the reduced
+  deterministic pass.
+- **Phase stepper shows "done" only on confirmed artefact presence, not
+  position** (R48.2, R48.3, R48.4): the phase stepper no longer marks phases
+  complete based solely on their index being less than the current phase. A
+  phase is complete only when its defining artefact is present in the Memory
+  Store (e.g. `profile/skill_map.md` for the Skill Map phase).
+- **Employment dedup handles OCR-garbled company/title names** (R76.1, R76.2):
+  `deduplicateEmployment()` now normalizes company and title keys by stripping
+  non-alphanumeric characters and common legal suffixes (GmbH, Ltd, Inc, etc.)
+  before comparison, so OCR-damaged entries like "T RIP A DVISOR" match their
+  clean counterpart.
+- **Skill dedup catches containing-term, slash-compound, and GitHub variants**
+  (R71.15): the deduplication pipeline now detects when one skill name fully
+  contains another as a word/token and merges them, handles slash-compound
+  retention (keeping "IDS/IPS" over standalone "IDS"), and normalizes GitHub
+  capitalization variants.
 
 ## [0.3.0] — 2026-07-04
 

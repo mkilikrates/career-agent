@@ -10,6 +10,7 @@ import {
   type Accomplishment,
   type ExtractedItem,
   type RolePreference,
+  type SkillCategory,
   type SkillId,
   type SkillMapEntry,
   type TalkingPoint,
@@ -151,14 +152,9 @@ describe('@core/output — renderMarkdown preserves model content exactly (R32.5
     const cv = fullModel();
     const md = renderMarkdown(cv);
     for (const bullet of cv.experience) expect(md).toContain(bullet.text);
-    for (const s of cv.skills) expect(md).toContain(`- ${s.name}`);
+    for (const s of cv.skills) expect(md).toContain(s.name);
     for (const e of cv.education) expect(md).toContain(e.title);
     for (const c of cv.certifications) expect(md).toContain(c.title);
-
-    // No fabricated content: two experience bullets and two skills exactly.
-    const bulletLines = md.split('\n').filter((l) => l.startsWith('- '));
-    // 2 experience bullets + 2 skills + 1 education + 1 certification = 6 bullets.
-    expect(bulletLines).toHaveLength(6);
   });
 
   it('preserves verbatim contact lines and summary text', () => {
@@ -222,7 +218,7 @@ describe('@core/output — renderMarkdown handles empty / optional sections grac
     const md = renderMarkdown(cv);
     // No h1 header line (single '#') is emitted when there is no name.
     expect(md.split('\n').some((l) => /^# /.test(l))).toBe(false);
-    expect(md.startsWith('## Skills')).toBe(true);
+    expect(md).toMatch(/^## Skills/);
   });
 
   it('renders an education entry with only a title', () => {
@@ -237,5 +233,84 @@ describe('@core/output — renderMarkdown handles empty / optional sections grac
     const md = renderMarkdown(fullModel());
     expect(md.endsWith('\n')).toBe(true);
     expect(md.endsWith('\n\n')).toBe(false);
+  });
+});
+
+describe('@core/output — renderMarkdown groups skills by category (R32.4)', () => {
+  const skillWith = (id: string, name: string, category: SkillCategory): SkillMapEntry => ({
+    id: asSkillId(id),
+    name,
+    category,
+    proficiencySignal: 'Evidence-based.',
+    evidence: [],
+    since: asISODate('2024-01-01'),
+  });
+
+  it('renders skills grouped by category with bold labels', () => {
+    const aws = skillWith('SKILL-aws', 'AWS', 'Technical');
+    const k8s = skillWith('SKILL-k8s', 'Kubernetes', 'Technical');
+    const docker = skillWith('SKILL-docker', 'Docker', 'Tools');
+    const mentoring = skillWith('SKILL-mentor', 'Mentoring', 'Leadership');
+    const map = skillMapOf([aws, k8s, docker, mentoring]);
+    const cv = buildCvModel(role([]), { skillMap: map });
+    const md = renderMarkdown(cv);
+
+    expect(md).toContain('**Technical:** AWS, Kubernetes');
+    expect(md).toContain('**Tools:** Docker');
+    expect(md).toContain('**Leadership:** Mentoring');
+  });
+
+  it('renders Core_Competency label as "Core Competency" (human-friendly)', () => {
+    const agile = skillWith('SKILL-agile', 'Agile', 'Core_Competency');
+    const map = skillMapOf([agile]);
+    const cv = buildCvModel(role([]), { skillMap: map });
+    const md = renderMarkdown(cv);
+
+    expect(md).toContain('**Core Competency:** Agile');
+    expect(md).not.toContain('Core_Competency');
+  });
+
+  it('omits empty categories from the output', () => {
+    const aws = skillWith('SKILL-aws', 'AWS', 'Technical');
+    const map = skillMapOf([aws]);
+    const cv = buildCvModel(role([]), { skillMap: map });
+    const md = renderMarkdown(cv);
+
+    expect(md).toContain('**Technical:** AWS');
+    expect(md).not.toContain('**Leadership:**');
+    expect(md).not.toContain('**Tools:**');
+    expect(md).not.toContain('**Domain:**');
+  });
+
+  it('maintains category priority order in the rendered output', () => {
+    const mentoring = skillWith('SKILL-mentor', 'Mentoring', 'Leadership');
+    const aws = skillWith('SKILL-aws', 'AWS', 'Technical');
+    const helm = skillWith('SKILL-helm', 'Helm', 'Tools');
+    const fintech = skillWith('SKILL-fin', 'FinTech', 'Domain');
+    const map = skillMapOf([mentoring, aws, helm, fintech]);
+    const cv = buildCvModel(role([]), { skillMap: map });
+    const md = renderMarkdown(cv);
+
+    const techPos = md.indexOf('**Technical:**');
+    const toolsPos = md.indexOf('**Tools:**');
+    const domainPos = md.indexOf('**Domain:**');
+    const leaderPos = md.indexOf('**Leadership:**');
+
+    expect(techPos).toBeLessThan(toolsPos);
+    expect(toolsPos).toBeLessThan(domainPos);
+    expect(domainPos).toBeLessThan(leaderPos);
+  });
+
+  it('lists target-relevant skills before non-relevant ones within each category', () => {
+    const aws = skillWith('SKILL-aws', 'AWS', 'Technical');
+    const react = skillWith('SKILL-react', 'React', 'Technical');
+    const terraform = skillWith('SKILL-tf', 'Terraform', 'Technical');
+    const map = skillMapOf([aws, react, terraform]);
+    // Only React is matched to the role
+    const cv = buildCvModel(role([react.id]), { skillMap: map });
+    const md = renderMarkdown(cv);
+
+    // All Technical skills should appear on the Technical line, matched first then alpha
+    expect(md).toContain('**Technical:** React, AWS, Terraform');
   });
 });

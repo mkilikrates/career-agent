@@ -28,12 +28,10 @@
 // constructed with (see `output-assist.ts`).
 
 import type { EgressDestination } from '@core/assist';
+import { experienceYears } from '@core/types';
 import type { ConfirmedEvidence } from './cv-model';
 
 const asString = (v: unknown): string => v as unknown as string;
-
-/** Collapse whitespace so a single evidence/opportunity line never breaks. */
-const oneLine = (text: string): string => text.replace(/\s*[\r\n]+\s*/g, ' ').trim();
 
 /** Which generation path produced a CV, surfaced to the user (R30.7). */
 export type CvGenerationMode = 'ai-tailored' | 'script-only';
@@ -106,46 +104,118 @@ const isThirdParty = (dest: EgressDestination): boolean =>
   dest.kind !== 'keyless-local';
 
 /**
- * The confirmed-evidence lines the tailoring request carries — the ONLY source
- * of facts the model may use (R30.1, R30.8). Skills are projected to phrasing +
- * category; experience bullets to their text. For a keyed cloud (third-party)
- * `dest`, every skill marked private is excluded (R30.10, R46.4).
+ * Build the full confirmed ATS career data lines for the full-draft prompt
+ * (R30.14). Includes employment positions with titles/dates/achievements,
+ * core competencies, education, professional summary, and skills with durations.
+ * For a keyed cloud (third-party) destination, items marked private are excluded
+ * (R30.13, R46.4).
  */
-const confirmedEvidenceLines = (
+const confirmedAtsCareerData = (
   src: ConfirmedEvidence,
   thirdParty: boolean,
-): { readonly skills: readonly string[]; readonly experience: readonly string[] } => {
-  const skills = src.skillMap.entries
-    .filter((entry) => !(thirdParty && entry.private === true))
-    .map((entry) => `${entry.name} (${entry.category})`);
+): string => {
+  const lines: string[] = [];
 
-  const experience: string[] = [];
-  for (const acc of src.accomplishments ?? []) {
-    if (acc.retired) continue;
-    experience.push(oneLine(acc.text));
-  }
-  for (const tp of src.talkingPoints ?? []) {
-    if (tp.retired) continue;
-    experience.push(oneLine(tp.polished));
+  // Professional summary (R30.14)
+  const summaryItems = (src.items ?? []).filter(
+    (i) => i.type === 'professional_summary' && i.userConfirmed && !i.private,
+  );
+  const summaryText = summaryItems
+    .map((i) => (typeof i.fields.text === 'string' ? i.fields.text.trim() : ''))
+    .filter((t) => t.length > 0)
+    .join(' ');
+  lines.push(`- Professional summary: ${summaryText || src.summary || '(none)'}`);
+
+  // Employment positions with titles, dates, achievements (R30.14)
+  const employmentItems = (src.items ?? []).filter(
+    (i) => i.type === 'employment' && i.userConfirmed && !i.private,
+  );
+  lines.push('- Positions:');
+  if (employmentItems.length > 0) {
+    for (const item of employmentItems) {
+      const title = typeof item.fields.title === 'string' ? item.fields.title : 'Position';
+      const company = typeof item.fields.employer === 'string' ? item.fields.employer : '';
+      const start = item.fields.start ?? item.fields.startedOn ?? item.fields.from;
+      const end = item.fields.end ?? item.fields.finishedOn ?? item.fields.to;
+      const dateStr = start || end
+        ? ` (${typeof start === 'string' ? start : ''}${start && end ? ' – ' : ''}${typeof end === 'string' ? end : ''})`
+        : '';
+      const techs = Array.isArray(item.fields.technologies)
+        ? item.fields.technologies.filter((t): t is string => typeof t === 'string')
+        : [];
+      const techStr = techs.length > 0 ? `; technologies: ${techs.join(', ')}` : '';
+      const achievements = Array.isArray(item.fields.achievements)
+        ? item.fields.achievements.filter((a): a is string => typeof a === 'string')
+        : [];
+      const achStr = achievements.length > 0 ? `; achievements: ${achievements.join('; ')}` : '';
+      lines.push(`  - ${title} at ${company}${dateStr}${techStr}${achStr}`);
+    }
+  } else {
+    lines.push('  - (none)');
   }
 
-  return { skills, experience };
+  // Core competencies (R30.14)
+  const competencyItems = (src.items ?? []).filter(
+    (i) => i.type === 'core_competency' && i.userConfirmed && !i.private,
+  );
+  const competencies = competencyItems
+    .map((i) => (typeof i.fields.name === 'string' ? i.fields.name.trim() : ''))
+    .filter((n) => n.length > 0);
+  lines.push(`- Core competencies: ${competencies.length > 0 ? competencies.join(', ') : '(none)'}`);
+
+  // Education (R30.14)
+  const educationItems = (src.items ?? []).filter(
+    (i) => i.type === 'education' && i.userConfirmed && !i.private,
+  );
+  lines.push('- Education:');
+  if (educationItems.length > 0) {
+    for (const item of educationItems) {
+      const degree = typeof item.fields.degree === 'string' ? item.fields.degree :
+        typeof item.fields.title === 'string' ? item.fields.title : 'Education';
+      const institution = typeof item.fields.institution === 'string' ? item.fields.institution : '';
+      const start = item.fields.start ?? item.fields.startedOn;
+      const end = item.fields.end ?? item.fields.finishedOn;
+      const dateStr = start || end
+        ? ` (${typeof start === 'string' ? start : ''}${start && end ? ' – ' : ''}${typeof end === 'string' ? end : ''})`
+        : '';
+      lines.push(`  - ${degree}${institution ? ` at ${institution}` : ''}${dateStr}`);
+    }
+  } else {
+    lines.push('  - (none)');
+  }
+
+  // Skills with durations (R30.14)
+  lines.push('- Skills:');
+  const filteredEntries = src.skillMap.entries
+    .filter((entry) => !(thirdParty && entry.private === true));
+  if (filteredEntries.length > 0) {
+    for (const entry of filteredEntries) {
+      const years = experienceYears(entry.since);
+      const durStr = years !== undefined && years > 0 ? ` (~${years} years)` : '';
+      lines.push(`  - ${entry.name}${durStr}`);
+    }
+  } else {
+    lines.push('  - (none)');
+  }
+
+  return lines.join('\n');
 };
 
 /**
  * Build the AI-assist tailoring text routed THROUGH the Egress Gate (R30.6,
- * R30.8, R30.9, R30.10). The returned text is the plaintext the gate
+ * R30.8, R30.9, R30.10, R30.14). The returned text is the plaintext the gate
  * PII-pre-screens (R30.9, R6) before transmitting the minimised Redacted Payload
  * to the user's chosen provider — this module never constructs a payload that
  * bypasses the gate.
  *
- * The text instructs the model to tailor EMPHASIS and ORDERING using ONLY the
- * confirmed evidence (R30.6), and presents the {@link TargetOpportunity} as a
- * clearly-labelled TAILORING TARGET that is NEVER a claim source (R30.9): any
- * skill, metric, date, title, or employer that appears only in the posting (and
- * not in confirmed evidence) must be excluded (R30.8, No-Fabrication R37). For a
- * keyed cloud (third-party) `dest`, every item marked private is excluded from
- * the confirmed evidence it carries (R30.10, R46.4).
+ * The text instructs the model to produce a **complete ATS-formatted CV draft in
+ * Markdown** (R30.10) using ONLY the confirmed evidence (R30.6), and presents
+ * the {@link TargetOpportunity} as a clearly-labelled TAILORING TARGET that is
+ * NEVER a claim source (R30.9): any skill, metric, date, title, or employer
+ * that appears only in the posting (and not in confirmed evidence) must be
+ * excluded (R30.8, No-Fabrication R37). For a keyed cloud (third-party) `dest`,
+ * every item marked private is excluded from the confirmed evidence it carries
+ * (R30.13, R46.4).
  *
  * Pure and deterministic; preserves the skill map's entry order.
  */
@@ -155,25 +225,22 @@ export const buildTailoringPayload = (
   dest: EgressDestination,
 ): string => {
   const thirdParty = isThirdParty(dest);
-  const { skills, experience } = confirmedEvidenceLines(src, thirdParty);
-
-  const skillLines = skills.length > 0 ? skills.map((s) => `- ${s}`).join('\n') : '- (none)';
-  const experienceLines =
-    experience.length > 0 ? experience.map((b) => `- ${b}`).join('\n') : '- (none)';
+  const careerData = confirmedAtsCareerData(src, thirdParty);
 
   return (
-    'You are helping tailor a CV to a Target Opportunity. The Target Opportunity ' +
-    'is a TAILORING TARGET ONLY — it is NEVER a source of facts. Use ONLY the ' +
-    'confirmed evidence below as the source of skills, metrics, dates, job titles, ' +
-    'and employers. Do NOT add, infer, or import any skill, metric, date, title, ' +
-    'or employer that appears only in the Target Opportunity and not in the ' +
-    'confirmed evidence. Suggest up to 5 short, advisory edits — emphasis, ' +
-    'ordering, and phrasing only — to better target this opportunity using that ' +
-    'confirmed evidence. Return one suggestion per line, no preamble.\n\n' +
-    'Confirmed skills:\n' +
-    skillLines +
-    '\n\nConfirmed experience:\n' +
-    experienceLines +
+    'You are producing a complete ATS-formatted CV draft in Markdown, tailored to a Target Opportunity. ' +
+    'The Target Opportunity is a TAILORING TARGET ONLY — it is NEVER a source of facts. ' +
+    'Use ONLY the confirmed evidence below. Do NOT invent any skill, metric, date, title, or employer not present in the confirmed data.\n\n' +
+    'Produce a complete CV in Markdown with the following sections:\n' +
+    '1. Professional Summary (2-3 sentences targeting this opportunity)\n' +
+    '2. Experience (employment entries with adjusted bullet emphasis for the opportunity)\n' +
+    '3. Skills (ordered by relevance to this opportunity)\n' +
+    '4. Education\n' +
+    '5. Core Competencies (if applicable)\n\n' +
+    'Adapt emphasis and phrasing toward the Target Opportunity\'s language and priorities, ' +
+    'but EXCLUDE any skill, metric, date, title, or employer appearing only in the Target Opportunity and not in confirmed evidence.\n\n' +
+    'Confirmed career data:\n' +
+    careerData +
     '\n\nTarget Opportunity (tailoring target only — NOT a source of facts):\n' +
     asString(opp.text)
   );

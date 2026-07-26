@@ -20,7 +20,11 @@ import {
   createCvTailoringOperation,
   CvTailoringOperation,
   parseTailoringNotes,
+  parseCvDraft,
+  buildCvTailoringPrompt,
+  type CvDraft,
 } from './output-assist';
+import { buildCvModel } from './cv-model';
 
 const DEST: EgressDestination = { provider: 'openai', kind: 'keyed-cloud' };
 
@@ -52,10 +56,86 @@ const ROLE: RolePreference = {
 
 const EVIDENCE: ConfirmedEvidence = { skillMap: MAP, talkingPoints: [], items: [] };
 
-describe('parseTailoringNotes', () => {
-  it('parses one note per non-empty line, de-duplicated', () => {
-    const notes = parseTailoringNotes('- Lead with impact\nLead with impact\n* Quantify results');
-    expect(notes).toEqual(['Lead with impact', 'Quantify results']);
+// A realistic AI response that simulates a full Markdown CV draft.
+const FULL_CV_RESPONSE = `# Backend Engineer CV
+
+## Professional Summary
+
+Experienced backend engineer with a strong foundation in JavaScript and server-side development.
+
+## Experience
+
+### Software Engineer at Acme Corp (2020-01 – 2023-06)
+- Designed and implemented RESTful APIs serving 10k requests/day
+- Led migration from monolith to microservices architecture
+
+## Skills
+
+- JavaScript
+- Node.js
+- REST APIs
+
+## Education
+
+- BSc Computer Science at State University (2016 – 2020)
+`;
+
+describe('parseCvDraft (R30.9, R30.11)', () => {
+  it('parses a full Markdown CV into a CvDraft with summary', () => {
+    const draft = parseCvDraft(FULL_CV_RESPONSE);
+    expect(draft).toBeDefined();
+    expect(draft!.markdown).toBe(FULL_CV_RESPONSE.trim());
+    expect(draft!.summary).toBe('Backend Engineer CV');
+  });
+
+  it('returns undefined for replies that are too short', () => {
+    expect(parseCvDraft('short')).toBeUndefined();
+    expect(parseCvDraft('')).toBeUndefined();
+    expect(parseCvDraft('   ')).toBeUndefined();
+  });
+
+  it('derives summary from the first meaningful content line', () => {
+    const draft = parseCvDraft('```markdown\n# My CV\n\nSome content here for a professional.');
+    expect(draft).toBeDefined();
+    expect(draft!.summary).toBe('My CV');
+  });
+});
+
+describe('parseTailoringNotes (R30.9)', () => {
+  it('wraps a full CV response as a single CvDraft suggestion', () => {
+    const notes = parseTailoringNotes(FULL_CV_RESPONSE);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].markdown).toBe(FULL_CV_RESPONSE.trim());
+    expect(notes[0].summary).toBe('Backend Engineer CV');
+  });
+
+  it('returns empty array for a reply that is too short', () => {
+    expect(parseTailoringNotes('hi')).toEqual([]);
+  });
+});
+
+describe('buildCvTailoringPrompt (R30.9, R30.14)', () => {
+  it('instructs the model to produce a complete ATS-formatted CV draft', () => {
+    const model = buildCvModel(ROLE, EVIDENCE);
+    const prompt = buildCvTailoringPrompt(model);
+    expect(prompt).toContain('complete ATS-formatted CV draft in Markdown');
+    expect(prompt).toContain('Backend Engineer');
+  });
+
+  it('includes No-Fabrication instructions (R37)', () => {
+    const model = buildCvModel(ROLE, EVIDENCE);
+    const prompt = buildCvTailoringPrompt(model);
+    expect(prompt).toContain('Do NOT invent any skill, metric, date, title, or employer');
+    expect(prompt).toContain('Use ONLY the confirmed career data below');
+  });
+
+  it('includes sections for Professional Summary, Experience, Skills, Education', () => {
+    const model = buildCvModel(ROLE, EVIDENCE);
+    const prompt = buildCvTailoringPrompt(model);
+    expect(prompt).toContain('Professional Summary');
+    expect(prompt).toContain('Experience');
+    expect(prompt).toContain('Skills');
+    expect(prompt).toContain('Education');
   });
 });
 
@@ -73,21 +153,21 @@ describe('CvTailoringOperation — scriptOnly (R30.7)', () => {
   });
 });
 
-describe('CvTailoringOperation — aiAssisted (R22.6, R47.3)', () => {
-  it('returns the deterministic CV model plus confirm-before-entry tailoring notes', async () => {
-    const transport = vi.fn<AssistTransport>(
-      async () => 'Lead with backend impact\nGroup cloud skills together',
-    );
+describe('CvTailoringOperation — aiAssisted (R30.9, R30.11)', () => {
+  it('returns the deterministic CV model plus a full CV draft as advisory suggestion', async () => {
+    const transport = vi.fn<AssistTransport>(async () => FULL_CV_RESPONSE);
     const op = new CvTailoringOperation(transport);
 
     const outcome = await op.aiAssisted({ role: ROLE, evidence: EVIDENCE }, DEST);
 
-    // The CV model is the SAME deterministic model — AI notes never replace it.
+    // The CV model is the SAME deterministic model — AI draft never replaces it (R30.11).
     expect(outcome.baseline.targetRole.title).toBe('Backend Engineer');
-    expect(outcome.suggestions.map((s) => s.value)).toEqual([
-      'Lead with backend impact',
-      'Group cloud skills together',
-    ]);
+    // The AI draft is a CvDraft object, advisory and requiring confirmation.
+    expect(outcome.suggestions).toHaveLength(1);
+    const draft = outcome.suggestions[0].value as CvDraft;
+    expect(draft.markdown).toContain('Professional Summary');
+    expect(draft.markdown).toContain('Backend Engineer CV');
+    expect(draft.summary).toBe('Backend Engineer CV');
     expect(outcome.suggestions.every((s) => s.requiresConfirmation === true)).toBe(true);
   });
 });
