@@ -297,7 +297,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
     - Static bundle loads from `file://`, the privacy notice renders, and no network call occurs except via the Egress Gate
     - _Requirements: 1.1, 1.3, 1.4_
 
-- [ ] 20. Final checkpoint
+- [x] 20. Final checkpoint
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 21. Completed since original plan (UI shell + provider integrations)
@@ -478,7 +478,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
     - **Property 22: For any skill map, the role-discovery AI-assist payload contains no employer or company name and includes an approximate experience duration for every skill it carries; and for a keyed cloud (third-party) destination it excludes every item marked private.**
     - **Validates: Requirements 20.6, 47.2, 47.4**
 
-- [ ] 27. Interview_Coach: AI STAR questions, in-browser recording, and educational summary
+- [x] 27. Interview_Coach: AI STAR questions, in-browser recording, and educational summary
   - [x] 27.1 Implement opt-in AI STAR question generation
     - Implement `generateQuestionsAi(role, map, dest)` using a prompt that frames the chosen model as a recruiter for the specific target position, routed through the Egress Gate; AI questions supplement and never replace the script questions (the returned set is always a superset); exclude every private item for a keyed cloud (third-party) destination; on provider failure surface a non-blocking error and preserve pending coaching state so the script questions remain available; AI-generated questions are practice prompts and are not gated by the No-Fabrication harness
     - _Requirements: 22.4, 22.6, 22.7, 22.8, 22.9_
@@ -666,7 +666,7 @@ These tasks were added after the original plan. Section 30 records work already 
   - [x]* 31.9 Tests for robust question parsing
     - JSON array parse (clean, fenced, and embedded-in-preamble); JSON object wrapper / array-of-strings tolerance; line fallback for `?`-terminated and lead-in prompts; generic competency default; empty result only when no usable question; a property test asserting any reply containing at least one question-like line yields a non-empty result
     - _Requirements: 62.3, 62.5_
-- [ ] 32. Conversion Preview and Outbound Payload Preview (R64, R65)
+- [x] 32. Conversion Preview and Outbound Payload Preview (R64, R65)
   - [x] 32.1 Implement the read-only Ingestion Conversion Preview in IngestScreen
     - Add a per-document, READ-ONLY Conversion Preview that shows the full converted text for each ingested document, sourced from the data the shell already holds (rawDocs / `IngestionResult.rawText`, persisted at `profile/raw_documents.md`); inspection only — no in-place editing of the converted text
     - Indicate low-confidence PDF regions (`IngestionResult.lowConfidencePdfText`) within the preview so the user sees where extraction was uncertain
@@ -1076,7 +1076,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Add entries to `CHANGELOG.md` under the current version for all 6 enhancements
     - _Requirements: 41.8, 71, 20.6, 62, 30_
 
-- [ ] 42. Checkpoint — Prompt and extraction enhancements complete
+- [x] 42. Checkpoint — Prompt and extraction enhancements complete
   - Ensure all tests pass (`npm run typecheck && npm test`), ask the user if questions arise.
 
 - [x] 43. Bug fixes — session review findings

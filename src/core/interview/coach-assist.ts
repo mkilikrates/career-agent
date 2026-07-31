@@ -38,6 +38,7 @@
 // this module imports no provider client.
 
 import type {
+  CareerContext,
   Question,
   RolePreference,
   StarAnswer,
@@ -46,6 +47,7 @@ import type {
 import { experienceYears } from '@core/types';
 import {
   BaseAssistableOperation,
+  isThirdPartyDestination as isThirdParty,
   type AssistTransport,
   type EgressDestination,
 } from '@core/assist';
@@ -303,20 +305,11 @@ export function parseQuestionPrompts(
 }
 
 /**
- * Whether a destination is a keyed cloud (third-party) provider. A keyless Local
- * Provider runs on the user's own device with no third-party egress, so private
- * items may be included (R46.5). Any other destination — including one whose
- * `kind` is absent — is treated as third-party, the SAFE default: over-excluding
- * a private item is harmless, whereas the reverse would leak it (R22.7, R46.4).
+ * Backward-compatible alias. Prefer {@link CareerContext} for new code.
+ * Maps CareerContext's canonical field names to the legacy names this module
+ * used historically.
  */
-const isThirdParty = (dest: EgressDestination): boolean =>
-  dest.kind !== 'keyless-local';
-
-/**
- * Additional ATS context that can be included in the candidate profile when
- * available, providing the model with richer calibration data (R22.6).
- */
-export interface AtsContext {
+export type AtsContext = {
   /** Previous job titles (without employer names) for seniority calibration. */
   readonly previousTitles?: readonly string[];
   /** Confirmed core competencies from the career extraction. */
@@ -325,7 +318,7 @@ export interface AtsContext {
   readonly educationDegrees?: readonly string[];
   /** A brief professional summary. */
   readonly professionalSummary?: string;
-}
+};
 
 /**
  * Build a compact structured candidate profile for the STAR question prompt,

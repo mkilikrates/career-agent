@@ -59,6 +59,8 @@ Os testes ficam **co-localizados** com o código que cobrem, como arquivos `*.te
 | `core/privacy` | O modelo da declaração de privacidade, o estado de consentimento e o canal de rótulos de rede. |
 | `core/no-fabrication` | O No_Fabrication_Harness e suas fixtures (o esqueleto de CI da Propriedade 1). |
 | `core/locale` | Configuração do i18next, detecção/confirmação de idioma e configuração de locale. |
+| `core/types/career-context.ts` | A interface unificada `CareerContext` — contexto de trajetória profissional sem empregador (substitui os antigos tipos separados `AtsCareerData` e `AtsContext`). |
+| `core/career-context.ts` | A função unificada `deriveCareerContext()` que extrai contexto de carreira dos itens para enriquecimento de prompts de IA (substitui derivação duplicada nas telas da UI). |
 
 ## `src/adapters` — fronteiras
 
@@ -101,6 +103,9 @@ Os testes ficam **co-localizados** com o código que cobrem, como arquivos `*.te
 | `AssistChoice.tsx` | O modo de IA com adesão-opcional-primeiro + a superfície de rótulos de rede/privacidade. |
 | `SourceTraceInspector.tsx` | Resolve qualquer referência de afirmação até seu rastro de proveniência. |
 | `PrivacyStatement.tsx` | A renderização da declaração de privacidade + consentimento + rótulos de rede. |
+| `ui-utils.ts` | Utilitários compartilhados de UI: `parseCommaSeparatedList` (divisão por vírgula/nova linha), `buildEgressDest` (construtor de EgressDestination). |
+| `useAiOperation.ts` | Hook React compartilhado para estado de ocupado/erro em assistência de IA e padrão try/catch. |
+| `types.ts` | Definições de tipo compartilhadas de UI: interface `AiAssistProps` estendida por todas as telas com IA. |
 | `design-system/` | Tokens + componentes compartilhados (`Button`, `TextField`, `TextArea`, `PhaseChrome`, primitivos de layout, primitivos de estado) para que toda tela tenha estilo e comportamento consistentes. |
 
 ## Convenções

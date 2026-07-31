@@ -275,6 +275,14 @@ export const ANTHROPIC_PROVIDER_ID: ProviderId = 'anthropic';
 /** Keyless, self-hosted OpenAI-Compatible Endpoint provider (R43). */
 export const LOCAL_PROVIDER_ID: ProviderId = 'local';
 
+// Keyed OpenAI-compatible cloud providers.
+export const KIMI_PROVIDER_ID: ProviderId = 'kimi';
+export const DEEPSEEK_PROVIDER_ID: ProviderId = 'deepseek';
+export const GROQ_PROVIDER_ID: ProviderId = 'groq';
+export const XAI_PROVIDER_ID: ProviderId = 'xai';
+export const OPENROUTER_PROVIDER_ID: ProviderId = 'openrouter';
+export const CUSTOM_OPENAI_PROVIDER_ID: ProviderId = 'custom-openai';
+
 /**
  * Injected clients for the default seed. Clients are supplied by the caller
  * (DI) rather than hardcoded here, keeping the registry pluggable and ensuring
@@ -284,6 +292,12 @@ export interface DefaultProviderClients {
   readonly openai?: { readonly llm?: LlmProvider; readonly stt?: SttProvider };
   readonly anthropic?: { readonly llm?: LlmProvider; readonly stt?: SttProvider };
   readonly local?: { readonly llm?: LlmProvider; readonly stt?: SttProvider };
+  readonly kimi?: { readonly llm?: LlmProvider };
+  readonly deepseek?: { readonly llm?: LlmProvider };
+  readonly groq?: { readonly llm?: LlmProvider };
+  readonly xai?: { readonly llm?: LlmProvider };
+  readonly openrouter?: { readonly llm?: LlmProvider };
+  readonly customOpenai?: { readonly llm?: LlmProvider };
 }
 
 /**
@@ -307,6 +321,36 @@ export function defaultProviderPlugins(
       setupGuide: (locale) => anthropicSetupGuide(locale),
       llm: clients.anthropic?.llm,
       stt: clients.anthropic?.stt,
+    },
+    {
+      descriptor: { id: KIMI_PROVIDER_ID, displayName: 'Kimi (Moonshot)' },
+      setupGuide: (locale) => kimiSetupGuide(locale),
+      llm: clients.kimi?.llm,
+    },
+    {
+      descriptor: { id: DEEPSEEK_PROVIDER_ID, displayName: 'DeepSeek' },
+      setupGuide: (locale) => deepseekSetupGuide(locale),
+      llm: clients.deepseek?.llm,
+    },
+    {
+      descriptor: { id: GROQ_PROVIDER_ID, displayName: 'Groq' },
+      setupGuide: (locale) => groqSetupGuide(locale),
+      llm: clients.groq?.llm,
+    },
+    {
+      descriptor: { id: XAI_PROVIDER_ID, displayName: 'xAI (Grok)' },
+      setupGuide: (locale) => xaiSetupGuide(locale),
+      llm: clients.xai?.llm,
+    },
+    {
+      descriptor: { id: OPENROUTER_PROVIDER_ID, displayName: 'OpenRouter' },
+      setupGuide: (locale) => openrouterSetupGuide(locale),
+      llm: clients.openrouter?.llm,
+    },
+    {
+      descriptor: { id: CUSTOM_OPENAI_PROVIDER_ID, displayName: 'Custom OpenAI-Compatible' },
+      setupGuide: (locale) => customOpenaiSetupGuide(locale),
+      llm: clients.customOpenai?.llm,
     },
     {
       descriptor: { id: LOCAL_PROVIDER_ID, displayName: 'Local (self-hosted)', keyless: true },
@@ -408,5 +452,162 @@ function localSetupGuide(locale: Locale): Markdown {
     '',
     '> Because the server runs on your own machine, no data leaves the device.',
     '> Also works with LocalAI, LM Studio, llama.cpp server, and vLLM.',
+  ].join('\n');
+}
+
+// --- Setup guides for keyed OpenAI-compatible cloud providers ----------------
+
+function kimiSetupGuide(locale: Locale): Markdown {
+  if (isPtBr(locale)) {
+    return [
+      '## Conectar a Kimi (Moonshot)',
+      '',
+      '1. Cadastre-se em https://platform.kimi.ai e faça login.',
+      '2. Vá em API Keys → Criar nova chave. Copie a chave gerada.',
+      '3. Cole a chave abaixo. Ela é validada com uma chamada de teste e',
+      '   armazenada criptografada apenas neste navegador.',
+      '',
+      '> A chave é enviada somente para a Kimi (Moonshot) e nunca é gravada nos',
+      '> seus arquivos de carreira.',
+    ].join('\n');
+  }
+  return [
+    '## Connect Kimi (Moonshot)',
+    '',
+    '1. Sign up at https://platform.kimi.ai and sign in.',
+    '2. Go to API Keys → Create new key. Copy the generated key.',
+    '3. Paste the key below. It is validated with a test call and stored',
+    '   encrypted in this browser only.',
+    '',
+    '> Your key is sent only to Kimi (Moonshot) and is never written into your career files.',
+  ].join('\n');
+}
+
+function deepseekSetupGuide(locale: Locale): Markdown {
+  if (isPtBr(locale)) {
+    return [
+      '## Conectar a DeepSeek',
+      '',
+      '1. Cadastre-se em https://platform.deepseek.com e faça login.',
+      '2. Vá em API Keys → Criar chave. Copie a chave gerada.',
+      '3. Cole a chave abaixo. Ela é validada com uma chamada de teste e',
+      '   armazenada criptografada apenas neste navegador.',
+      '',
+      '> A chave é enviada somente para a DeepSeek e nunca é gravada nos seus',
+      '> arquivos de carreira.',
+    ].join('\n');
+  }
+  return [
+    '## Connect DeepSeek',
+    '',
+    '1. Sign up at https://platform.deepseek.com and sign in.',
+    '2. Go to API Keys → Create key. Copy the generated key.',
+    '3. Paste the key below. It is validated with a test call and stored',
+    '   encrypted in this browser only.',
+    '',
+    '> Your key is sent only to DeepSeek and is never written into your career files.',
+  ].join('\n');
+}
+
+function groqSetupGuide(locale: Locale): Markdown {
+  if (isPtBr(locale)) {
+    return [
+      '## Conectar a Groq',
+      '',
+      '1. Cadastre-se em https://console.groq.com e faça login.',
+      '2. Vá em API Keys → Criar API key. Copie a chave gerada.',
+      '3. Cole a chave abaixo. Ela é validada com uma chamada de teste e',
+      '   armazenada criptografada apenas neste navegador. Plano gratuito disponível.',
+      '',
+      '> A chave é enviada somente para a Groq e nunca é gravada nos seus',
+      '> arquivos de carreira.',
+    ].join('\n');
+  }
+  return [
+    '## Connect Groq',
+    '',
+    '1. Sign up at https://console.groq.com and sign in.',
+    '2. Go to API Keys → Create API key. Copy the generated key.',
+    '3. Paste the key below. It is validated with a test call and stored',
+    '   encrypted in this browser only. Free tier available.',
+    '',
+    '> Your key is sent only to Groq and is never written into your career files.',
+  ].join('\n');
+}
+
+function xaiSetupGuide(locale: Locale): Markdown {
+  if (isPtBr(locale)) {
+    return [
+      '## Conectar a xAI (Grok)',
+      '',
+      '1. Cadastre-se em https://console.x.ai e faça login.',
+      '2. Vá em API Keys → Criar chave. Copie a chave gerada.',
+      '3. Cole a chave abaixo. Ela é validada com uma chamada de teste e',
+      '   armazenada criptografada apenas neste navegador.',
+      '',
+      '> A chave é enviada somente para a xAI e nunca é gravada nos seus',
+      '> arquivos de carreira.',
+    ].join('\n');
+  }
+  return [
+    '## Connect xAI (Grok)',
+    '',
+    '1. Sign up at https://console.x.ai and sign in.',
+    '2. Go to API Keys → Create key. Copy the generated key.',
+    '3. Paste the key below. It is validated with a test call and stored',
+    '   encrypted in this browser only.',
+    '',
+    '> Your key is sent only to xAI and is never written into your career files.',
+  ].join('\n');
+}
+
+function openrouterSetupGuide(locale: Locale): Markdown {
+  if (isPtBr(locale)) {
+    return [
+      '## Conectar a OpenRouter',
+      '',
+      '1. Cadastre-se em https://openrouter.ai e faça login.',
+      '2. Vá em Keys → Criar chave. Copie a chave gerada.',
+      '3. Cole a chave abaixo. Ela é validada com uma chamada de teste e',
+      '   armazenada criptografada apenas neste navegador. Dá acesso a mais de 100 modelos.',
+      '',
+      '> A chave é enviada somente para a OpenRouter e nunca é gravada nos seus',
+      '> arquivos de carreira.',
+    ].join('\n');
+  }
+  return [
+    '## Connect OpenRouter',
+    '',
+    '1. Sign up at https://openrouter.ai and sign in.',
+    '2. Go to Keys → Create key. Copy the generated key.',
+    '3. Paste the key below. It is validated with a test call and stored',
+    '   encrypted in this browser only. Gives access to 100+ models.',
+    '',
+    '> Your key is sent only to OpenRouter and is never written into your career files.',
+  ].join('\n');
+}
+
+function customOpenaiSetupGuide(locale: Locale): Markdown {
+  if (isPtBr(locale)) {
+    return [
+      '## Conectar um endpoint OpenAI-Compatível personalizado',
+      '',
+      '1. Insira a URL base do seu endpoint compatível com a API da OpenAI.',
+      '2. Insira sua chave de API. O endpoint deve suportar `/v1/chat/completions`.',
+      '3. A lista de modelos é obtida automaticamente após a validação.',
+      '',
+      '> A chave é enviada somente para o endpoint que você configurou e nunca é',
+      '> gravada nos seus arquivos de carreira.',
+    ].join('\n');
+  }
+  return [
+    '## Connect a Custom OpenAI-Compatible Endpoint',
+    '',
+    '1. Enter your OpenAI-compatible endpoint base URL below.',
+    '2. Enter your API key. The endpoint must support `/v1/chat/completions`.',
+    '3. The model list is auto-discovered after validation.',
+    '',
+    '> Your key is sent only to the endpoint you configure and is never written',
+    '> into your career files.',
   ].join('\n');
 }

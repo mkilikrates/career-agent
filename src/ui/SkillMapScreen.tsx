@@ -46,6 +46,7 @@ import {
 import { rescorePreferences, saveRolePreferences } from '@core/role-matcher';
 import { type AssistMode, type EgressDestination } from '@core/assist';
 import { AssistChoice } from './AssistChoice';
+import { parseCommaSeparatedList, buildEgressDest } from './ui-utils';
 import {
   Badge,
   Banner,
@@ -104,21 +105,6 @@ export interface SkillMapScreenProps {
 const AI_DOC = asDocId('ai-suggested.md');
 /** Source doc for skills the user typed in by hand (always kept, any mode). */
 const USER_DOC = asDocId('user-added.md');
-
-/** Split a comma- or newline-separated list into trimmed, de-duped entries. */
-const parseList = (text: string): string[] => {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of text.split(/[\n,]/)) {
-    const name = raw.trim();
-    if (name.length === 0) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(name);
-  }
-  return out;
-};
 
 export function SkillMapScreen({
   extractions,
@@ -222,9 +208,7 @@ export function SkillMapScreen({
     // The destination scopes private-item handling: a keyless local on-device
     // provider may read whole documents (nothing leaves the device, R47.1); a
     // cloud provider gets structured non-private items only (R46.4).
-    const dest: EgressDestination | null = chatProvider
-      ? { provider: chatProvider, kind: chatIsLocal ? 'keyless-local' : 'keyed-cloud' }
-      : null;
+    const dest: EgressDestination | null = buildEgressDest(chatProvider, chatIsLocal);
     const rawTexts = rawDocs.map((d) => d.text).filter((tx) => tx.trim().length > 0);
 
     try {
@@ -385,7 +369,7 @@ export function SkillMapScreen({
   };
 
   const handleAddManual = () => {
-    const names = parseList(manualText);
+    const names = parseCommaSeparatedList(manualText);
     if (names.length === 0) return;
     const at = asISODate(new Date().toISOString());
     const added: ExtractedItem[] = names.map((name) => ({

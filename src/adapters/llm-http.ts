@@ -29,12 +29,14 @@ import type {
   ChatRequest,
   ChatResponse,
   LlmProvider,
+  ProviderId,
   SttProvider,
   SttOptions,
   Transcript,
 } from './provider';
-import { OPENAI_PROVIDER_ID, ANTHROPIC_PROVIDER_ID, LOCAL_PROVIDER_ID } from './provider-manager';
+import { OPENAI_PROVIDER_ID, ANTHROPIC_PROVIDER_ID, LOCAL_PROVIDER_ID, KIMI_PROVIDER_ID, DEEPSEEK_PROVIDER_ID, GROQ_PROVIDER_ID, XAI_PROVIDER_ID, OPENROUTER_PROVIDER_ID, CUSTOM_OPENAI_PROVIDER_ID } from './provider-manager';
 import { getLocalConfig, getProviderModel, isLocalConnectionFailure, localUnreachableMessage } from './local-config';
+import { getCustomOpenaiConfig } from './custom-openai-config';
 import { captureRateLimits } from './rate-limits';
 
 /** A provider chat response that also carries the textual completion. */
@@ -129,6 +131,44 @@ const bearer = (key: string): Record<string, string> =>
   key.trim().length > 0 ? { authorization: `Bearer ${key}` } : {};
 
 /**
+ * Shared 429 "request too large" retry helper. Detects a rate-limit 429,
+ * parses the Limit/Requested values from the error body, trims the prompt
+ * proportionally, and retries ONCE via `buildRetry`. If the retry succeeds,
+ * extracts and returns the text using `extractText`. Returns `undefined` when
+ * no retry is possible or the retry also fails.
+ */
+const retryOn429 = async (
+  doFetch: typeof fetch,
+  model: string,
+  headers: Headers,
+  errMsg: string,
+  prompt: string,
+  buildRetry: (trimmedPrompt: string) => { url: string; init: RequestInit },
+  extractText: (data: unknown) => string,
+): Promise<LlmChatResponse | undefined> => {
+  captureRateLimits(model, headers);
+  const limitMatch = errMsg.match(/Limit\s+(\d+)/i);
+  const requestedMatch = errMsg.match(/Requested\s+(\d+)/i);
+  if (!limitMatch || !requestedMatch) return undefined;
+  const limit = Number.parseInt(limitMatch[1], 10);
+  const requested = Number.parseInt(requestedMatch[1], 10);
+  if (!(limit > 0 && requested > limit && prompt.length > 0)) return undefined;
+  const ratio = (limit * 0.85) / requested; // 85% of limit for safety margin
+  const trimmedLength = Math.floor(prompt.length * ratio);
+  if (trimmedLength <= 100) return undefined; // only retry if we'd keep meaningful content
+  const trimmedPrompt = prompt.slice(0, trimmedLength) +
+    '\n\n[Note: background context was trimmed to fit token limits.]';
+  const { url, init } = buildRetry(trimmedPrompt);
+  const retryRes = await doFetch(url, init);
+  const retryData = await readJson(retryRes);
+  if (retryRes.ok) {
+    captureRateLimits(model, retryRes.headers);
+    return { __brand: 'ChatResponse', text: extractText(retryData) } as LlmChatResponse;
+  }
+  return undefined;
+};
+
+/**
  * Chat-model ID patterns considered chat-capable. IDs matching any of these are
  * included in the model dropdown; everything else (embeddings, DALL·E, whisper,
  * tts, moderation) is excluded. The UI explains this filtering to the user.
@@ -157,6 +197,10 @@ const CHAT_MODEL_PATTERNS: readonly RegExp[] = [
   /^orca/i, // Orca
   /^tinyllama/i, // TinyLlama
   /^star/i, // StarCoder etc — borderline but commonly used for chat
+  /^kimi/i, // Kimi (Moonshot) models
+  /^moonshot/i, // Moonshot legacy model names
+  /^grok/i, // xAI Grok models
+  /^mixtral/i, // Mixtral (Groq)
 ];
 
 /**
@@ -349,58 +393,37 @@ const openAiCompatibleChat = async (
     // the adaptive system learn the real limit from the first failure and
     // recover automatically rather than surfacing the error to the user.
     if (res.status === 429) {
-      captureRateLimits(config.model, res.headers);
-      // Parse the limit from the error body (e.g. "Limit 50000, Requested 62371")
-      const limitMatch = errMsg.match(/Limit\s+(\d+)/i);
-      const requestedMatch = errMsg.match(/Requested\s+(\d+)/i);
-      if (limitMatch && requestedMatch) {
-        const limit = Number.parseInt(limitMatch[1], 10);
-        const requested = Number.parseInt(requestedMatch[1], 10);
-        if (limit > 0 && requested > limit && prompt.length > 0) {
-          // Trim the prompt proportionally to fit within the limit (with margin).
-          const ratio = (limit * 0.85) / requested; // 85% of limit for safety margin
-          const trimmedLength = Math.floor(prompt.length * ratio);
-          if (trimmedLength > 100) { // only retry if we'd keep meaningful content
-            const trimmedPrompt = prompt.slice(0, trimmedLength) +
-              '\n\n[Note: background context was trimmed to fit token limits.]';
-            const retryRes = await doFetch(
+      const retryResult = await retryOn429(
+        doFetch, config.model, res.headers, errMsg, prompt,
+        (trimmedPrompt) => ({
+          url: isResponsesOnlyModel(config.model)
+            ? `${config.baseUrl}/responses`
+            : `${config.baseUrl}/chat/completions`,
+          init: {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...bearer(key) },
+            body: JSON.stringify(
               isResponsesOnlyModel(config.model)
-                ? `${config.baseUrl}/responses`
-                : `${config.baseUrl}/chat/completions`,
-              {
-                method: 'POST',
-                headers: { 'content-type': 'application/json', ...bearer(key) },
-                body: JSON.stringify(
-                  isResponsesOnlyModel(config.model)
-                    ? {
-                        model: config.model,
-                        input: trimmedPrompt,
-                        ...(config.maxTokens > 0 ? { max_output_tokens: Math.max(config.maxTokens, 16) } : {}),
-                        ...(noTraining(req) ? { store: false } : {}),
-                      }
-                    : {
-                        model: config.model,
-                        ...(config.maxTokens > 0
-                          ? { [config.maxTokensKey ?? 'max_completion_tokens']: config.maxTokens }
-                          : {}),
-                        messages: [{ role: 'user', content: trimmedPrompt }],
-                        ...(noTraining(req) ? { store: false } : {}),
-                      },
-                ),
-              },
-            );
-            const retryData = await readJson(retryRes);
-            if (retryRes.ok) {
-              captureRateLimits(config.model, retryRes.headers);
-              const text = isResponsesOnlyModel(config.model)
-                ? extractResponsesText(retryData)
-                : extractOpenAiText(retryData);
-              return { __brand: 'ChatResponse', text } as LlmChatResponse;
-            }
-            // Retry also failed — fall through to throw the original error.
-          }
-        }
-      }
+                ? {
+                    model: config.model,
+                    input: trimmedPrompt,
+                    ...(config.maxTokens > 0 ? { max_output_tokens: Math.max(config.maxTokens, 16) } : {}),
+                    ...(noTraining(req) ? { store: false } : {}),
+                  }
+                : {
+                    model: config.model,
+                    ...(config.maxTokens > 0
+                      ? { [config.maxTokensKey ?? 'max_completion_tokens']: config.maxTokens }
+                      : {}),
+                    messages: [{ role: 'user', content: trimmedPrompt }],
+                    ...(noTraining(req) ? { store: false } : {}),
+                  },
+            ),
+          },
+        }),
+        isResponsesOnlyModel(config.model) ? extractResponsesText : extractOpenAiText,
+      );
+      if (retryResult) return retryResult;
     }
     throw new Error(providerError(res.status, data));
   }
@@ -442,37 +465,25 @@ const openAiResponses = async (
   if (!res.ok) {
     // 429 retry for Responses API (same adaptive logic as chat/completions).
     if (res.status === 429) {
-      captureRateLimits(config.model, res.headers);
       const errMsg = extractErrorMessage(data) ?? '';
-      const limitMatch = errMsg.match(/Limit\s+(\d+)/i);
-      const requestedMatch = errMsg.match(/Requested\s+(\d+)/i);
-      if (limitMatch && requestedMatch) {
-        const limit = Number.parseInt(limitMatch[1], 10);
-        const requested = Number.parseInt(requestedMatch[1], 10);
-        if (limit > 0 && requested > limit && prompt.length > 0) {
-          const ratio = (limit * 0.85) / requested;
-          const trimmedLength = Math.floor(prompt.length * ratio);
-          if (trimmedLength > 100) {
-            const trimmedPrompt = prompt.slice(0, trimmedLength) +
-              '\n\n[Note: background context was trimmed to fit token limits.]';
-            const retryRes = await doFetch(`${config.baseUrl}/responses`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', ...bearer(key) },
-              body: JSON.stringify({
-                model: config.model,
-                input: trimmedPrompt,
-                ...(config.maxTokens > 0 ? { max_output_tokens: Math.max(config.maxTokens, 16) } : {}),
-                ...(noTraining(req) ? { store: false } : {}),
-              }),
-            });
-            const retryData = await readJson(retryRes);
-            if (retryRes.ok) {
-              captureRateLimits(config.model, retryRes.headers);
-              return { __brand: 'ChatResponse', text: extractResponsesText(retryData) } as LlmChatResponse;
-            }
-          }
-        }
-      }
+      const retryResult = await retryOn429(
+        doFetch, config.model, res.headers, errMsg, prompt,
+        (trimmedPrompt) => ({
+          url: `${config.baseUrl}/responses`,
+          init: {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...bearer(key) },
+            body: JSON.stringify({
+              model: config.model,
+              input: trimmedPrompt,
+              ...(config.maxTokens > 0 ? { max_output_tokens: Math.max(config.maxTokens, 16) } : {}),
+              ...(noTraining(req) ? { store: false } : {}),
+            }),
+          },
+        }),
+        extractResponsesText,
+      );
+      if (retryResult) return retryResult;
     }
     throw new Error(providerError(res.status, data));
   }
@@ -650,41 +661,83 @@ export function createAnthropicLlmProvider(options: HttpLlmOptions = {}): LlmPro
       if (!res.ok) {
         // 429 retry for Anthropic (same adaptive logic as OpenAI-compatible).
         if (res.status === 429) {
-          captureRateLimits(model, res.headers);
           const errMsg = extractErrorMessage(data) ?? '';
-          const limitMatch = errMsg.match(/Limit\s+(\d+)/i);
-          const requestedMatch = errMsg.match(/Requested\s+(\d+)/i);
-          if (limitMatch && requestedMatch) {
-            const limit = Number.parseInt(limitMatch[1], 10);
-            const requested = Number.parseInt(requestedMatch[1], 10);
-            if (limit > 0 && requested > limit && prompt.length > 0) {
-              const ratio = (limit * 0.85) / requested;
-              const trimmedLength = Math.floor(prompt.length * ratio);
-              if (trimmedLength > 100) {
-                const trimmedPrompt = prompt.slice(0, trimmedLength) +
-                  '\n\n[Note: background context was trimmed to fit token limits.]';
-                const retryRes = await doFetch(`${baseUrl}/messages`, {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json', ...anthropicHeaders(key) },
-                  body: JSON.stringify({
-                    model,
-                    max_tokens: maxTokens > 0 ? maxTokens : 4096,
-                    messages: [{ role: 'user', content: trimmedPrompt }],
-                  }),
-                });
-                const retryData = await readJson(retryRes);
-                if (retryRes.ok) {
-                  captureRateLimits(model, retryRes.headers);
-                  return { __brand: 'ChatResponse', text: extractAnthropicText(retryData) } as LlmChatResponse;
-                }
-              }
-            }
-          }
+          const retryResult = await retryOn429(
+            doFetch, model, res.headers, errMsg, prompt,
+            (trimmedPrompt) => ({
+              url: `${baseUrl}/messages`,
+              init: {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', ...anthropicHeaders(key) },
+                body: JSON.stringify({
+                  model,
+                  max_tokens: maxTokens > 0 ? maxTokens : 4096,
+                  messages: [{ role: 'user', content: trimmedPrompt }],
+                }),
+              },
+            }),
+            extractAnthropicText,
+          );
+          if (retryResult) return retryResult;
         }
         throw new Error(providerError(res.status, data));
       }
       captureRateLimits(model, res.headers);
       return { __brand: 'ChatResponse', text: extractAnthropicText(data) } as LlmChatResponse;
+    },
+  };
+}
+
+/**
+ * Build a keyed OpenAI-compatible {@link LlmProvider} for a named cloud provider.
+ * All these providers use the same `/chat/completions` and `GET /models` API shape
+ * as OpenAI, but with a different base URL and using `max_tokens` (not
+ * `max_completion_tokens`). The API key is required and passed via Bearer auth.
+ */
+export function createKeyedOpenAiCompatibleProvider(
+  id: ProviderId,
+  baseUrl: string,
+  defaultModel: string,
+  options: HttpLlmOptions = {},
+): LlmProvider {
+  const fallbackMaxTokens = options.maxTokens ?? 512;
+  return {
+    id,
+    async chat(req, key): Promise<ChatResponse> {
+      const doFetch = resolveFetch(options.fetchImpl);
+      const model = getProviderModel(id) ?? defaultModel;
+      const maxTokens = getLocalConfig().maxTokens ?? fallbackMaxTokens;
+      return openAiCompatibleChat(
+        doFetch,
+        { baseUrl, model, maxTokens, maxTokensKey: 'max_tokens' },
+        req,
+        key,
+      );
+    },
+  };
+}
+
+/**
+ * Build the Custom OpenAI-Compatible {@link LlmProvider}. The base URL is read
+ * per call from browser-local storage (via `getCustomOpenaiConfig()`) so the
+ * user can edit it in the setup screen without rebuilding the provider client.
+ * Uses `max_tokens` (the standard for non-OpenAI servers).
+ */
+export function createCustomOpenAiProvider(options: HttpLlmOptions = {}): LlmProvider {
+  const fallbackMaxTokens = options.maxTokens ?? 512;
+  return {
+    id: CUSTOM_OPENAI_PROVIDER_ID,
+    async chat(req, key): Promise<ChatResponse> {
+      const doFetch = resolveFetch(options.fetchImpl);
+      const { baseUrl, model: configModel } = getCustomOpenaiConfig();
+      const model = getProviderModel(CUSTOM_OPENAI_PROVIDER_ID) ?? configModel;
+      const maxTokens = getLocalConfig().maxTokens ?? fallbackMaxTokens;
+      return openAiCompatibleChat(
+        doFetch,
+        { baseUrl, model, maxTokens, maxTokensKey: 'max_tokens' },
+        req,
+        key,
+      );
     },
   };
 }
@@ -706,6 +759,13 @@ export function createDefaultLlmClients(options: HttpLlmOptions = {}) {
       llm: createLocalLlmProvider({ fetchImpl: options.fetchImpl, maxTokens: options.maxTokens }),
       stt: createLocalSttProvider({ fetchImpl: options.fetchImpl }),
     },
+    // Keyed OpenAI-compatible cloud providers — all use `max_tokens`.
+    kimi: { llm: createKeyedOpenAiCompatibleProvider(KIMI_PROVIDER_ID, 'https://api.moonshot.ai/v1', 'kimi-k2', options) },
+    deepseek: { llm: createKeyedOpenAiCompatibleProvider(DEEPSEEK_PROVIDER_ID, 'https://api.deepseek.com', 'deepseek-chat', options) },
+    groq: { llm: createKeyedOpenAiCompatibleProvider(GROQ_PROVIDER_ID, 'https://api.groq.com/openai/v1', 'llama-3.3-70b-versatile', options) },
+    xai: { llm: createKeyedOpenAiCompatibleProvider(XAI_PROVIDER_ID, 'https://api.x.ai/v1', 'grok-2', options) },
+    openrouter: { llm: createKeyedOpenAiCompatibleProvider(OPENROUTER_PROVIDER_ID, 'https://openrouter.ai/api/v1', 'openai/gpt-4o-mini', options) },
+    customOpenai: { llm: createCustomOpenAiProvider(options) },
   };
 }
 

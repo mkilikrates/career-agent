@@ -59,6 +59,8 @@ Tests are **co-located** with the code they cover as `*.test.ts(x)` files.
 | `core/privacy` | The privacy statement model, consent state, and the network-label channel. |
 | `core/no-fabrication` | The No_Fabrication_Harness and its fixtures (the CI backbone of Property 1). |
 | `core/locale` | i18next setup, language detection/confirmation, and locale config. |
+| `core/types/career-context.ts` | The unified `CareerContext` interface — employer-free career-trajectory context (replaces the old separate `AtsCareerData` and `AtsContext` types). |
+| `core/career-context.ts` | The unified `deriveCareerContext()` function that extracts career context from items for AI prompt enrichment (replaces duplicated derivation in UI screens). |
 
 ## `src/adapters` — boundaries
 
@@ -101,6 +103,9 @@ Tests are **co-located** with the code they cover as `*.test.ts(x)` files.
 | `AssistChoice.tsx` | The opt-in-first AI mode + network/privacy label surface. |
 | `SourceTraceInspector.tsx` | Resolve any claim ref to its provenance trace. |
 | `PrivacyStatement.tsx` | The privacy statement + consent + network-label rendering. |
+| `ui-utils.ts` | Shared UI utilities: `parseCommaSeparatedList` (comma/newline split), `buildEgressDest` (EgressDestination builder). |
+| `useAiOperation.ts` | Shared React hook for AI-assist busy/error state and standard try/catch wiring. |
+| `types.ts` | Shared UI type definitions: `AiAssistProps` interface extended by all AI-capable screens. |
 | `design-system/` | Shared tokens + components (`Button`, `TextField`, `TextArea`, `PhaseChrome`, layout primitives, state primitives) so every screen is styled and behaves consistently. |
 
 ## Conventions

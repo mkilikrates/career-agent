@@ -25,8 +25,11 @@ import {
   type CvRequest,
   type TypstCompiler,
 } from '@core/output';
-import { type AssistMode, type AssistTransport, type EgressDestination } from '@core/assist';
+import { type AssistTransport, type EgressDestination } from '@core/assist';
 import { AssistChoice } from './AssistChoice';
+import { buildEgressDest } from './ui-utils';
+import { useAiOperation } from './useAiOperation';
+import type { AiAssistProps } from './types';
 import {
   Banner,
   Button,
@@ -41,7 +44,7 @@ import {
 /** How the user chose to supply a Target Opportunity to tailor toward (R30.5). */
 type OpportunityChoice = 'none' | 'paste' | 'upload';
 
-export interface OutputScreenProps {
+export interface OutputScreenProps extends AiAssistProps {
   readonly skillMap: SkillMap | null;
   readonly rolePrefs: RolePreference[];
   readonly talkingPoints: TalkingPoint[];
@@ -49,18 +52,6 @@ export interface OutputScreenProps {
   readonly store: MemoryTree;
   /** Typst-Wasm compiler for client-side ATS-safe PDF (R32.2). */
   readonly pdfCompiler: TypstCompiler;
-  /** Whether an AI provider key is configured (opt-in assist, R42.1). */
-  readonly aiAvailable?: boolean;
-  /** Routes a prompt through the Egress Gate; returns the model's text. */
-  readonly aiAssist?: (prompt: string) => Promise<string>;
-  /** The chosen chat provider id for the destination label, or null. */
-  readonly chatProvider?: string | null;
-  /** Whether the chosen chat provider is a keyless local on-device provider. */
-  readonly chatIsLocal?: boolean;
-  /** The pipeline-wide AI-assist mode (chosen up front, applied as default). */
-  readonly assistMode: AssistMode;
-  /** Change the pipeline-wide AI-assist mode (persisted by the shell). */
-  readonly onAssistMode: (mode: AssistMode) => void;
   readonly t: (key: string, options?: Record<string, unknown>) => string;
 }
 
@@ -101,9 +92,8 @@ export function OutputScreen({
   // Opt-in-first AI CV tailoring (R30.7): the pipeline-wide choice surfaced by
   // <AssistChoice>, plus advisory AI tailoring notes that never alter the
   // deterministic CV until the user acts on them (R22.6, R47.3).
-  const [aiBusy, setAiBusy] = useState(false);
+  const { busy: aiBusy, error: aiError, setError: setAiError, run: runAi } = useAiOperation();
   const [aiNotes, setAiNotes] = useState<string[]>([]);
-  const [aiError, setAiError] = useState<string>('');
   // The Target Opportunity intake (R30.5, R30.6): does the user have a posting to
   // tailor toward, and (when so) its text — held in-session only as a tailoring
   // target, never a claim source (R30.9).
@@ -131,10 +121,7 @@ export function OutputScreen({
 
   /** The chosen destination for an AI request (provider + keyed/keyless). */
   const dest = useMemo<EgressDestination | null>(
-    () =>
-      chatProvider
-        ? { provider: chatProvider, kind: chatIsLocal ? 'keyless-local' : 'keyed-cloud' }
-        : null,
+    () => buildEgressDest(chatProvider, chatIsLocal),
     [chatProvider, chatIsLocal],
   );
 
@@ -227,9 +214,7 @@ export function OutputScreen({
   // (R30.7). When the AI produces a draft, it is shown as the primary view (R30.11).
   const handleAiTailor = async () => {
     if (!role || !evidence) return;
-    setAiBusy(true);
-    setAiError('');
-    try {
+    await runAi(async () => {
       const req: CvRequest = {
         role,
         src: evidence,
@@ -249,11 +234,7 @@ export function OutputScreen({
         draft,
         bundle.error?.message,
       );
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAiBusy(false);
-    }
+    });
   };
 
   /** Toggle between AI draft view and deterministic view (R30.12). */

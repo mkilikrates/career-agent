@@ -93,3 +93,6 @@ export type { HealingReport } from './healing';
 
 // Localisation.
 export type { LocaleConfig, OutputLocale } from './locale';
+
+// Career context (unified from AtsCareerData + AtsContext).
+export type { CareerContext } from './career-context';

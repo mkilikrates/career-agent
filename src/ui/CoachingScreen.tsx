@@ -36,7 +36,9 @@ import {
   type AssistTransport,
   type EgressDestination,
 } from '@core/assist';
+import { deriveCareerContext, toAtsContext } from '@core/career-context';
 import { AssistChoice } from './AssistChoice';
+import { buildEgressDest } from './ui-utils';
 import {
   Banner,
   Button,
@@ -84,7 +86,6 @@ import {
   type CoachingLoopAction,
   type PerQuestionSummary,
   type ConfirmedTranscript,
-  type AtsContext,
 } from '@core/interview';
 import { rescorePreferences, saveRolePreferences } from '@core/role-matcher';
 import { RecordAnswer } from './RecordAnswer';
@@ -145,86 +146,6 @@ const nameFromSkillId = (id: SkillId): string =>
     .replace(/^SKILL-/, '')
     .replace(/-/g, ' ')
     .trim();
-
-/**
- * Derive ATS context for the STAR question candidate profile from confirmed
- * extractions (R22.6, R62.5). Returns undefined when there is nothing useful.
- */
-const deriveAtsContext = (
-  items: ReadonlyArray<ExtractedItem>,
-  thirdParty: boolean,
-): AtsContext | undefined => {
-  // Include all extracted items for career-context derivation — not just
-  // user-confirmed ones. The userConfirmed flag gates what appears in CV
-  // outputs (No-Fabrication boundary), but the career context sent to
-  // downstream prompts (STAR questions) should reflect the full extraction so
-  // the model understands the candidate's trajectory. Items marked private are
-  // still excluded for third-party (keyed cloud) destinations (R46.4).
-  const eligible = items.filter(
-    (i) => !(thirdParty && i.private),
-  );
-
-  const previousTitles: string[] = [];
-  const coreCompetencies: string[] = [];
-  const educationDegrees: string[] = [];
-  let professionalSummary: string | undefined;
-
-  for (const item of eligible) {
-    switch (item.type) {
-      case 'employment': {
-        const title =
-          typeof item.fields.title === 'string' ? item.fields.title.trim() : '';
-        if (title.length > 0 && !previousTitles.includes(title)) {
-          previousTitles.push(title);
-        }
-        break;
-      }
-      case 'core_competency': {
-        const name =
-          typeof item.fields.name === 'string' ? item.fields.name.trim() : '';
-        if (name.length > 0 && !coreCompetencies.includes(name)) {
-          coreCompetencies.push(name);
-        }
-        break;
-      }
-      case 'education': {
-        const degree =
-          typeof item.fields.degree === 'string' ? item.fields.degree.trim() : '';
-        const field =
-          typeof item.fields.field === 'string' ? item.fields.field.trim() : '';
-        // Strip markdown formatting that may leak from AI extraction.
-        const raw = [degree, field].filter(Boolean).join(' in ') || '';
-        const summary = raw.replace(/\*+/g, '').replace(/--/g, '').trim();
-        // Deduplicate case-insensitively.
-        if (summary.length > 0 && !educationDegrees.some(e => e.toLowerCase() === summary.toLowerCase())) {
-          educationDegrees.push(summary);
-        }
-        break;
-      }
-      case 'professional_summary': {
-        const text =
-          typeof item.fields.text === 'string' ? item.fields.text.trim() : '';
-        // Strip a leading "Summary:" prefix if the AI included it in the text.
-        const cleaned = text.replace(/^summary:\s*/i, '').trim();
-        if (cleaned.length > 0 && !professionalSummary) {
-          professionalSummary = cleaned;
-        }
-        break;
-      }
-    }
-  }
-
-  if (
-    previousTitles.length === 0 &&
-    coreCompetencies.length === 0 &&
-    educationDegrees.length === 0 &&
-    !professionalSummary
-  ) {
-    return undefined;
-  }
-
-  return { previousTitles, coreCompetencies, educationDegrees, professionalSummary };
-};
 
 export function CoachingScreen({
   skillMap,
@@ -574,16 +495,14 @@ export function CoachingScreen({
     if (!role || !skillMap || !aiAssist) return;
     setAiBusy(true);
     setAiError('');
-    const dest: EgressDestination | null = chatProvider
-      ? { provider: chatProvider, kind: chatIsLocal ? 'keyless-local' : 'keyed-cloud' }
-      : null;
+    const dest: EgressDestination | null = buildEgressDest(chatProvider, chatIsLocal);
     try {
       // script-only never reaches a provider; ai-assisted returns the full
       // deterministic question set as baseline PLUS confirmable AI practice
       // questions, falling back to the baseline on provider failure.
       const { outcome, error } = await runAssist(
         questionsOperation,
-        { role, map: skillMap, atsContext: deriveAtsContext(extractions, !chatIsLocal) },
+        { role, map: skillMap, atsContext: toAtsContext(deriveCareerContext(extractions, !chatIsLocal)) },
         { mode: assistMode, capability: 'star_questions' },
         dest ?? undefined,
       );

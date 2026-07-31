@@ -22,27 +22,16 @@
 // the single Egress Gate, reached from `recommendRolesAi` via the injected
 // gate-routed transport.
 
-import type { EgressDestination } from '@core/assist';
+import { isThirdPartyDestination as isThirdParty, type EgressDestination } from '@core/assist';
 import type { SkillMap } from '@core/skills';
-import type { SkillCategory, SkillMapEntry } from '@core/types';
+import type { CareerContext, SkillCategory, SkillMapEntry } from '@core/types';
 
 /**
- * Employer-free career-trajectory context derived from ingestion (R20.6, R47.2).
- * Contains previous job titles (without employer names), confirmed core
- * competencies, education degrees/fields, and an optional professional summary
- * so the model can infer the candidate's career arc without ever seeing where
- * they worked.
+ * Backward-compatible alias. Prefer {@link CareerContext} for new code.
+ * Maps CareerContext's canonical field names to the legacy names this module
+ * used historically.
  */
-export interface AtsCareerData {
-  /** Previous job titles — employer names stripped (R20.6). */
-  readonly jobTitles: readonly string[];
-  /** Confirmed core (soft/leadership) competencies from extraction. */
-  readonly competencies: readonly string[];
-  /** Education degrees/fields (no institution names for keyed cloud, R47.2). */
-  readonly educationSummaries: readonly string[];
-  /** Professional summary when available from extraction. */
-  readonly professionalSummary?: string;
-}
+export type AtsCareerData = CareerContext;
 
 /**
  * The AI-assist input derived from the skill map (design "Role_Matcher";
@@ -120,16 +109,6 @@ export const approxDurationMonths = (entry: SkillMapEntry, now?: Date): number =
 };
 
 /**
- * Whether a destination is a keyed cloud (third-party) provider. A keyless Local
- * Provider runs on the user's own device with no third-party egress, so private
- * items may be included (R46.5). Any other destination — including one whose
- * `kind` is absent — is treated as third-party, the SAFE default: over-excluding
- * a private item is harmless, whereas the reverse would leak it (R47.4, R46.4).
- */
-const isThirdParty = (dest: EgressDestination): boolean =>
-  dest.kind !== 'keyless-local';
-
-/**
  * Build the employer-free role-discovery payload from the skill map (R20.6,
  * R47.2, R47.4). Each entry is projected to exactly `{ name, approxDurationMonths,
  * category }`, so no employer/company name (which the skill map does not carry
@@ -156,8 +135,8 @@ export const buildDiscoveryPayload = (
   // Attach career-trajectory context when available (R20.6, R47.2).
   const jobTitles = atsData?.jobTitles?.length ? atsData.jobTitles : undefined;
   const competencies = atsData?.competencies?.length ? atsData.competencies : undefined;
-  const educationSummaries = atsData?.educationSummaries?.length
-    ? atsData.educationSummaries
+  const educationSummaries = atsData?.education?.length
+    ? atsData.education
     : undefined;
   const professionalSummary = atsData?.professionalSummary || undefined;
 

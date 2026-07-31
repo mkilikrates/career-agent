@@ -19,6 +19,7 @@ export {
   scriptOnlyOutcome,
   aiAssistedOutcome,
   BaseAssistableOperation,
+  isThirdPartyDestination,
 } from './assist';
 
 export type {

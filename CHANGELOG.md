@@ -5,6 +5,28 @@ All notable changes to Career Agent are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-07-31
+
+### Added
+
+- **6 new OpenAI-compatible cloud providers** — Kimi (Moonshot), DeepSeek, Groq, xAI (Grok), OpenRouter, and a Custom OpenAI-Compatible option. Each has locale-aware setup guidance (en + pt-BR), encrypted key storage, and model auto-discovery via `GET /models`.
+- **Custom OpenAI-Compatible provider** — users can enter any OpenAI-compatible endpoint URL + API key to use providers not in the pre-configured list. The base URL is persisted in browser-local storage and the model list is auto-discovered.
+- **4 high-priority property tests** — No-Fabrication (Property 1), Redaction completeness (Property 3), Opt-in-first AI orchestration (Property 19), and Output eligibility gating (Property 7). All use fast-check with 100+ iterations.
+- **3 medium-priority test suites** — Consolidation dedup (41.9), STAR multi-competency (41.11), and CV tailoring full ATS (41.12). Total 51 new tests.
+- **Model dropdown auto-populates on Settings load** — for already-configured providers, available models are fetched automatically without requiring a manual test/validate click.
+
+### Refactored
+
+- **Unified `CareerContext` type** — replaced separate `AtsCareerData` and `AtsContext` with a single interface
+- **Unified `deriveCareerContext` function** — replaced 60-line duplicates in two screens with one shared `@core` module
+- **Shared `isThirdPartyDestination`** — extracted from 3 core modules into `@core/assist`
+- **Shared UI utilities** — `parseCommaSeparatedList`, `buildEgressDest`, `useAiOperation` hook, `AiAssistProps` interface
+- **Shared `retryOn429` helper** — consolidated duplicated 429 retry logic in `llm-http.ts`
+
+### Changed
+
+- Documentation fully synced with refactored code — project-structure (en + pt-BR), prompts.md (chunk size 12000, CareerContext references), design.md (shared utilities principle)
+
 ## [0.5.1] — 2026-07-31
 
 ### Fixed
@@ -20,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Comma-separated technology lists split into individual skills** — entries like "Unified communications using SIP, SKINNY, MGCP, H323" are now split when they contain 3+ comma-separated parts
 - **Model dropdown auto-populates on Settings page load** — for already-configured providers (both local and cloud), available models are fetched automatically without requiring a manual "Test connection" or "Validate" click
 - **Extraction items persisted after AI extraction confirmation** — `raw_extractions.md` is now updated when items are added from the Skill Map AI extraction, ensuring downstream phases and session resume have full ATS data
-- **Career context derivation includes all extracted items** — `deriveAtsCareerData` and `deriveAtsContext` no longer gate on `userConfirmed`, so role discovery and STAR questions receive the full career trajectory even before individual item confirmation
+- **Career context derivation includes all extracted items** — `deriveCareerContext` (the unified function replacing the old `deriveAtsCareerData`/`deriveAtsContext`) no longer gates on `userConfirmed`, so role discovery and STAR questions receive the full career trajectory even before individual item confirmation
 - **Phase stepper sync fix** — `phases()` now accepts an override current phase from the UI to prevent desync between the async orchestrator pointer and the displayed view
 - **Ingest Save button in AI-only mode** — the Save button is now rendered in AI-only mode so the phase artefact is persisted and the stepper shows "Done"
 - **Candidate profile includes all skills when no role match** — for user-added roles with 0 matched skills, the STAR question prompt now includes up to 30 skill map entries so the model has full context for question calibration
@@ -30,6 +52,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Education strings stripped of markdown formatting** — bold markers and separator artifacts are removed before inclusion in prompts
 - **Professional summary stripped of duplicate "Summary:" prefix** — prevents "Summary: Summary: ..." in role discovery and coaching prompts
 - **Education dedup uses case-insensitive comparison** — prevents duplicate education entries in career context blocks
+
+### Refactored
+
+- **Unified `CareerContext` type** — replaced separate `AtsCareerData` (role-matcher) and `AtsContext` (coach-assist) with a single `CareerContext` interface in `@core/types`
+- **Unified `deriveCareerContext` function** — replaced duplicated 60-line `deriveAtsCareerData` (RoleDiscoveryScreen) and `deriveAtsContext` (CoachingScreen) with a single function in `@core/career-context`
+- **Shared `isThirdPartyDestination`** — extracted the one-liner duplicated in 3 core modules into `@core/assist`
+- **Shared `parseCommaSeparatedList`** — extracted duplicated parse utility into `src/ui/ui-utils.ts`
+- **Shared `buildEgressDest`** — extracted duplicated EgressDestination ternary into `src/ui/ui-utils.ts`
+- **Shared `useAiOperation` hook** — eliminated duplicated busy/error/try-catch boilerplate across screens
+- **Shared `AiAssistProps` interface** — eliminated 6 duplicated prop declarations across screen interfaces
+- **Shared `retryOn429` helper** — consolidated duplicated 429 retry logic in `llm-http.ts`
 
 ## [0.5.0] — 2026-07-26
 

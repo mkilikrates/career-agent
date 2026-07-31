@@ -76,6 +76,9 @@
         "failed": "Não foi possível acessar o servidor local: {{reason}}. Verifique a URL base e se o seu servidor está em execução."
       }
     },
+    "customOpenai": {
+      "baseUrlLabel": "URL base do endpoint"
+    },
     "selection": {
       "heading": "Escolha os provedores por funcionalidade",
       "intro": "Escolha o provedor de IA/chat e o de fala para texto de forma independente. Por exemplo, use um modelo de chat local e um serviço de transcrição na nuvem, ou o contrário. Apenas os provedores que você conectou acima aparecem aqui.",

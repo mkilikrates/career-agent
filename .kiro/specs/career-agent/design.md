@@ -25,6 +25,7 @@ These constraints were agreed with the user and are treated as fixed inputs to t
 - **Network is a gated boundary.** No domain component calls a provider directly. All provider calls pass through a single egress chokepoint that enforces PII pre-screening and payload minimisation (Requirements 6, 7).
 - **Egress is user-decided, per file and per detection.** During ingestion nothing is transmitted until the user has made an explicit send-control decision for that file — either whole-file, or an allow/redact choice for each individual Sensitive Detection — and the Egress Gate refuses to build a payload until that decision exists (Requirement 57).
 - **AI is opt-in, deterministic-first.** Every AI-assistable operation has a complete script-only path that makes no provider call; the AI mode is chosen *before* the operation runs and only ever *supplements* the deterministic result, which the user must confirm before it enters the knowledge base (Requirements 14, 20, 22, 28, 30, 47).
+- **Shared utilities live in canonical locations.** `isThirdPartyDestination` lives in `@core/assist` and is the single canonical check for provider destination type across all components. UI-shared helpers (`parseCommaSeparatedList`, `buildEgressDest`) live in `src/ui/ui-utils.ts`; the shared `useAiOperation` hook and `AiAssistProps` interface eliminate duplication across AI-capable screens.
 
 ## Architecture
 
@@ -315,6 +316,8 @@ The default `generate()` path is deterministic and evidence-only (R14) and is un
 **Script-only mode** — `consolidateExtraction()` runs alone with the full deterministic logic (exact case-insensitive dedup only, matching the same reduced scope for consistency with R71.17).
 
 The consolidation produces a maximally-deduplicated extraction before items are presented for user review. See the [Extraction Post-Processing Quality](#extraction-post-processing-quality-r718r7112-r7120r7121) section for implementation details.
+
+**Canonical career-context derivation.** `deriveCareerContext` in `@core/career-context.ts` is the canonical derivation of career-trajectory context from extracted items, used by both the Role_Matcher (via `buildDiscoveryPayload`) and the Interview_Coach (via `buildCandidateProfile`). It produces a unified `CareerContext` (defined in `@core/types/career-context.ts`) that replaces the old separate `AtsCareerData` and `AtsContext` types.
 
 ### Role_Matcher
 

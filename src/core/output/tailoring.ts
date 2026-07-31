@@ -27,7 +27,7 @@
 // only path to a provider is the gate-routed transport the assist operation is
 // constructed with (see `output-assist.ts`).
 
-import type { EgressDestination } from '@core/assist';
+import { isThirdPartyDestination as isThirdParty, type EgressDestination } from '@core/assist';
 import { experienceYears } from '@core/types';
 import type { ConfirmedEvidence } from './cv-model';
 
@@ -92,16 +92,6 @@ export const cvGenerationPrompt = (): TargetOpportunityPrompt => ({
     'toward? You can paste or upload the posting, or generate a CV without one.',
   options: ['none', 'paste', 'upload'],
 });
-
-/**
- * Whether a destination is a keyed cloud (third-party) provider. A keyless Local
- * Provider runs on the user's own device with no third-party egress, so private
- * items may be included (R46.5). Any other destination — including one whose
- * `kind` is absent — is treated as third-party, the SAFE default: over-excluding
- * a private item is harmless, whereas the reverse would leak it (R30.10, R46.4).
- */
-const isThirdParty = (dest: EgressDestination): boolean =>
-  dest.kind !== 'keyless-local';
 
 /**
  * Build the full confirmed ATS career data lines for the full-draft prompt

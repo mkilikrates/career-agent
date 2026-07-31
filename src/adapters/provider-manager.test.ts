@@ -105,6 +105,12 @@ describe('DefaultProviderManager — pluggable registry (R4.1)', () => {
     expect(manager.listProviders()).toEqual([
       { id: OPENAI_PROVIDER_ID, displayName: 'OpenAI' },
       { id: ANTHROPIC_PROVIDER_ID, displayName: 'Anthropic' },
+      { id: 'kimi', displayName: 'Kimi (Moonshot)' },
+      { id: 'deepseek', displayName: 'DeepSeek' },
+      { id: 'groq', displayName: 'Groq' },
+      { id: 'xai', displayName: 'xAI (Grok)' },
+      { id: 'openrouter', displayName: 'OpenRouter' },
+      { id: 'custom-openai', displayName: 'Custom OpenAI-Compatible' },
       { id: LOCAL_PROVIDER_ID, displayName: 'Local (self-hosted)', keyless: true },
     ]);
   });
@@ -143,10 +149,26 @@ describe('DefaultProviderManager — setup guidance (R4.2)', () => {
     expect(anthropic).toContain('Anthropic');
   });
 
+  it('returns setup guidance for keyed OpenAI-compatible cloud providers', () => {
+    const { manager } = makeManager(defaultProviderPlugins());
+    expect(manager.setupGuide('kimi', 'en')).toContain('Kimi');
+    expect(manager.setupGuide('deepseek', 'en')).toContain('DeepSeek');
+    expect(manager.setupGuide('groq', 'en')).toContain('Groq');
+    expect(manager.setupGuide('xai', 'en')).toContain('xAI');
+    expect(manager.setupGuide('openrouter', 'en')).toContain('OpenRouter');
+    expect(manager.setupGuide('custom-openai', 'en')).toContain('OpenAI-Compatible');
+  });
+
   it('localises guidance by locale (pt-BR vs en)', () => {
     const { manager } = makeManager(defaultProviderPlugins());
     expect(manager.setupGuide(OPENAI_PROVIDER_ID, 'pt-BR')).toContain('Conectar');
     expect(manager.setupGuide(OPENAI_PROVIDER_ID, 'en')).toContain('Connect');
+    expect(manager.setupGuide('kimi', 'pt-BR')).toContain('Conectar');
+    expect(manager.setupGuide('deepseek', 'pt-BR')).toContain('Conectar');
+    expect(manager.setupGuide('groq', 'pt-BR')).toContain('Conectar');
+    expect(manager.setupGuide('xai', 'pt-BR')).toContain('Conectar');
+    expect(manager.setupGuide('openrouter', 'pt-BR')).toContain('Conectar');
+    expect(manager.setupGuide('custom-openai', 'pt-BR')).toContain('Conectar');
   });
 
   it('throws for an unknown provider', () => {

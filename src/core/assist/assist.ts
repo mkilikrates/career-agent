@@ -160,6 +160,16 @@ export interface AssistableOperation<TInput, TResult> {
   aiAssisted(input: TInput, dest: EgressDestination): Promise<TResult>;
 }
 
+/**
+ * Whether a destination is a keyed cloud (third-party) provider. A keyless Local
+ * Provider runs on the user's own device with no third-party egress, so private
+ * items may be included (R46.5). Any other destination — including one whose
+ * `kind` is absent — is treated as third-party, the SAFE default: over-excluding
+ * a private item is harmless, whereas the reverse would leak it (R46.4).
+ */
+export const isThirdPartyDestination = (dest: EgressDestination): boolean =>
+  dest.kind !== 'keyless-local';
+
 /** Type guard: the choice selects the deterministic-only path (R14.5). */
 export function isScriptOnly(choice: AssistChoice): boolean {
   return choice.mode === 'script-only';

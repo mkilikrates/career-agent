@@ -33,6 +33,11 @@ import {
   getProviderModel,
   type LocalProviderConfig,
 } from '@adapters/local-config';
+import {
+  getCustomOpenaiConfig,
+  setCustomOpenaiConfig,
+  type CustomOpenaiConfig,
+} from '@adapters/custom-openai-config';
 import type { SessionLanguage } from '@core/locale';
 import {
   Banner,
@@ -111,6 +116,9 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
   // Editable config for the keyless local provider (R43.2); seeded from, and
   // persisted to, browser-local storage rather than the encrypted vault.
   const [localCfg, setLocalCfg] = useState<LocalProviderConfig>(() => getLocalConfig());
+  // Editable config for the Custom OpenAI-Compatible provider (base URL + model);
+  // persisted to browser-local storage, API key stored in the encrypted vault.
+  const [customCfg, setCustomCfg] = useState<CustomOpenaiConfig>(() => getCustomOpenaiConfig());
 
   // Reflect which providers already have a stored (encrypted) key (R5.1).
   const refreshStored = useMemo(
@@ -179,6 +187,8 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
   // Keyless providers (the self-hosted Local Provider) show base-URL/model
   // fields and a "Test connection" button instead of the API-key flow (R43.2).
   const keyless = providers.find((p) => p.id === selected)?.keyless === true;
+  // The Custom OpenAI-Compatible provider shows a base URL field + API key.
+  const isCustomOpenai = selected === 'custom-openai';
 
   // Validate the key with a real test call (R4.3); on success store it encrypted
   // (R5.1); on failure show the reason and let the user re-enter (R4.4).
@@ -305,6 +315,7 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
           setStatus({ kind: 'idle' });
           setKeyInput('');
           setLocalCfg(getLocalConfig());
+          setCustomCfg(getCustomOpenaiConfig());
           setAvailableModels([]);
           setSelectedModel(getProviderModel(e.target.value) ?? '');
         }}
@@ -363,6 +374,44 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
             >
               {t('provider.local.testConnection')}
             </Button>
+          </Row>
+        </div>
+      ) : isCustomOpenai ? (
+        <div data-custom-openai-config>
+          <Row>
+            <TextField
+              label={t('provider.customOpenai.baseUrlLabel')}
+              type="text"
+              autoComplete="off"
+              value={customCfg.baseUrl}
+              onChange={(e) => {
+                const next = setCustomOpenaiConfig({ baseUrl: e.target.value });
+                setCustomCfg(next);
+                setStatus({ kind: 'idle' });
+              }}
+              disabled={busy}
+            />
+          </Row>
+          <Row>
+            <TextField
+              label={t('provider.keyLabel')}
+              type="password"
+              autoComplete="off"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              disabled={busy}
+            />
+            <Button
+              onClick={() => void handleValidateAndSave()}
+              disabled={busy || keyInput.trim().length === 0 || customCfg.baseUrl.trim().length === 0}
+            >
+              {t('provider.validateAndSave')}
+            </Button>
+            {isStored ? (
+              <Button variant="danger" onClick={() => void handleRemove()} disabled={busy}>
+                {t('provider.remove')}
+              </Button>
+            ) : null}
           </Row>
         </div>
       ) : (

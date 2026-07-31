@@ -76,7 +76,7 @@ matching section here.
 - **File**: `src/core/skills/skill-discovery.ts`
 - **Builder**: `buildDiscoveryPrompt(corpusChunk)` =
   `DISCOVERY_PROMPT_INSTRUCTION` + `"\n\nCAREER EVIDENCE:\n"` + chunk.
-- **Corpus**: the full career evidence, split into chunks of ≤6000 chars
+- **Corpus**: the full career evidence, split into chunks of ≤12000 chars
   (`DEFAULT_DISCOVERY_CHUNK_CHARS`) so nothing is truncated. One request **per
   chunk**. For `keyless-local` the chunks may be the **raw whole-document text**
   (`buildRawDiscoveryCorpus`) and include private items; for `keyed-cloud` they
@@ -114,7 +114,7 @@ flattened line, e.g. `employment; title: SRE; employer: Acme; technologies: Kube
 - **File**: `src/core/skills/career-extraction.ts`
 - **Builder**: `buildCareerExtractionPrompt(corpusChunk)` =
   `CAREER_EXTRACTION_INSTRUCTION` + `"\n\nDOCUMENT CONTENT:\n"` + chunk.
-- **Corpus**: the full career document text, split into chunks of ≤6000 chars
+- **Corpus**: the full career document text, split into chunks of ≤12000 chars
   (same chunking as skill discovery). One request **per chunk**. For
   `keyless-local` the chunks are the **raw whole-document text** (via
   `buildRawDiscoveryCorpus`); for `keyed-cloud` they are structured non-private
@@ -327,8 +327,8 @@ Followed by `INPUT:` and the extraction data as JSON.
   to `{ name, approxDurationMonths, category }` only. No employer/company name is
   ever included. For `keyed-cloud`, private skills are excluded.
   `approxDurationMonths` is computed as `(now − since)` — i.e. the elapsed time
-  since the user first used the skill (R70.7). When `AtsCareerData` is provided
-  (job titles, competencies, education summaries, professional summary), it is
+  since the user first used the skill (R70.7). When `CareerContext` is provided
+  (via `deriveCareerContext()` from `@core/career-context`), it is
   appended as a "Career context" block so the model can match on the candidate's
   career arc without seeing employer names (R20.6, R47.2).
 
@@ -416,9 +416,11 @@ ones. Experience duration is derived from the skill's `since` date (the year the
 user first used the skill, R70.6). Only role-relevant skills (matched + gaps)
 are sent, keeping the prompt compact; for a keyed cloud (third-party)
 destination, private skills are excluded (R22.7). The additional ATS context
-lines (previous titles, competencies, education, summary) are included when an
-`AtsContext` is provided from the career extraction, giving the model richer
-career-arc calibration data.
+lines (previous titles, competencies, education, summary) are included when a
+`CareerContext` is provided (converted via `toAtsContext()` from
+`@core/career-context`), giving the model richer career-arc calibration data.
+In AI-only mode, the deterministic script questions are NOT generated — the
+interview file starts empty and waits for AI-generated questions only.
 
 (The `The role: …` sentence is included only when the role has a description.)
 

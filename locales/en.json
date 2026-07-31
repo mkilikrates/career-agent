@@ -76,6 +76,9 @@
         "failed": "Could not reach the local server: {{reason}}. Check the base URL and that your server is running."
       }
     },
+    "customOpenai": {
+      "baseUrlLabel": "Endpoint base URL"
+    },
     "selection": {
       "heading": "Choose providers per capability",
       "intro": "Pick the provider for AI/chat and the one for speech-to-text independently. For example, use a local chat model and a cloud transcription service, or the reverse. Only providers you have connected above appear here.",

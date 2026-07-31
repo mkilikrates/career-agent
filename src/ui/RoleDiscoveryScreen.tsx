@@ -18,9 +18,9 @@ import {
   type RoleSuggestion,
   type RolePreferenceInput,
   type AiRoleRecommendation,
-  type AtsCareerData,
 } from '@core/role-matcher';
-import { runAssist, type AssistMode, type EgressDestination } from '@core/assist';
+import { runAssist } from '@core/assist';
+import { deriveCareerContext } from '@core/career-context';
 import { AssistChoice } from './AssistChoice';
 import {
   Badge,
@@ -34,107 +34,11 @@ import {
   TextArea,
   tokens,
 } from './design-system';
+import { parseCommaSeparatedList, buildEgressDest } from './ui-utils';
+import { useAiOperation } from './useAiOperation';
+import type { AiAssistProps } from './types';
 
-/** Split a comma- or newline-separated list into trimmed, de-duped entries. */
-const parseList = (text: string): string[] => {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of text.split(/[\n,]/)) {
-    const name = raw.trim();
-    if (name.length === 0) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(name);
-  }
-  return out;
-};
-
-/**
- * Derive ATS career data from confirmed extracted items (R20.6, R47.2).
- * Returns undefined when there is nothing useful to include, so the prompt
- * stays minimal. Employer names are deliberately stripped from job titles.
- */
-const deriveAtsCareerData = (
-  items: ReadonlyArray<ExtractedItem>,
-  thirdParty: boolean,
-): AtsCareerData | undefined => {
-  // Include all extracted items for career-context derivation — not just
-  // user-confirmed ones. The userConfirmed flag gates what appears in CV
-  // outputs (No-Fabrication boundary), but the career context sent to downstream
-  // prompts (role discovery, STAR questions) should reflect the full extraction
-  // so the model understands the candidate's trajectory. Items marked private
-  // are still excluded for third-party (keyed cloud) destinations (R46.4).
-  const eligible = items.filter(
-    (i) => !(thirdParty && i.private),
-  );
-
-  const jobTitles: string[] = [];
-  const competencies: string[] = [];
-  const educationSummaries: string[] = [];
-  let professionalSummary: string | undefined;
-
-  for (const item of eligible) {
-    switch (item.type) {
-      case 'employment': {
-        const title =
-          typeof item.fields.title === 'string' ? item.fields.title.trim() : '';
-        if (title.length > 0 && !jobTitles.includes(title)) {
-          jobTitles.push(title);
-        }
-        break;
-      }
-      case 'core_competency': {
-        const name =
-          typeof item.fields.name === 'string' ? item.fields.name.trim() : '';
-        if (name.length > 0 && !competencies.includes(name)) {
-          competencies.push(name);
-        }
-        break;
-      }
-      case 'education': {
-        const entry =
-          typeof item.fields.entry === 'string' ? item.fields.entry.trim() : '';
-        const degree =
-          typeof item.fields.degree === 'string' ? item.fields.degree.trim() : '';
-        const field =
-          typeof item.fields.field === 'string' ? item.fields.field.trim() : '';
-        // Strip markdown formatting that may leak from AI extraction (e.g. **bold**).
-        const raw = entry || [degree, field].filter(Boolean).join(' in ') || '';
-        const summary = raw.replace(/\*+/g, '').replace(/--/g, '').trim();
-        // Deduplicate case-insensitively to avoid "MSc Leadership" + "MSc leadership".
-        if (summary.length > 0 && !educationSummaries.some(e => e.toLowerCase() === summary.toLowerCase())) {
-          educationSummaries.push(summary);
-        }
-        break;
-      }
-      case 'professional_summary': {
-        const text =
-          typeof item.fields.text === 'string' ? item.fields.text.trim() : '';
-        // Strip a leading "Summary:" prefix if the AI included it in the text.
-        const cleaned = text.replace(/^summary:\s*/i, '').trim();
-        if (cleaned.length > 0 && !professionalSummary) {
-          professionalSummary = cleaned;
-        }
-        break;
-      }
-    }
-  }
-
-  // Return undefined when there is nothing to include.
-  if (
-    jobTitles.length === 0 &&
-    competencies.length === 0 &&
-    educationSummaries.length === 0 &&
-    !professionalSummary
-  ) {
-    return undefined;
-  }
-
-  return { jobTitles, competencies, educationSummaries, professionalSummary };
-};
-
-export interface RoleDiscoveryScreenProps {
+export interface RoleDiscoveryScreenProps extends AiAssistProps {
   readonly skillMap: SkillMap | null;
   /**
    * Confirmed extracted items from ingestion. When no skill map has been
@@ -148,18 +52,9 @@ export interface RoleDiscoveryScreenProps {
   readonly rolePrefs: RolePreference[];
   readonly onRolePrefs: (prefs: RolePreference[]) => void;
   readonly store: MemoryTree;
-  /** Whether an AI provider key is configured (opt-in assist, R42.1). */
+  // Override to make non-optional for this screen.
   readonly aiAvailable: boolean;
-  /** Routes a prompt through the Egress Gate; returns the model's text. */
   readonly aiAssist: (prompt: string) => Promise<string>;
-  /** The chosen chat provider id for the destination label, or null. */
-  readonly chatProvider?: string | null;
-  /** Whether the chosen chat provider is a keyless local on-device provider. */
-  readonly chatIsLocal?: boolean;
-  /** The pipeline-wide AI-assist mode (chosen up front, applied as default). */
-  readonly assistMode: AssistMode;
-  /** Change the pipeline-wide AI-assist mode (persisted by the shell). */
-  readonly onAssistMode: (mode: AssistMode) => void;
   readonly t: (key: string, options?: Record<string, unknown>) => string;
 }
 
@@ -185,9 +80,8 @@ export function RoleDiscoveryScreen({
   const [suggestions, setSuggestions] = useState<RoleSuggestion[]>([]);
   const [selections, setSelections] = useState<Record<string, Selection>>({});
   const [status, setStatus] = useState<string>('');
-  const [aiBusy, setAiBusy] = useState(false);
+  const { busy: aiBusy, error: aiError, setError: setAiError, run: runAi } = useAiOperation();
   const [aiRoles, setAiRoles] = useState<AiRoleRecommendation[]>([]);
-  const [aiError, setAiError] = useState<string>('');
   // Free-text roles the user adds by hand (comma- or newline-separated).
   const [manualText, setManualText] = useState<string>('');
 
@@ -251,15 +145,11 @@ export function RoleDiscoveryScreen({
 
   const handleAiRecommend = async () => {
     if (!effectiveMap) return;
-    setAiBusy(true);
-    setAiError('');
     setAiRoles([]);
-    const dest: EgressDestination | null = chatProvider
-      ? { provider: chatProvider, kind: chatIsLocal ? 'keyless-local' : 'keyed-cloud' }
-      : null;
+    const dest = buildEgressDest(chatProvider, chatIsLocal);
     const thirdParty = !chatIsLocal;
-    const atsData = deriveAtsCareerData(extractions, thirdParty);
-    try {
+    const atsData = deriveCareerContext(extractions, thirdParty);
+    await runAi(async () => {
       // runAssist branches on the mode: script-only never constructs an Egress
       // request; ai-assisted computes the deterministic suggestions first then
       // adds gate-routed AI roles, falling back to the baseline on failure.
@@ -276,11 +166,7 @@ export function RoleDiscoveryScreen({
       } else if (roles.length === 0) {
         setAiError(t('roles.ai.none'));
       }
-    } catch (error) {
-      setAiError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setAiBusy(false);
-    }
+    });
   };
 
   const handleAddAiRole = async (role: AiRoleRecommendation) => {
@@ -309,7 +195,7 @@ export function RoleDiscoveryScreen({
   };
 
   const handleAddManualRoles = async () => {
-    const titles = parseList(manualText);
+    const titles = parseCommaSeparatedList(manualText);
     if (titles.length === 0) return;
     // The user owns the final list: each typed title becomes a user-added role
     // preference, deduped by slug against what is already captured.
