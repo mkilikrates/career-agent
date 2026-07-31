@@ -127,6 +127,49 @@ export function ProviderSetup({ providerManager, keyVault, locale, onKeysChanged
     void refreshStored();
   }, [refreshStored]);
 
+  // Auto-fetch available models when the selected provider is already configured
+  // (key stored for cloud, or configured=true for local). This populates the
+  // model dropdown on page load without requiring the user to click
+  // "Test connection" or "Validate" again (R43.7).
+  useEffect(() => {
+    const provider = providers.find((p) => p.id === selected);
+    if (!provider) return;
+    const isKeyless = provider.keyless === true;
+
+    // Only auto-fetch if the provider is already set up.
+    const shouldFetch = isKeyless
+      ? localCfg.configured
+      : stored[selected] === true;
+    if (!shouldFetch) return;
+    // Don't re-fetch if we already have models.
+    if (availableModels.length > 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        // For keyless (local) providers, validateKey('') probes GET /models.
+        // For keyed providers, we need the actual key from the vault.
+        let key = '';
+        if (!isKeyless) {
+          key = await keyVault.decrypt(selected);
+          if (!key) return; // Can't probe without the key.
+        }
+        const result = await providerManager.validateKey(selected, key);
+        if (cancelled) return;
+        if (result.valid && result.models && result.models.length > 0) {
+          setAvailableModels(result.models);
+          const prior = isKeyless ? localCfg.model : (getProviderModel(selected) ?? '');
+          const pick = result.models.includes(prior) ? prior : result.models[0];
+          setSelectedModel(pick);
+        }
+      } catch {
+        // Non-fatal: the dropdown just won't be populated until manual test/validate.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, stored, localCfg.configured]);
+
   if (providers.length === 0) {
     return null;
   }

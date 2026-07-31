@@ -344,9 +344,17 @@ export function CoachingScreen({
       return;
     }
     const path = interviewFilePath(role.slug);
-    const loaded = store.has(path)
-      ? parseInterview(store.readText(path))
-      : buildInterview(role, skillMap);
+    let loaded: InterviewFile;
+    if (store.has(path)) {
+      loaded = parseInterview(store.readText(path));
+    } else if (assistMode === 'ai-only') {
+      // In AI-only mode, don't generate deterministic script questions (R60.5).
+      // The interview starts empty; AI questions populate it after the user
+      // clicks "Suggest practice questions with AI".
+      loaded = { roleSlug: role.slug, roleTitle: role.title, questions: [] };
+    } else {
+      loaded = buildInterview(role, skillMap);
+    }
     const rs = resumeState(loaded);
     setFile(loaded);
     setCursor(rs.cursor);
@@ -628,8 +636,20 @@ export function CoachingScreen({
       );
       setSummary(s);
       setSessionSummaries((prev) => [...prev, s]);
-      // Pre-link the skills the answer evidenced onto the draft (R63.6).
-      if (fullAnswer.trim().length > 0) buildLoopDraft(fullAnswer, s.skills);
+      // Use the AI summary's first-person recap as the polished talking point
+      // (R63.6). The per-question summary produces a concise, first-person,
+      // past-tense `summary` field that is the proper polished text for the
+      // talking point — using the deterministic refine() would just repeat the
+      // raw input verbatim (the user's free-form answer lacks per-element STAR
+      // structure for the polish templates to work on).
+      if (fullAnswer.trim().length > 0) {
+        const questionId = file?.questions[cursor]?.id ?? asQuestionId('AI-PRACTICE');
+        const built = collectText(newAnswer(questionId), fullAnswer, 'situation').answer;
+        const skillIds: SkillId[] = s.skills.map((name) => asSkillId(`SKILL-${skillSlug(name)}`));
+        const draft = refine(built, { skills: skillIds });
+        // Override the deterministic polished text with the AI summary's recap.
+        setLoopDraft(s.summary.trim().length > 0 ? { ...draft, polished: s.summary } : draft);
+      }
     } catch (error) {
       // Non-blocking (R63 fallback parity): the loop finished and the draft is
       // already available; surface the failure without losing coaching state.

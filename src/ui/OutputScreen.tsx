@@ -199,10 +199,18 @@ export function OutputScreen({
     }
   };
 
-  // Deterministic, script-only generation: a complete CV from confirmed evidence
-  // with ZERO provider calls (R30.7). Used when the user has not opted into AI.
+  // Generate CV respecting the selected assist mode. In AI-only or AI-assisted
+  // mode, this directly calls the AI tailoring path (no separate "AI tailor"
+  // button needed). In script-only mode, it runs the deterministic path (R30.7).
   const handleGenerate = async () => {
     if (!role || !evidence) return;
+    // In AI-only or AI-assisted mode, route directly to the AI path when a
+    // provider is available. This eliminates the need for two separate buttons.
+    if (assistMode !== 'script-only' && aiAssist && dest) {
+      await handleAiTailor();
+      return;
+    }
+    // Script-only: deterministic generation with zero provider calls (R30.7).
     const req: CvRequest = {
       role,
       src: evidence,

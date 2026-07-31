@@ -5,6 +5,32 @@ All notable changes to Career Agent are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] — 2026-07-31
+
+### Fixed
+
+- **AI-only coaching shows no deterministic script questions** — in AI-only mode, the coaching screen starts with an empty question list and waits for AI-generated questions instead of showing formulaic deterministic questions like "Tell me about a time your Jenkins made a difference"
+- **Talking point polish uses AI summary** — in AI-only mode, the per-question AI summary's first-person past-tense recap is used as the polished talking point instead of repeating the raw user input verbatim
+- **CV includes Education and Core Competencies** — `buildCvTailoringPrompt` now falls back to extracting education and competency items from confirmed evidence when the CvModel fields are empty
+- **CV includes user name and contact** — the tailoring prompt now passes the user's name and contact info so the AI draft uses real data instead of "[Your Name]" placeholders
+- **Generate CV respects AI-only mode** — clicking "Generate CV" in AI-only mode now directly calls the AI tailoring path instead of running the deterministic script path (no need for a separate "AI tailor" button click)
+- **AI CV draft stripped of code fences and preamble** — `parseCvDraft` now strips markdown code fences and any preamble text the model prepends before the actual CV content
+- **Chunk size increased from 6000 to 12000 chars** — career extraction chunks are now larger, giving the model more context per call and better skill-to-position correlation across the full CV
+- **"Firewall Manager" no longer misclassified as Leadership** — the skill categoriser regex excludes product names containing "Manager" (Firewall Manager, Package Manager, etc.)
+- **Comma-separated technology lists split into individual skills** — entries like "Unified communications using SIP, SKINNY, MGCP, H323" are now split when they contain 3+ comma-separated parts
+- **Model dropdown auto-populates on Settings page load** — for already-configured providers (both local and cloud), available models are fetched automatically without requiring a manual "Test connection" or "Validate" click
+- **Extraction items persisted after AI extraction confirmation** — `raw_extractions.md` is now updated when items are added from the Skill Map AI extraction, ensuring downstream phases and session resume have full ATS data
+- **Career context derivation includes all extracted items** — `deriveAtsCareerData` and `deriveAtsContext` no longer gate on `userConfirmed`, so role discovery and STAR questions receive the full career trajectory even before individual item confirmation
+- **Phase stepper sync fix** — `phases()` now accepts an override current phase from the UI to prevent desync between the async orchestrator pointer and the displayed view
+- **Ingest Save button in AI-only mode** — the Save button is now rendered in AI-only mode so the phase artefact is persisted and the stepper shows "Done"
+- **Candidate profile includes all skills when no role match** — for user-added roles with 0 matched skills, the STAR question prompt now includes up to 30 skill map entries so the model has full context for question calibration
+
+### Changed
+
+- **Education strings stripped of markdown formatting** — bold markers and separator artifacts are removed before inclusion in prompts
+- **Professional summary stripped of duplicate "Summary:" prefix** — prevents "Summary: Summary: ..." in role discovery and coaching prompts
+- **Education dedup uses case-insensitive comparison** — prevents duplicate education entries in career context blocks
+
 ## [0.5.0] — 2026-07-26
 
 ### Added

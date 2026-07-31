@@ -389,6 +389,29 @@ export function buildCandidateProfile(
     lines.push(`- Gap skills (developing):`);
     lines.push(...gapLines);
   }
+  // When no matched/gap skills are available (e.g. user-added role with no
+  // explicit requiredSkills), include a summary of ALL skill map entries so the
+  // model knows what the candidate can actually do (R22.6).
+  if (matchedLines.length === 0 && gapLines.length === 0 && map.entries.length > 0) {
+    const allSkillLines = map.entries
+      .filter((entry) => !(thirdParty && entry.private === true))
+      .slice(0, 30) // Cap at 30 to keep the prompt reasonable
+      .map((entry) => {
+        const parts = [entry.name];
+        if (entry.since) {
+          const years = experienceYears(entry.since);
+          if (years !== undefined) {
+            parts.push(years === 0 ? '< 1 yr' : `~${years} yr`);
+          }
+        }
+        return `  - ${parts.join(', ')}`;
+      });
+    lines.push(`- Candidate skills (${map.entries.length} total):`);
+    lines.push(...allSkillLines);
+    if (map.entries.length > 30) {
+      lines.push(`  - ... and ${map.entries.length - 30} more`);
+    }
+  }
   // Append additional ATS context when available for richer calibration (R22.6).
   if (atsContext) {
     if (atsContext.previousTitles && atsContext.previousTitles.length > 0) {

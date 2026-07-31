@@ -224,7 +224,7 @@ export const skillSlug = slugOf;
 
 // --- Category inference (R14.1) --------------------------------------------
 
-const LEADERSHIP = /\b(lead(ership)?|manage(ment|r)?|mentor(ship|ing)?|coach(ing)?|strateg(y|ic)|stakeholder|delegat|hiring|roadmap|p&l|budget)\b/i;
+const LEADERSHIP = /\b(lead(ership)?|(?<!firewall |package |password |task |window |resource |credential )manage(ment|r)?|mentor(ship|ing)?|coach(ing)?|strateg(y|ic)|stakeholder|delegat|hiring|roadmap|p&l|budget)\b/i;
 const COMMUNICATION = /\b(communicat|present(ation)?|writing|public speaking|negotiat|storytelling|facilitat|english|spanish|french|german|portuguese|mandarin|language)\b/i;
 const TOOLS = /\b(git|github|gitlab|jira|confluence|figma|docker|kubernetes|k8s|terraform|jenkins|excel|tableau|power\s?bi|photoshop|slack|notion)\b/i;
 const TECHNICAL = /\b(java|javascript|typescript|python|c\+\+|c#|go(lang)?|rust|ruby|php|sql|react|angular|vue|node|aws|azure|gcp|api|machine learning|ml|ai|data|algorithm|css|html|linux|devops|cloud)\b/i;

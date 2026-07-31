@@ -314,7 +314,18 @@ function expandSingleEntry(entry: string): string[] {
     return expanded.length > 0 ? expanded : [entry];
   }
 
-  // 3. No expansion needed.
+  // 3. Handle comma-separated entries that look like a list of skills:
+  //    "Unified communications using SIP, SKINNY, MGCP, H323" → split on commas
+  //    Only split if there are 3+ comma-separated parts (to avoid splitting
+  //    legitimate names like "Amazon Web Services, Inc.").
+  if (entry.includes(',')) {
+    const commaParts = entry.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+    if (commaParts.length >= 3) {
+      return commaParts;
+    }
+  }
+
+  // 4. No expansion needed.
   return [entry];
 }
 

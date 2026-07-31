@@ -34,7 +34,7 @@ import type { ExtractedItem } from '@core/types';
  * hard-truncated at 6000 chars, silently dropping evidence) and each prompt
  * stays within a small local model's context window.
  */
-export const DEFAULT_DISCOVERY_CHUNK_CHARS = 6000;
+export const DEFAULT_DISCOVERY_CHUNK_CHARS = 12000;
 
 /** Options controlling how the discovery corpus is assembled. */
 export interface DiscoveryCorpusOptions {

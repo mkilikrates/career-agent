@@ -79,17 +79,37 @@ export function parseTailoringNotes(reply: string): CvTailoringSuggestion[] {
 /**
  * Parse a model reply into a {@link CvDraft} (R30.9, R30.10, R30.11). The model
  * is expected to return a full Markdown CV; this parser extracts the Markdown
- * body and derives a short summary from the first significant line. Returns
- * `undefined` when the reply is too short to constitute a meaningful draft.
+ * body, stripping any preamble text and code fences the model may have included.
+ * Returns `undefined` when the reply is too short to constitute a meaningful draft.
  */
 export function parseCvDraft(reply: string): CvDraft | undefined {
   const trimmed = reply.trim();
   if (trimmed.length < 20) return undefined;
 
+  // Strip code fences if present: ```markdown ... ```
+  let markdown = trimmed;
+  const fenceMatch = markdown.match(/```(?:markdown|md)?\s*\n([\s\S]*?)```/);
+  if (fenceMatch) {
+    markdown = fenceMatch[1].trim();
+  } else {
+    // No code fence — strip any preamble before the first Markdown heading (#).
+    const headingIdx = markdown.indexOf('\n#');
+    if (headingIdx > 0) {
+      // There's text before the first heading — treat it as preamble.
+      const before = markdown.slice(0, headingIdx).trim();
+      // Only strip if the preamble looks like prose (doesn't start with # itself).
+      if (!before.startsWith('#')) {
+        markdown = markdown.slice(headingIdx + 1).trim();
+      }
+    }
+  }
+
+  if (markdown.length < 20) return undefined;
+
   // Derive summary from first non-empty content line (skip code fence markers).
   let summary = '';
-  for (const raw of trimmed.split('\n')) {
-    const line = raw.replace(/^#+\s*/, '').replace(/^\s*```\w*\s*$/, '').trim();
+  for (const raw of markdown.split('\n')) {
+    const line = raw.replace(/^#+\s*/, '').trim();
     if (line.length >= 4) {
       summary = line.length > 80 ? line.slice(0, 77) + '...' : line;
       break;
@@ -97,7 +117,7 @@ export function parseCvDraft(reply: string): CvDraft | undefined {
   }
   if (!summary) summary = 'AI-tailored CV draft';
 
-  return { markdown: trimmed, summary };
+  return { markdown, summary };
 }
 
 /**
@@ -109,8 +129,24 @@ export function parseCvDraft(reply: string): CvDraft | undefined {
  * instructions (R37).
  */
 export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvidence): string {
-  // Professional summary (R30.14)
-  const summaryLine = model.professionalSummary ?? model.summary ?? '(none)';
+  // Name and contact info (Bug fix: prevent "[Your Name]" placeholder)
+  const nameStr = model.header.name ??
+    (evidence?.header?.name) ?? '';
+  const contactLines = model.header.contact ??
+    (evidence?.header?.contact) ?? [];
+
+  // Professional summary (R30.14) — fall back to evidence items when model field is empty
+  let summaryLine = model.professionalSummary ?? model.summary ?? '';
+  if (!summaryLine && evidence?.items) {
+    const summaryItems = evidence.items.filter(
+      (i) => i.type === 'professional_summary' && i.userConfirmed && !i.private,
+    );
+    summaryLine = summaryItems
+      .map((i) => (typeof i.fields.text === 'string' ? i.fields.text.trim() : ''))
+      .filter((t) => t.length > 0)
+      .join(' ');
+  }
+  if (!summaryLine) summaryLine = '(none)';
 
   // Employment positions with titles, dates, technologies, achievements (R30.14)
   const positionLines: string[] = [];
@@ -131,19 +167,44 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
     }
   }
 
-  // Core competencies (R30.14)
-  const competencies = model.coreCompetencies ?? [];
+  // Core competencies (R30.14) — fall back to evidence items when model field is empty
+  let competencies = model.coreCompetencies ?? [];
+  if (competencies.length === 0 && evidence?.items) {
+    const competencyItems = evidence.items.filter(
+      (i) => i.type === 'core_competency' && i.userConfirmed && !i.private,
+    );
+    competencies = competencyItems
+      .map((i) => (typeof i.fields.name === 'string' ? i.fields.name.trim() : ''))
+      .filter((n) => n.length > 0);
+  }
   const competenciesLine = competencies.length > 0
     ? competencies.join(', ')
     : '(none)';
 
-  // Education (R30.14)
+  // Education (R30.14) — fall back to evidence items when model field is empty
   const educationLines: string[] = [];
-  for (const ed of model.education) {
-    const parts = [ed.title];
-    if (ed.subtitle) parts.push(`at ${ed.subtitle}`);
-    if (ed.detail) parts.push(`(${ed.detail})`);
-    educationLines.push(`  - ${parts.join(' ')}`);
+  if (model.education.length > 0) {
+    for (const ed of model.education) {
+      const parts = [ed.title];
+      if (ed.subtitle) parts.push(`at ${ed.subtitle}`);
+      if (ed.detail) parts.push(`(${ed.detail})`);
+      educationLines.push(`  - ${parts.join(' ')}`);
+    }
+  } else if (evidence?.items) {
+    const educationItems = evidence.items.filter(
+      (i) => i.type === 'education' && i.userConfirmed && !i.private,
+    );
+    for (const item of educationItems) {
+      const degree = typeof item.fields.degree === 'string' ? item.fields.degree :
+        typeof item.fields.title === 'string' ? item.fields.title : 'Education';
+      const institution = typeof item.fields.institution === 'string' ? item.fields.institution : '';
+      const start = item.fields.start ?? item.fields.startedOn;
+      const end = item.fields.end ?? item.fields.finishedOn;
+      const dateStr = start || end
+        ? ` (${typeof start === 'string' ? start : ''}${start && end ? ' – ' : ''}${typeof end === 'string' ? end : ''})`
+        : '';
+      educationLines.push(`  - ${degree}${institution ? ` at ${institution}` : ''}${dateStr}`);
+    }
   }
 
   // Skills with durations (R30.14) — look up `since` from evidence skill map
@@ -162,6 +223,19 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
     skillLines.push(`  - ${sk.name}${durStr}`);
   }
 
+  // Build the "Confirmed career data" section, starting with name/contact
+  let confirmedData = 'Confirmed career data:\n';
+  if (nameStr) confirmedData += `- Name: ${nameStr}\n`;
+  if (contactLines.length > 0) confirmedData += `- Contact: ${contactLines.join(', ')}\n`;
+  confirmedData += `- Professional summary: ${summaryLine}\n`;
+  confirmedData += '- Positions:\n';
+  confirmedData += (positionLines.length > 0 ? positionLines.join('\n') : '  - (none)') + '\n';
+  confirmedData += `- Core competencies: ${competenciesLine}\n`;
+  confirmedData += '- Education:\n';
+  confirmedData += (educationLines.length > 0 ? educationLines.join('\n') : '  - (none)') + '\n';
+  confirmedData += '- Skills:\n';
+  confirmedData += (skillLines.length > 0 ? skillLines.join('\n') : '  - (none)');
+
   return (
     `You are producing a complete ATS-formatted CV draft in Markdown for the role of "${model.targetRole.title}". ` +
     'Use ONLY the confirmed career data below. Do NOT invent any skill, metric, date, title, or employer not present in the confirmed data.\n\n' +
@@ -171,15 +245,7 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
     '3. Skills (ordered by relevance to this role)\n' +
     '4. Education\n' +
     '5. Core Competencies (if applicable)\n\n' +
-    'Confirmed career data:\n' +
-    `- Professional summary: ${summaryLine}\n` +
-    '- Positions:\n' +
-    (positionLines.length > 0 ? positionLines.join('\n') : '  - (none)') + '\n' +
-    `- Core competencies: ${competenciesLine}\n` +
-    '- Education:\n' +
-    (educationLines.length > 0 ? educationLines.join('\n') : '  - (none)') + '\n' +
-    '- Skills:\n' +
-    (skillLines.length > 0 ? skillLines.join('\n') : '  - (none)')
+    confirmedData
   );
 }
 
