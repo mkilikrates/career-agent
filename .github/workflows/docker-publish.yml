@@ -101,6 +101,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .tool-versions
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static bundle
+        run: npm run build
+
+      - name: Package dist as zip
+        run: cd dist && zip -r ../dist.zip . && cd ..
+
       - name: Resolve version (strip leading "v")
         id: ver
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -110,7 +128,21 @@ jobs:
         with:
           generate_release_notes: true
           append_body: true
+          files: dist.zip
           body: |
+            ### 📦 Static bundle
+
+            Download `dist.zip`, extract, and serve from any static host (S3, CloudFront, Nginx, etc.):
+
+            ```bash
+            unzip dist.zip -d /var/www/ai-career-coach/
+            ```
+
+            Or grab it programmatically:
+            ```bash
+            curl -L -o dist.zip https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/dist.zip
+            ```
+
             ### 🐳 Container image
 
             ```bash
