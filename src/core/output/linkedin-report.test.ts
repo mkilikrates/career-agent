@@ -22,6 +22,7 @@ import {
   ADVISORY_NOTICE,
   buildLinkedInReport,
   renderLinkedInReportMarkdown,
+  DEFAULT_SKILL_FILTER_CONFIG,
 } from './linkedin-report';
 
 const doc = asDocId('linkedin.md');
@@ -29,11 +30,11 @@ const doc = asDocId('linkedin.md');
 const skill = (
   id: string,
   name: string,
-  opts: { since?: string; evidence?: number } = {},
+  opts: { since?: string; evidence?: number; category?: import('@core/types').SkillCategory; lastEvidence?: string } = {},
 ): SkillMapEntry => ({
   id: asSkillId(id),
   name,
-  category: 'Technical',
+  category: opts.category ?? 'Technical',
   proficiencySignal: 'Evidence-based.',
   evidence: Array.from({ length: opts.evidence ?? 0 }, () => ({
     ref: doc,
@@ -41,6 +42,7 @@ const skill = (
     note: 'evidence',
   })),
   since: asISODate(opts.since ?? '2024-01-01'),
+  ...(opts.lastEvidence !== undefined ? { lastEvidence: asISODate(opts.lastEvidence) } : {}),
 });
 
 const skillMapOf = (
@@ -99,6 +101,8 @@ const fullEvidence = (): ConfirmedEvidence => {
   const react = skill('SKILL-react', 'React', { since: '2024-06-01', evidence: 3 });
   const node = skill('SKILL-node', 'Node.js', { since: '2024-03-01', evidence: 2 });
   const k8s = skill('SKILL-k8s', 'Kubernetes', { since: '2023-01-01', evidence: 1 });
+  const leadership = skill('SKILL-lead', 'Leadership', { since: '2024-01-01', evidence: 2, category: 'Core_Competency' });
+  const systemDesign = skill('SKILL-sd', 'System Design', { since: '2023-06-01', evidence: 1, category: 'Core_Competency' });
   const acc = accomplishment('BULLET-01', 'Led the React migration across 12 teams.', [
     react.id,
   ]);
@@ -113,7 +117,7 @@ const fullEvidence = (): ConfirmedEvidence => {
     description: 'Owned the platform reliability roadmap.',
   });
   return {
-    skillMap: skillMapOf([react, node, k8s], [acc], [tp]),
+    skillMap: skillMapOf([react, node, k8s, leadership, systemDesign], [acc], [tp]),
     accomplishments: [acc],
     talkingPoints: [tp],
     items: [job],
@@ -142,10 +146,16 @@ describe('@core/output — buildLinkedInReport produces every section (R31.1)', 
     expect(md).toContain('## Recommended Skills');
   });
 
-  it('composes the headline from the strongest confirmed skills', () => {
-    // React (most recent / most evidence) ahead of Node.js ahead of Kubernetes.
+  it('composes the headline from target role title and core competencies (R31.3)', () => {
+    // With a target role title, headline = role title + core competencies.
+    const report = buildLinkedInReport(fullEvidence(), 'Principal Cloud Engineer');
+    expect(report.headline).toBe('Principal Cloud Engineer · Leadership · System Design');
+  });
+
+  it('composes the headline from core competencies alone when no role title', () => {
+    // Without a target role title, headline = core competencies only.
     const report = buildLinkedInReport(fullEvidence());
-    expect(report.headline).toBe('React · Node.js · Kubernetes');
+    expect(report.headline).toBe('Leadership · System Design');
   });
 });
 
@@ -293,5 +303,111 @@ describe('@core/output — LinkedIn report handles sparse evidence gracefully', 
     });
     expect(report.about).toBe('Reliability-focused engineer.');
     expect(report.about).not.toContain('Career highlights:');
+  });
+});
+
+describe('@core/output — LinkedIn recommended skills filtered by recency and relevance (R31.4)', () => {
+  // Fixed reference date for deterministic tests.
+  const now = new Date('2025-01-01T00:00:00Z');
+
+  it('excludes skills whose lastEvidence predates the recency cutoff', () => {
+    const recent = skill('SKILL-react', 'React', { lastEvidence: '2024-06-01' });
+    const legacy = skill('SKILL-cobol', 'COBOL', { lastEvidence: '1998-01-01' });
+    const report = buildLinkedInReport(
+      { skillMap: skillMapOf([recent, legacy]) },
+      undefined,
+      { now },
+    );
+    expect(report.recommendedSkills.map((s) => s.name)).toContain('React');
+    expect(report.recommendedSkills.map((s) => s.name)).not.toContain('COBOL');
+  });
+
+  it('keeps skills with no lastEvidence (assumed still active)', () => {
+    const active = skill('SKILL-ts', 'TypeScript'); // no lastEvidence
+    const legacy = skill('SKILL-dbase', 'dBase', { lastEvidence: '1995-06-01' });
+    const report = buildLinkedInReport(
+      { skillMap: skillMapOf([active, legacy]) },
+      undefined,
+      { now },
+    );
+    expect(report.recommendedSkills.map((s) => s.name)).toContain('TypeScript');
+    expect(report.recommendedSkills.map((s) => s.name)).not.toContain('dBase');
+  });
+
+  it('prefers matched skills over unmatched in ordering', () => {
+    const ts = skill('SKILL-ts', 'TypeScript', { since: '2020-01-01', evidence: 5, lastEvidence: '2024-12-01' });
+    const react = skill('SKILL-react', 'React', { since: '2022-01-01', evidence: 3, lastEvidence: '2024-12-01' });
+    const python = skill('SKILL-python', 'Python', { since: '2023-01-01', evidence: 10, lastEvidence: '2024-12-01' });
+    // Python has the most evidence/most recent but is NOT matched.
+    const matchedIds = new Set([ts.id, react.id]);
+    const report = buildLinkedInReport(
+      { skillMap: skillMapOf([python, ts, react]) },
+      undefined,
+      { matchedSkillIds: matchedIds, now },
+    );
+    const names = report.recommendedSkills.map((s) => s.name);
+    // Matched skills appear before unmatched.
+    const tsIdx = names.indexOf('TypeScript');
+    const reactIdx = names.indexOf('React');
+    const pyIdx = names.indexOf('Python');
+    expect(tsIdx).toBeLessThan(pyIdx);
+    expect(reactIdx).toBeLessThan(pyIdx);
+  });
+
+  it('caps the list at the configured maxSkills limit', () => {
+    // Create 60 skills, all recent.
+    const entries = Array.from({ length: 60 }, (_, i) =>
+      skill(`SKILL-${i}`, `Skill ${i}`, { lastEvidence: '2024-01-01' }),
+    );
+    const report = buildLinkedInReport(
+      { skillMap: skillMapOf(entries) },
+      undefined,
+      { now },
+    );
+    expect(report.recommendedSkills.length).toBe(DEFAULT_SKILL_FILTER_CONFIG.maxSkills);
+  });
+
+  it('respects a custom maxSkills override', () => {
+    const entries = Array.from({ length: 20 }, (_, i) =>
+      skill(`SKILL-${i}`, `Skill ${i}`, { lastEvidence: '2024-01-01' }),
+    );
+    const report = buildLinkedInReport(
+      { skillMap: skillMapOf(entries) },
+      undefined,
+      { skillFilter: { maxSkills: 5 }, now },
+    );
+    expect(report.recommendedSkills.length).toBe(5);
+  });
+
+  it('respects a custom recencyCutoffYears override', () => {
+    // With a 5-year cutoff, a skill last used 7 years ago is excluded.
+    const recent = skill('SKILL-react', 'React', { lastEvidence: '2024-01-01' });
+    const borderline = skill('SKILL-java', 'Java', { lastEvidence: '2018-06-01' }); // ~6.5 yrs ago
+    const report = buildLinkedInReport(
+      { skillMap: skillMapOf([recent, borderline]) },
+      undefined,
+      { skillFilter: { recencyCutoffYears: 5 }, now },
+    );
+    expect(report.recommendedSkills.map((s) => s.name)).toContain('React');
+    expect(report.recommendedSkills.map((s) => s.name)).not.toContain('Java');
+  });
+
+  it('applies default config (10 years, max 50) when no options provided', () => {
+    expect(DEFAULT_SKILL_FILTER_CONFIG.recencyCutoffYears).toBe(10);
+    expect(DEFAULT_SKILL_FILTER_CONFIG.maxSkills).toBe(50);
+  });
+
+  it('does not filter skills when all have recent evidence', () => {
+    const entries = [
+      skill('SKILL-ts', 'TypeScript', { lastEvidence: '2024-06-01' }),
+      skill('SKILL-react', 'React', { lastEvidence: '2024-03-01' }),
+      skill('SKILL-node', 'Node.js', { lastEvidence: '2023-12-01' }),
+    ];
+    const report = buildLinkedInReport(
+      { skillMap: skillMapOf(entries) },
+      undefined,
+      { now },
+    );
+    expect(report.recommendedSkills).toHaveLength(3);
   });
 });

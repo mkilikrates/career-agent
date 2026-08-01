@@ -163,6 +163,9 @@ const renderQuestion = (q: Question): string[] => {
   if (q.gap !== undefined) {
     lines.push(`- **Gap:** \`${asString(q.gap)}\``);
   }
+  if (q.competencies !== undefined && q.competencies.length > 0) {
+    lines.push(`- **Competencies:** ${q.competencies.join(', ')}`);
+  }
   lines.push(`- **Prompt:** ${oneLine(q.prompt)}`);
   return lines;
 };
@@ -225,9 +228,14 @@ const renderTalkingPoint = (tp: TalkingPoint): string[] => {
     `- **Status:** ${tp.retired === true ? 'retired' : 'active'}`,
   ];
   for (const element of STAR_ORDER) {
-    const value = tp[element];
-    if (value !== undefined && value !== '') {
-      lines.push(`- **${elementLabel[element]}:** ${oneLine(value)}`);
+    const raw = tp[element];
+    if (raw !== undefined && raw !== '') {
+      // Sanitise on write: strip any inline field markers that may have leaked
+      // into a STAR element from a prior corrupted save (R28.6).
+      const { value } = cleanStarElementField(raw);
+      if (value !== undefined && value !== '') {
+        lines.push(`- **${elementLabel[element]}:** ${oneLine(value)}`);
+      }
     }
   }
   if (tp.flags.length > 0) {
@@ -236,7 +244,9 @@ const renderTalkingPoint = (tp: TalkingPoint): string[] => {
   if (tp.skills.length > 0) {
     lines.push(`- **Skills:** ${tp.skills.map(asString).join(', ')}`);
   }
-  lines.push(`- **Polished:** ${oneLine(tp.polished)}`);
+  // Sanitise the polished text on write as well (R28.6).
+  const polished = cleanPolishedField(tp.polished);
+  lines.push(`- **Polished:** ${oneLine(polished)}`);
   return lines;
 };
 
@@ -297,6 +307,7 @@ const CATEGORY = /^- \*\*Category:\*\* (.*)$/;
 const STAR_FRAMED = /^- \*\*STAR-framed:\*\* (.*)$/;
 const SKILL = /^- \*\*Skill:\*\* `([^`]*)`$/;
 const GAP = /^- \*\*Gap:\*\* `([^`]*)`$/;
+const COMPETENCIES = /^- \*\*Competencies:\*\* (.*)$/;
 const PROMPT = /^- \*\*Prompt:\*\* (.*)$/;
 
 // Response field lines (R24, R25). Recommendation lines are intentionally not
@@ -332,6 +343,7 @@ interface PartialQuestion {
   prompt: string;
   skill?: string;
   gap?: string;
+  competencies?: string[];
 }
 
 const newPartial = (): PartialQuestion => ({
@@ -350,6 +362,7 @@ const finalise = (p: PartialQuestion, fallbackIndex: number): Question => {
   };
   if (p.skill !== undefined) q.skill = asSkillId(p.skill);
   if (p.gap !== undefined) q.gap = asSkillTerm(p.gap);
+  if (p.competencies !== undefined && p.competencies.length > 0) q.competencies = p.competencies;
   return q;
 };
 
@@ -417,18 +430,109 @@ const newPartialTalkingPoint = (): PartialTalkingPoint => ({
   polished: '',
 });
 
+// --- Clean-up migration for nested/duplicated talking-point content (R28.6) --
+//
+// On load, if an existing talking point carries nested or duplicated field
+// content (e.g. Situation contains embedded "skills ...", "polished ...", or a
+// second copy of itself; or Polished starts with "I - **Situation:**..."),
+// extract the correct values into their proper fields. This sanitisation runs
+// ONCE per parse in finaliseTalkingPoint so the next serialize writes clean,
+// non-duplicated fields.
+
+/**
+ * Regex that detects an inline "skills SKILL-foo ... polished" marker embedded
+ * inside a STAR element value — a sign of concatenated/corrupted fields.
+ */
+const INLINE_SKILLS_MARKER = /\s+skills\s+(SKILL-[a-z0-9-]+(?:\s+SKILL-[a-z0-9-]+)*)\s+polished\s+/i;
+
+/**
+ * Detect if a value contains a duplicated copy of its own content. Heuristic:
+ * split by the inline-skills/polished marker and if the two halves are
+ * substantially similar (first N chars match), the content is duplicated.
+ */
+function hasDuplicatedContent(value: string): { cleaned: string; trailingSkills?: string[] } | null {
+  const match = INLINE_SKILLS_MARKER.exec(value);
+  if (!match || match.index === undefined) return null;
+  const before = value.slice(0, match.index).trim();
+  const afterMarker = value.slice(match.index + match[0].length).trim();
+  // The trailing text after the marker repeats the beginning — it's a duplicate.
+  // Use a prefix comparison: if the first 60 chars of afterMarker appear in before.
+  const prefix = afterMarker.slice(0, 60).toLowerCase();
+  if (before.length > 60 && before.toLowerCase().startsWith(prefix)) {
+    const skillIds = match[1].split(/\s+/).filter((s) => s.startsWith('SKILL-'));
+    return { cleaned: before, trailingSkills: skillIds };
+  }
+  // Also check if before starts like afterMarker — covers the reversed case.
+  const beforePrefix = before.slice(0, 60).toLowerCase();
+  if (afterMarker.length > 60 && afterMarker.toLowerCase().startsWith(beforePrefix)) {
+    const skillIds = match[1].split(/\s+/).filter((s) => s.startsWith('SKILL-'));
+    return { cleaned: before, trailingSkills: skillIds };
+  }
+  return null;
+}
+
+/**
+ * Detect if the polished field contains nested markdown field markers
+ * (e.g. "I - **Situation:**..." or "I was in a situation where - **Skills:**...").
+ * Strip the nested content, keeping only the actual polished summary text.
+ */
+export function cleanPolishedField(polished: string): string {
+  if (!polished) return polished;
+  // Pattern 1: Polished starts with "I - **Situation:**" — the entire polished
+  // field is a corrupted copy of the serialized TP. Extract nothing useful.
+  if (/^I\s*-\s*\*\*Situation:\*\*/i.test(polished)) {
+    return '';
+  }
+  // Pattern 2: Polished starts with "I " or "I was" followed by "- **Situation:**"
+  if (/^I\s+(was\s+in\s+a\s+situation\s+where\s+)?-\s*\*\*/i.test(polished)) {
+    return '';
+  }
+  // Pattern 3: Polished contains embedded " - **Skills:**" or " - **Polished:**"
+  // markers mid-text. Truncate at the first occurrence.
+  const nestedField = polished.search(/\s-\s\*\*(Situation|Task|Action|Result|Skills|Polished|Flags|Status):\*\*/);
+  if (nestedField > 0) {
+    return polished.slice(0, nestedField).trim();
+  }
+  return polished;
+}
+
+/**
+ * Clean a STAR element value by removing inline nested field content. Returns
+ * the sanitised value and any skills extracted from the inline marker.
+ */
+export function cleanStarElementField(value: string | undefined): { value: string | undefined; skills?: string[] } {
+  if (value === undefined || value === '') return { value };
+  const dup = hasDuplicatedContent(value);
+  if (dup) return { value: dup.cleaned, skills: dup.trailingSkills };
+  return { value };
+}
+
 /** Finalise a partial talking point into a {@link TalkingPoint} (R28.4, R23). */
 const finaliseTalkingPoint = (p: PartialTalkingPoint): TalkingPoint => {
+  // Apply the clean-up migration for nested/duplicated content (R28.6).
+  const cleanSit = cleanStarElementField(p.situation);
+  const cleanTask = cleanStarElementField(p.task);
+  const cleanAction = cleanStarElementField(p.action);
+  const cleanResult = cleanStarElementField(p.result);
+
+  // Merge any skills extracted from inline markers with the explicit skills list.
+  const allSkills = new Set(p.skills);
+  for (const extracted of [cleanSit.skills, cleanTask.skills, cleanAction.skills, cleanResult.skills]) {
+    if (extracted) for (const s of extracted) allSkills.add(s);
+  }
+
+  const polished = cleanPolishedField(p.polished);
+
   const tp: TalkingPoint = {
     id: asStarId(p.id ?? ''),
     flags: p.flags,
-    polished: p.polished,
-    skills: p.skills.map(asSkillId),
+    polished,
+    skills: [...allSkills].map(asSkillId),
   };
-  if (p.situation !== undefined) tp.situation = p.situation;
-  if (p.task !== undefined) tp.task = p.task;
-  if (p.action !== undefined) tp.action = p.action;
-  if (p.result !== undefined) tp.result = p.result;
+  if (cleanSit.value !== undefined) tp.situation = cleanSit.value;
+  if (cleanTask.value !== undefined) tp.task = cleanTask.value;
+  if (cleanAction.value !== undefined) tp.action = cleanAction.value;
+  if (cleanResult.value !== undefined) tp.result = cleanResult.value;
   if (p.retired) tp.retired = true;
   return tp;
 };
@@ -626,6 +730,14 @@ export const parseInterview = (markdown: string): InterviewFile => {
       currentQ.gap = gap[1];
       continue;
     }
+    const competencies = COMPETENCIES.exec(line);
+    if (competencies) {
+      currentQ.competencies = competencies[1]
+        .split(',')
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0);
+      continue;
+    }
     const prompt = PROMPT.exec(line);
     if (prompt) {
       currentQ.prompt = prompt[1];
@@ -756,6 +868,34 @@ export const withTalkingPoint = (
   };
   if (file.responses !== undefined) next.responses = file.responses;
   if (file.cursor !== undefined) next.cursor = file.cursor;
+  return next;
+};
+
+/**
+ * Append AI-generated questions to an interview file (R22.3). Questions are
+ * assigned sequential ids starting after the existing question set (`Q-NN`).
+ * Deduplicates by prompt text so re-fetching the same questions does not produce
+ * duplicates. Pure — returns a new file, never mutates the input. Persist the
+ * result with {@link saveInterview} immediately so questions survive session
+ * interruption.
+ */
+export const withQuestions = (
+  file: InterviewFile,
+  newQuestions: Question[],
+): InterviewFile => {
+  // Deduplicate: skip any question whose prompt already exists in the file.
+  const existingPrompts = new Set(file.questions.map((q) => q.prompt));
+  const toAdd = newQuestions.filter((q) => !existingPrompts.has(q.prompt));
+  if (toAdd.length === 0) return file;
+
+  const next: InterviewFile = {
+    roleSlug: file.roleSlug,
+    roleTitle: file.roleTitle,
+    questions: [...file.questions, ...toAdd],
+  };
+  if (file.responses !== undefined) next.responses = file.responses;
+  if (file.cursor !== undefined) next.cursor = file.cursor;
+  if (file.talkingPoints !== undefined) next.talkingPoints = file.talkingPoints;
   return next;
 };
 

@@ -24,7 +24,8 @@ import {
   type EgressDestination,
 } from '@core/assist';
 import type { RolePreference } from '@core/types';
-import { experienceYears } from '@core/types';
+import { experienceDuration } from '@core/types';
+import { computeEligibility } from '@core/ingestion';
 import { buildCvModel, type ConfirmedEvidence, type CvModel } from './cv-model';
 import { buildTailoringPayload, type TargetOpportunity } from './tailoring';
 
@@ -135,11 +136,16 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
   const contactLines = model.header.contact ??
     (evidence?.header?.contact) ?? [];
 
-  // Professional summary (R30.14) — fall back to evidence items when model field is empty
+  // Compute output-eligible items for fallback paths (R30.16, R71.24, R11.2–R11.4)
+  const eligibleItems = evidence?.items
+    ? computeEligibility({ items: evidence.items, promotedLowIds: evidence.promotedLowIds }).eligible
+    : [];
+
+  // Professional summary (R30.14) — fall back to eligible items when model field is empty
   let summaryLine = model.professionalSummary ?? model.summary ?? '';
-  if (!summaryLine && evidence?.items) {
-    const summaryItems = evidence.items.filter(
-      (i) => i.type === 'professional_summary' && i.userConfirmed && !i.private,
+  if (!summaryLine && eligibleItems.length > 0) {
+    const summaryItems = eligibleItems.filter(
+      (i) => i.type === 'professional_summary',
     );
     summaryLine = summaryItems
       .map((i) => (typeof i.fields.text === 'string' ? i.fields.text.trim() : ''))
@@ -167,11 +173,11 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
     }
   }
 
-  // Core competencies (R30.14) — fall back to evidence items when model field is empty
+  // Core competencies (R30.14) — fall back to eligible items when model field is empty
   let competencies = model.coreCompetencies ?? [];
-  if (competencies.length === 0 && evidence?.items) {
-    const competencyItems = evidence.items.filter(
-      (i) => i.type === 'core_competency' && i.userConfirmed && !i.private,
+  if (competencies.length === 0 && eligibleItems.length > 0) {
+    const competencyItems = eligibleItems.filter(
+      (i) => i.type === 'core_competency',
     );
     competencies = competencyItems
       .map((i) => (typeof i.fields.name === 'string' ? i.fields.name.trim() : ''))
@@ -181,7 +187,7 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
     ? competencies.join(', ')
     : '(none)';
 
-  // Education (R30.14) — fall back to evidence items when model field is empty
+  // Education (R30.14) — fall back to eligible items when model field is empty
   const educationLines: string[] = [];
   if (model.education.length > 0) {
     for (const ed of model.education) {
@@ -190,9 +196,9 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
       if (ed.detail) parts.push(`(${ed.detail})`);
       educationLines.push(`  - ${parts.join(' ')}`);
     }
-  } else if (evidence?.items) {
-    const educationItems = evidence.items.filter(
-      (i) => i.type === 'education' && i.userConfirmed && !i.private,
+  } else if (eligibleItems.length > 0) {
+    const educationItems = eligibleItems.filter(
+      (i) => i.type === 'education',
     );
     for (const item of educationItems) {
       const degree = typeof item.fields.degree === 'string' ? item.fields.degree :
@@ -216,7 +222,7 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
         (e) => String(e.id) === String(sk.id),
       );
       if (entry?.since) {
-        const years = experienceYears(entry.since);
+        const years = experienceDuration(entry.since, entry.lastEvidence);
         if (years !== undefined && years > 0) durStr = ` (~${years} years)`;
       }
     }
@@ -233,6 +239,63 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
   confirmedData += `- Core competencies: ${competenciesLine}\n`;
   confirmedData += '- Education:\n';
   confirmedData += (educationLines.length > 0 ? educationLines.join('\n') : '  - (none)') + '\n';
+
+  // Certifications (R30.16, R71.24)
+  const certLines: string[] = [];
+  if (model.certifications.length > 0) {
+    for (const cert of model.certifications) {
+      const parts = [cert.title];
+      if (cert.subtitle) parts.push(`(${cert.subtitle})`);
+      certLines.push(`  - ${parts.join(' ')}`);
+    }
+  } else if (eligibleItems.length > 0) {
+    const certItems = eligibleItems.filter(
+      (i) => i.type === 'certification',
+    );
+    for (const item of certItems) {
+      const name = typeof item.fields.name === 'string' ? item.fields.name :
+        typeof item.fields.title === 'string' ? item.fields.title : 'Certification';
+      const issuer = typeof item.fields.issuer === 'string' ? item.fields.issuer :
+        typeof item.fields.authority === 'string' ? item.fields.authority : '';
+      certLines.push(`  - ${name}${issuer ? ` (${issuer})` : ''}`);
+    }
+  }
+  if (certLines.length > 0) {
+    confirmedData += '- Certifications:\n';
+    confirmedData += certLines.join('\n') + '\n';
+  }
+
+  // Awards from eligible additional_info items (R30.16, R71.24)
+  if (eligibleItems.length > 0) {
+    const awardItems = eligibleItems.filter(
+      (i) => i.type === 'additional_info' &&
+        typeof i.fields.category === 'string' &&
+        /^award/i.test(i.fields.category.trim()),
+    );
+    if (awardItems.length > 0) {
+      confirmedData += '- Awards:\n';
+      for (const item of awardItems) {
+        const value = typeof item.fields.value === 'string' ? item.fields.value.trim() : '';
+        if (value) confirmedData += `  - ${value}\n`;
+      }
+    }
+  }
+
+  // Nationality from eligible additional_info items (R30.16, R71.24)
+  if (eligibleItems.length > 0) {
+    const nationalityItems = eligibleItems.filter(
+      (i) => i.type === 'additional_info' &&
+        typeof i.fields.category === 'string' &&
+        /^nationalit/i.test(i.fields.category.trim()),
+    );
+    const nationalityValues = nationalityItems
+      .map((i) => typeof i.fields.value === 'string' ? i.fields.value.trim() : '')
+      .filter((v) => v.length > 0);
+    if (nationalityValues.length > 0) {
+      confirmedData += `- Nationality: ${nationalityValues.join(', ')}\n`;
+    }
+  }
+
   confirmedData += '- Skills:\n';
   confirmedData += (skillLines.length > 0 ? skillLines.join('\n') : '  - (none)');
 
@@ -244,7 +307,10 @@ export function buildCvTailoringPrompt(model: CvModel, evidence?: ConfirmedEvide
     '2. Experience (employment entries with adjusted bullet emphasis for the role)\n' +
     '3. Skills (ordered by relevance to this role)\n' +
     '4. Education\n' +
-    '5. Core Competencies (if applicable)\n\n' +
+    '5. Certifications (if applicable)\n' +
+    '6. Core Competencies (if applicable)\n' +
+    '7. Awards (if applicable)\n\n' +
+    'Use the provided Name and Contact info for the header — do NOT use placeholders like [Full Name] or [Email].\n\n' +
     confirmedData
   );
 }

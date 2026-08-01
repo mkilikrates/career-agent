@@ -28,8 +28,9 @@
 // constructed with (see `output-assist.ts`).
 
 import { isThirdPartyDestination as isThirdParty, type EgressDestination } from '@core/assist';
-import { experienceYears } from '@core/types';
-import type { ConfirmedEvidence } from './cv-model';
+import { experienceDuration } from '@core/types';
+import { computeEligibility } from '@core/ingestion';
+import { headerFromAdditionalInfo, type ConfirmedEvidence } from './cv-model';
 
 const asString = (v: unknown): string => v as unknown as string;
 
@@ -106,10 +107,22 @@ const confirmedAtsCareerData = (
 ): string => {
   const lines: string[] = [];
 
+  // Compute output-eligible items using the same rules as buildCvModel:
+  // High confidence OR user-confirmed OR promoted, minus private (R11.2–R11.4, R30.16, R71.24).
+  const { eligible } = computeEligibility({
+    items: src.items ?? [],
+    promotedLowIds: src.promotedLowIds,
+  });
+
+  // Name and contact info from eligible additional_info items (R30.16, R71.24)
+  const header = headerFromAdditionalInfo(src.items ?? [], src.header, src.promotedLowIds);
+  if (header.name) lines.push(`- Name: ${header.name}`);
+  if (header.contact && header.contact.length > 0) {
+    lines.push(`- Contact: ${header.contact.join(', ')}`);
+  }
+
   // Professional summary (R30.14)
-  const summaryItems = (src.items ?? []).filter(
-    (i) => i.type === 'professional_summary' && i.userConfirmed && !i.private,
-  );
+  const summaryItems = eligible.filter((i) => i.type === 'professional_summary');
   const summaryText = summaryItems
     .map((i) => (typeof i.fields.text === 'string' ? i.fields.text.trim() : ''))
     .filter((t) => t.length > 0)
@@ -117,9 +130,7 @@ const confirmedAtsCareerData = (
   lines.push(`- Professional summary: ${summaryText || src.summary || '(none)'}`);
 
   // Employment positions with titles, dates, achievements (R30.14)
-  const employmentItems = (src.items ?? []).filter(
-    (i) => i.type === 'employment' && i.userConfirmed && !i.private,
-  );
+  const employmentItems = eligible.filter((i) => i.type === 'employment');
   lines.push('- Positions:');
   if (employmentItems.length > 0) {
     for (const item of employmentItems) {
@@ -145,18 +156,14 @@ const confirmedAtsCareerData = (
   }
 
   // Core competencies (R30.14)
-  const competencyItems = (src.items ?? []).filter(
-    (i) => i.type === 'core_competency' && i.userConfirmed && !i.private,
-  );
+  const competencyItems = eligible.filter((i) => i.type === 'core_competency');
   const competencies = competencyItems
     .map((i) => (typeof i.fields.name === 'string' ? i.fields.name.trim() : ''))
     .filter((n) => n.length > 0);
   lines.push(`- Core competencies: ${competencies.length > 0 ? competencies.join(', ') : '(none)'}`);
 
-  // Education (R30.14)
-  const educationItems = (src.items ?? []).filter(
-    (i) => i.type === 'education' && i.userConfirmed && !i.private,
-  );
+  // Education (R30.14, R30.16)
+  const educationItems = eligible.filter((i) => i.type === 'education');
   lines.push('- Education:');
   if (educationItems.length > 0) {
     for (const item of educationItems) {
@@ -174,13 +181,55 @@ const confirmedAtsCareerData = (
     lines.push('  - (none)');
   }
 
+  // Certifications (R30.16, R71.24)
+  const certificationItems = eligible.filter((i) => i.type === 'certification');
+  if (certificationItems.length > 0) {
+    lines.push('- Certifications:');
+    for (const item of certificationItems) {
+      const name = typeof item.fields.name === 'string' ? item.fields.name :
+        typeof item.fields.title === 'string' ? item.fields.title : 'Certification';
+      const issuer = typeof item.fields.issuer === 'string' ? item.fields.issuer :
+        typeof item.fields.authority === 'string' ? item.fields.authority : '';
+      lines.push(`  - ${name}${issuer ? ` (${issuer})` : ''}`);
+    }
+  }
+
+  // Awards from eligible additional_info items (R30.16, R71.24)
+  const awardItems = eligible.filter(
+    (i) => i.type === 'additional_info' &&
+      typeof i.fields.category === 'string' &&
+      /^award/i.test(i.fields.category.trim()),
+  );
+  if (awardItems.length > 0) {
+    lines.push('- Awards:');
+    for (const item of awardItems) {
+      const value = typeof item.fields.value === 'string' ? item.fields.value.trim() : '';
+      if (value) lines.push(`  - ${value}`);
+    }
+  }
+
+  // Nationality from eligible additional_info items (R30.16, R71.24)
+  const nationalityItems = eligible.filter(
+    (i) => i.type === 'additional_info' &&
+      typeof i.fields.category === 'string' &&
+      /^nationalit/i.test(i.fields.category.trim()),
+  );
+  if (nationalityItems.length > 0) {
+    const values = nationalityItems
+      .map((i) => typeof i.fields.value === 'string' ? i.fields.value.trim() : '')
+      .filter((v) => v.length > 0);
+    if (values.length > 0) {
+      lines.push(`- Nationality: ${values.join(', ')}`);
+    }
+  }
+
   // Skills with durations (R30.14)
   lines.push('- Skills:');
   const filteredEntries = src.skillMap.entries
     .filter((entry) => !(thirdParty && entry.private === true));
   if (filteredEntries.length > 0) {
     for (const entry of filteredEntries) {
-      const years = experienceYears(entry.since);
+      const years = experienceDuration(entry.since, entry.lastEvidence);
       const durStr = years !== undefined && years > 0 ? ` (~${years} years)` : '';
       lines.push(`  - ${entry.name}${durStr}`);
     }
@@ -226,7 +275,10 @@ export const buildTailoringPayload = (
     '2. Experience (employment entries with adjusted bullet emphasis for the opportunity)\n' +
     '3. Skills (ordered by relevance to this opportunity)\n' +
     '4. Education\n' +
-    '5. Core Competencies (if applicable)\n\n' +
+    '5. Certifications (if applicable)\n' +
+    '6. Core Competencies (if applicable)\n' +
+    '7. Awards (if applicable)\n\n' +
+    'Use the provided Name and Contact info for the header — do NOT use placeholders like [Full Name] or [Email].\n\n' +
     'Adapt emphasis and phrasing toward the Target Opportunity\'s language and priorities, ' +
     'but EXCLUDE any skill, metric, date, title, or employer appearing only in the Target Opportunity and not in confirmed evidence.\n\n' +
     'Confirmed career data:\n' +

@@ -115,8 +115,11 @@ export {
   interviewFilePath,
   withResponse,
   withTalkingPoint,
+  withQuestions,
   flaggedResponses,
   resumeState,
+  cleanPolishedField,
+  cleanStarElementField,
   INTERVIEW_HEADING,
   QUESTIONS_HEADING,
   RESPONSES_HEADING,
@@ -212,7 +215,7 @@ export type { DeliveryLexicon } from './firewall';
 // confirmation (R28.3, R23.1); `retire` marks a talking point retired rather
 // than deleting it (R23.3). Confirmed talking points are persisted into the
 // interview file's `## Talking Points` section (R28.4).
-export { refine, confirmTalkingPoint, retire, isPolishedQuality, deterministicSentenceTrim, ensurePolishedQuality } from './refine';
+export { refine, confirmTalkingPoint, retire, isPolishedQuality, deterministicSentenceTrim, ensurePolishedQuality, isAiSummaryQuality, ensureAiSummaryQuality } from './refine';
 export type {
   TalkingPointDraft,
   StarSummaryElement,

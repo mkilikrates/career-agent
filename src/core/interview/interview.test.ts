@@ -11,6 +11,7 @@ import {
   saveInterview,
   withResponse,
   withTalkingPoint,
+  withQuestions,
   flaggedResponses,
   resumeState,
   refine,
@@ -348,5 +349,131 @@ describe('interview file with confirmed talking points (R28.4, R23)', () => {
   it('a file with no confirmed talking points has no Talking Points section (back-compat)', () => {
     const md = serializeInterview(buildInterview(role, map));
     expect(md).not.toContain('## Talking Points');
+  });
+});
+
+describe('withQuestions — AI question persistence (R22.3)', () => {
+  it('appends AI-generated questions with competencies to the interview file', () => {
+    const base = buildInterview(role, map);
+    const existingCount = base.questions.length;
+    const aiQuestions = [
+      {
+        id: asQuestionId('Q-05'),
+        category: 'behavioural' as const,
+        starFramed: true,
+        prompt: 'Tell me about a time you led a cross-functional initiative.',
+        competencies: ['Leadership', 'Stakeholder Management'],
+      },
+      {
+        id: asQuestionId('Q-06'),
+        category: 'behavioural' as const,
+        starFramed: true,
+        prompt: 'Describe a situation where you resolved a conflict.',
+        competencies: ['Conflict Resolution'],
+      },
+    ];
+    const updated = withQuestions(base, aiQuestions);
+    expect(updated.questions).toHaveLength(existingCount + 2);
+    expect(updated.questions[existingCount].competencies).toEqual(['Leadership', 'Stakeholder Management']);
+    expect(updated.questions[existingCount + 1].competencies).toEqual(['Conflict Resolution']);
+  });
+
+  it('deduplicates questions by prompt text', () => {
+    const base = buildInterview(role, map);
+    const existingPrompt = base.questions[0].prompt;
+    const aiQuestions = [
+      {
+        id: asQuestionId('Q-10'),
+        category: 'behavioural' as const,
+        starFramed: true,
+        prompt: existingPrompt, // same as existing
+        competencies: ['Duplicate'],
+      },
+      {
+        id: asQuestionId('Q-11'),
+        category: 'behavioural' as const,
+        starFramed: true,
+        prompt: 'A genuinely new question about leadership.',
+        competencies: ['Leadership'],
+      },
+    ];
+    const updated = withQuestions(base, aiQuestions);
+    // Only the new question is added.
+    expect(updated.questions).toHaveLength(base.questions.length + 1);
+    expect(updated.questions[updated.questions.length - 1].prompt).toBe(
+      'A genuinely new question about leadership.',
+    );
+  });
+
+  it('round-trips competencies through serialize/parse losslessly', () => {
+    const base = buildInterview(role, map);
+    const aiQuestions = [
+      {
+        id: asQuestionId('Q-05'),
+        category: 'behavioural' as const,
+        starFramed: true,
+        prompt: 'Tell me about a time you mentored someone.',
+        competencies: ['Mentorship', 'Technical Leadership'],
+      },
+    ];
+    const file = withQuestions(base, aiQuestions);
+    const md = serializeInterview(file);
+    // Competencies appear in the serialized output.
+    expect(md).toContain('- **Competencies:** Mentorship, Technical Leadership');
+    // Parse round-trips correctly.
+    const parsed = parseInterview(md);
+    expect(parsed).toEqual(file);
+    expect(serializeInterview(parsed)).toBe(md);
+  });
+
+  it('persists AI questions to the interview file immediately on receipt', async () => {
+    const writes: Record<string, string> = {};
+    const writer = { write: (p: never, d: string) => void (writes[String(p)] = d) };
+    const base = buildInterview(role, map);
+    const aiQuestions = [
+      {
+        id: asQuestionId('Q-05'),
+        category: 'behavioural' as const,
+        starFramed: true,
+        prompt: 'Tell me about a tricky deploy you managed.',
+        competencies: ['Adaptability'],
+      },
+    ];
+    const updated = withQuestions(base, aiQuestions);
+    await saveInterview(writer, updated);
+    const saved = writes[String(interviewPath(role.slug))];
+    expect(saved).toContain('Tell me about a tricky deploy you managed.');
+    expect(saved).toContain('- **Competencies:** Adaptability');
+  });
+
+  it('preserves existing responses and talking points when appending questions', () => {
+    const registry = new IdRegistry();
+    const base = buildInterview(role, map);
+    const answer: StarAnswer = {
+      questionId: asQuestionId('Q-01'),
+      situation: 'context here',
+      task: 'task here',
+      action: 'action here',
+      result: 'result here',
+      flags: [],
+      status: 'complete',
+    };
+    let file = withResponse(base, answer, 0);
+    const tp = confirmTalkingPoint(refine(answer), registry);
+    file = withTalkingPoint(file, tp);
+
+    const aiQuestions = [
+      {
+        id: asQuestionId('Q-05'),
+        category: 'behavioural' as const,
+        starFramed: true,
+        prompt: 'Describe a mentoring experience.',
+        competencies: ['Mentorship'],
+      },
+    ];
+    const updated = withQuestions(file, aiQuestions);
+    expect(updated.responses).toHaveLength(1);
+    expect(updated.talkingPoints).toHaveLength(1);
+    expect(updated.cursor).toBe(0);
   });
 });

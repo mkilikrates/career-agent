@@ -183,6 +183,12 @@ const finalise = (p: PartialEntry): SkillMapEntry => {
     }
     sinceValue = earliest || p.legacyRecency;
   }
+  // Compute lastEvidence from the latest evidence[].when date (R70.8).
+  let latestEvidence = '';
+  for (const e of p.evidence) {
+    const w = e.when as unknown as string;
+    if (w && w > latestEvidence) latestEvidence = w;
+  }
   const entry: SkillMapEntry = {
     id: asSkillId(p.id ?? `SKILL-${p.name}`),
     name: p.name,
@@ -190,6 +196,7 @@ const finalise = (p: PartialEntry): SkillMapEntry => {
     proficiencySignal: p.proficiencySignal,
     evidence: p.evidence,
     ...(sinceValue ? { since: asISODate(sinceValue) } : {}),
+    ...(latestEvidence ? { lastEvidence: asISODate(latestEvidence) } : {}),
   };
   if (p.selfAssessment !== undefined) entry.selfAssessment = p.selfAssessment;
   if (p.brokenReference === true) entry.brokenReference = true;

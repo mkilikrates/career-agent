@@ -342,6 +342,7 @@
       "capReached": "You've reached the {{max}}-follow-up limit. You can dig deeper with one more follow-up, or stop here.",
       "digDeeper": "Dig deeper",
       "failed": "AI assist was unavailable: {{reason}}. Your answer is kept — try submitting again.",
+      "summarising": "Generating polished summary…",
       "summaryFailed": "Couldn't generate the summary: {{reason}}. You can still confirm a talking point below.",
       "summaryHeading": "Answer summary",
       "competency": "Competency",

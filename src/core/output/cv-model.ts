@@ -589,6 +589,85 @@ const certificationEntry = (item: ExtractedItem): CvEntry => {
   return entry;
 };
 
+// --- Contact header from additional_info items (R30.16, R71.24) ----------
+
+/**
+ * Well-known additional_info categories that represent contact/personal
+ * information. Comparison is case-insensitive and stripped of non-alpha chars.
+ */
+const CONTACT_CATEGORIES: ReadonlyMap<string, 'name' | 'contact'> = new Map([
+  ['name', 'name'],
+  ['fullname', 'name'],
+  ['full name', 'name'],
+  ['email', 'contact'],
+  ['emailaddress', 'contact'],
+  ['email address', 'contact'],
+  ['phone', 'contact'],
+  ['phonenumber', 'contact'],
+  ['phone number', 'contact'],
+  ['mobile', 'contact'],
+  ['linkedin', 'contact'],
+  ['linkedinurl', 'contact'],
+  ['linkedin url', 'contact'],
+  ['location', 'contact'],
+  ['city', 'contact'],
+  ['country', 'contact'],
+  ['address', 'contact'],
+  ['website', 'contact'],
+  ['portfolio', 'contact'],
+  ['github', 'contact'],
+  ['nationality', 'contact'],
+]);
+
+/** Normalise a category string for lookup: lowercase, stripped of non-alpha. */
+const normCategory = (s: string): string => s.toLowerCase().replace(/[^a-z]/g, '');
+
+/**
+ * Build a {@link CvHeader} from output-eligible additional_info items that carry
+ * contact/personal information. Falls back to — and is merged with — the
+ * explicitly supplied `evidence.header` so that user-provided header data always
+ * takes precedence. Uses the same output-eligibility rules as education and
+ * certification items: High confidence OR user-confirmed OR promoted, minus
+ * private (R30.16, R71.24, R11.2–R11.4).
+ */
+export const headerFromAdditionalInfo = (
+  items: readonly ExtractedItem[],
+  explicit?: CvHeader,
+  promotedLowIds?: ReadonlySet<ItemId>,
+): CvHeader => {
+  let name: string | undefined = explicit?.name;
+  const contact: string[] = [...(explicit?.contact ?? [])];
+  const seenContact = new Set(contact.map((c) => c.toLowerCase().trim()));
+  const promoted = promotedLowIds ?? new Set<ItemId>();
+
+  for (const item of items) {
+    if (item.type !== 'additional_info') continue;
+    if (item.private) continue;
+    if (!item.userConfirmed && item.confidence !== 'High' && !promoted.has(item.id)) continue;
+    const category = typeof item.fields.category === 'string' ? item.fields.category : '';
+    const value = typeof item.fields.value === 'string' ? item.fields.value.trim() : '';
+    if (!category || !value) continue;
+
+    const role = CONTACT_CATEGORIES.get(normCategory(category));
+    if (!role) continue;
+
+    if (role === 'name' && !name) {
+      name = value;
+    } else if (role === 'contact') {
+      const lower = value.toLowerCase().trim();
+      if (!seenContact.has(lower)) {
+        seenContact.add(lower);
+        contact.push(value);
+      }
+    }
+  }
+
+  const header: CvHeader = {};
+  if (name) (header as { name?: string }).name = name;
+  if (contact.length > 0) (header as { contact?: readonly string[] }).contact = contact;
+  return header;
+};
+
 /**
  * Build the single {@link CvModel} for a target role from confirmed evidence
  * (R30.1–R30.4). Pure and deterministic. The result is the confirmed subset:
@@ -704,7 +783,7 @@ export const buildCvModel = (
 
   const model: CvModel = {
     targetRole: { slug: role.slug, title: role.title },
-    header: evidence.header ?? {},
+    header: headerFromAdditionalInfo(evidence.items ?? [], evidence.header, evidence.promotedLowIds),
     skills,
     experience,
     education,
@@ -714,12 +793,13 @@ export const buildCvModel = (
     (model as { summary?: string }).summary = oneLine(evidence.summary);
   }
 
-  // 5. New CV sections from confirmed items (R73.5) — only included when
-  //    the user has explicitly confirmed items of each type.
-  const confirmedItems = (evidence.items ?? []).filter((i) => i.userConfirmed && !i.private);
+  // 5. New CV sections from output-eligible items (R73.5, R30.16, R71.24) —
+  //    uses the same eligibility rules as education/certifications: High
+  //    confidence OR user-confirmed OR promoted, minus private (R11.2–R11.4).
+  const eligibleItems = eligible;
 
-  // Professional summary — from confirmed professional_summary items
-  const summaryItems = confirmedItems.filter((i) => i.type === 'professional_summary');
+  // Professional summary — from eligible professional_summary items
+  const summaryItems = eligibleItems.filter((i) => i.type === 'professional_summary');
   if (summaryItems.length > 0) {
     const text = summaryItems
       .map((i) => (typeof i.fields.text === 'string' ? i.fields.text.trim() : ''))
@@ -730,8 +810,8 @@ export const buildCvModel = (
     }
   }
 
-  // Core competencies — from confirmed core_competency items
-  const competencyItems = confirmedItems.filter((i) => i.type === 'core_competency');
+  // Core competencies — from eligible core_competency items
+  const competencyItems = eligibleItems.filter((i) => i.type === 'core_competency');
   if (competencyItems.length > 0) {
     const names = competencyItems
       .map((i) => (typeof i.fields.name === 'string' ? i.fields.name.trim() : ''))
@@ -741,8 +821,8 @@ export const buildCvModel = (
     }
   }
 
-  // Languages — from confirmed language_proficiency items
-  const languageItems = confirmedItems.filter((i) => i.type === 'language_proficiency');
+  // Languages — from eligible language_proficiency items
+  const languageItems = eligibleItems.filter((i) => i.type === 'language_proficiency');
   if (languageItems.length > 0) {
     const langs: CvLanguageEntry[] = languageItems
       .map((i) => ({
@@ -755,8 +835,8 @@ export const buildCvModel = (
     }
   }
 
-  // Hobbies and causes — combine confirmed hobby and cause items
-  const hobbyAndCauseItems = confirmedItems.filter(
+  // Hobbies and causes — combine eligible hobby and cause items
+  const hobbyAndCauseItems = eligibleItems.filter(
     (i) => i.type === 'hobby' || i.type === 'cause',
   );
   if (hobbyAndCauseItems.length > 0) {
@@ -771,8 +851,9 @@ export const buildCvModel = (
   // 4. Employment entries — group bullets under their originating employment
   //    position, using date overlap or skill overlap (R71.7).
   //    Deduplicate first (R76): same (company, title, start) keep richest.
+  //    Uses output-eligible items (R11.2–R11.4, R30.16).
   const employmentItems = deduplicateEmployment(
-    (evidence.items ?? []).filter((i) => i.type === 'employment'),
+    eligibleItems.filter((i) => i.type === 'employment'),
   );
   if (employmentItems.length > 0) {
     const entries = buildEmploymentEntries(employmentItems, experience, evidence.skillMap);

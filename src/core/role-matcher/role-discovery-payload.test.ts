@@ -101,6 +101,44 @@ describe('approxDurationMonths (R20.6, R70.7)', () => {
     // since is 2024-01-01 → now 2025-01-01 ≈ 12 months (ignores earlier evidence)
     expect(approxDurationMonths(entry, NOW)).toBe(12);
   });
+
+  it('bounds duration by lastEvidence for legacy skills (R70.8)', () => {
+    // COBOL: since 1993, last evidence 1997 → ~4 years, NOT ~32 years from now
+    const entry = skill('SKILL-cobol', 'COBOL', {
+      evidence: [
+        { ref: asBulletId('BULLET-06'), when: asISODate('1993-01-01'), note: '' },
+        { ref: asBulletId('BULLET-07'), when: asISODate('1997-01-01'), note: '' },
+      ],
+      since: asISODate('1993-01-01'),
+      lastEvidence: asISODate('1997-01-01'),
+    });
+    // (1997-01-01 - 1993-01-01) ≈ 48 months
+    expect(approxDurationMonths(entry, NOW)).toBe(48);
+  });
+
+  it('uses lastEvidence instead of now when both since and lastEvidence present', () => {
+    const entry = skill('SKILL-vb', 'Visual Basic', {
+      evidence: [
+        { ref: asBulletId('BULLET-08'), when: asISODate('1994-01-01'), note: '' },
+      ],
+      since: asISODate('1994-01-01'),
+      lastEvidence: asISODate('1998-06-01'),
+    });
+    // (1998-06-01 - 1994-01-01) ≈ 53 months
+    expect(approxDurationMonths(entry, NOW)).toBe(53);
+  });
+
+  it('falls back to now when lastEvidence is undefined (skill still active)', () => {
+    const entry = skill('SKILL-go', 'Go', {
+      evidence: [
+        { ref: asBulletId('BULLET-09'), when: asISODate('2023-01-01'), note: '' },
+      ],
+      since: asISODate('2023-01-01'),
+      // no lastEvidence → falls back to now
+    });
+    // (2025-01-01 - 2023-01-01) ≈ 24 months
+    expect(approxDurationMonths(entry, NOW)).toBe(24);
+  });
 });
 
 describe('buildDiscoveryPayload (R20.6, R47.2)', () => {

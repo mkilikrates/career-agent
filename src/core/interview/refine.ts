@@ -189,6 +189,66 @@ export function ensurePolishedQuality(polished: string, rawInput: string): strin
   return deterministicSentenceTrim(rawInput);
 }
 
+/**
+ * Validate an AI-produced per-question SUMMARY for use as the polished talking
+ * point (R28.3, R28.6). Unlike {@link isPolishedQuality}, this check does NOT
+ * penalise token overlap with the raw input: the AI prompt instructs the model
+ * to use ONLY the candidate's own words, so high overlap is EXPECTED and does
+ * not indicate a verbatim copy. The checks applied are:
+ *
+ *   1. Not empty.
+ *   2. Does not start with a common AI filler prefix.
+ *   3. Contains a first-person marker ("I").
+ *   4. Is concise (≤ {@link MAX_POLISHED_SENTENCES} sentences, ≤ {@link MAX_POLISHED_LENGTH} chars).
+ *   5. Is NOT a near-exact copy of the raw input (normalised equality — guards
+ *      against the model literally echoing the entire input as-is).
+ *
+ * Returns `true` when the AI summary passes all checks and is suitable as
+ * `TalkingPoint.polished`.
+ */
+export function isAiSummaryQuality(summary: string, rawInput: string): boolean {
+  const trimmed = summary.trim();
+  if (trimmed.length === 0) return false;
+
+  // Check for AI filler prefixes.
+  for (const re of AI_FILLER_PREFIXES) {
+    if (re.test(trimmed)) return false;
+  }
+
+  // Must contain first-person marker.
+  if (!/\bI\b/.test(trimmed)) return false;
+
+  // Conciseness: sentence count.
+  const sentences = trimmed.split(/[.!?]+/).filter((s) => s.trim().length > 0);
+  if (sentences.length > MAX_POLISHED_SENTENCES) return false;
+
+  // Conciseness: character length.
+  if (trimmed.length > MAX_POLISHED_LENGTH) return false;
+
+  // Guard against a literal echo: if the normalised text is nearly identical to
+  // the raw input in its entirety (same length ±5% AND overlap ≥ 0.95), reject.
+  const lengthRatio = trimmed.length / Math.max(rawInput.trim().length, 1);
+  if (lengthRatio > 0.9 && lengthRatio < 1.1) {
+    const overlap = tokenOverlap(trimmed, rawInput);
+    if (overlap >= 0.95) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Validate and optionally fix an AI-produced per-question SUMMARY for use as
+ * the polished talking point (R28.3, R28.6, task 45.2). Applies
+ * {@link isAiSummaryQuality} which permits high token overlap (the model is
+ * instructed to use the candidate's own words) but rejects empty, non-first-
+ * person, overly long, or literal-echo outputs. Falls back to
+ * {@link deterministicSentenceTrim} only when the AI output truly fails quality.
+ */
+export function ensureAiSummaryQuality(summary: string, rawInput: string): string {
+  if (isAiSummaryQuality(summary, rawInput)) return summary.trim();
+  return deterministicSentenceTrim(rawInput);
+}
+
 // --- The polished talking-point frame (no fabrication, R28.3) ---------------
 
 /**

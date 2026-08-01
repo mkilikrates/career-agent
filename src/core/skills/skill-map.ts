@@ -452,28 +452,43 @@ export const generate = (
     }
   }
 
-  // 6. Finalise evidence ordering, since date, and the evidence-based signal.
+  // 6. Finalise evidence ordering, since date, lastEvidence date, and the evidence-based signal.
   for (const entry of entries) {
     const finalEvidence = dedupeEvidence(entry.evidence);
     entry.evidence.length = 0;
     entry.evidence.push(...finalEvidence);
     const earliest = earliestOf(finalEvidence);
+    const latest = recencyOf(finalEvidence, '');
     // Only set `since` when a real date was found. When `earliest` is empty, all
     // evidence is from standalone skill items with no employment context — leave
     // `since` undefined so the UI prompts the user to fill it (R70.3).
-    (entry as { since?: ISODate }).since = earliest ? asISODate(earliest) : undefined;
+    if (earliest) {
+      (entry as { since?: ISODate }).since = asISODate(earliest);
+    } else {
+      delete (entry as { since?: ISODate }).since;
+    }
+    // Set `lastEvidence` to the latest evidence date (R70.8). Used to bound
+    // the experience duration computation so legacy skills don't show misleading years.
+    if (latest) {
+      (entry as { lastEvidence?: ISODate }).lastEvidence = asISODate(latest);
+    } else {
+      delete (entry as { lastEvidence?: ISODate }).lastEvidence;
+    }
     const acc = accBackref.get(entry)!;
     entry.proficiencySignal = proficiencySignalOf(acc, earliest || asOf);
   }
 
-  // 6b. Cross-reference: for entries still missing `since`, look up the earliest
-  // employment item that lists this skill in its technologies and use its start
-  // date. This handles standalone skill-type items (e.g. from LinkedIn skills
-  // list) by inferring from the employment timeline.
+  // 6b. Cross-reference: compare each entry's `since` against the earliest
+  // employment start date for that skill; override with the earlier date (R70.2,
+  // R71.20). This also fills `since` for standalone skill-type items (e.g. from
+  // LinkedIn skills list) by inferring from the employment timeline. Also
+  // populate `lastEvidence` from the latest employment end date (R70.8).
   const employmentDates = new Map<string, string>(); // skill name (lower) → earliest employment start
+  const employmentEndDates = new Map<string, string>(); // skill name (lower) → latest employment end
   for (const item of extractions) {
     if (item.type !== 'employment') continue;
     const startDate = (item.fields.start ?? item.fields.startedOn) as string | undefined;
+    const endDate = (item.fields.end ?? item.fields.finishedOn) as string | undefined;
     if (!startDate || typeof startDate !== 'string') continue;
     const techs = Array.isArray(item.fields.technologies) ? (item.fields.technologies as unknown[]) : [];
     for (const tech of techs) {
@@ -483,14 +498,32 @@ export const generate = (
       if (!existing || startDate < existing) {
         employmentDates.set(key, startDate);
       }
+      // Track the latest end date for bounding lastEvidence
+      if (endDate && typeof endDate === 'string') {
+        const existingEnd = employmentEndDates.get(key);
+        if (!existingEnd || endDate > existingEnd) {
+          employmentEndDates.set(key, endDate);
+        }
+      }
     }
   }
   for (const entry of entries) {
-    if (entry.since !== undefined) continue;
     const key = entry.name.toLowerCase();
     const empDate = employmentDates.get(key);
     if (empDate) {
-      (entry as { since?: ISODate }).since = asISODate(empDate);
+      // Use the employment start date when it's earlier than the current `since`,
+      // or when `since` is not yet set (R70.2, R71.20).
+      const currentSince = entry.since !== undefined ? asString(entry.since) : '';
+      if (!currentSince || empDate < currentSince) {
+        (entry as { since?: ISODate }).since = asISODate(empDate);
+      }
+    }
+    // If lastEvidence is still unset, use the latest employment end date (R70.8)
+    if (entry.lastEvidence === undefined) {
+      const empEnd = employmentEndDates.get(key);
+      if (empEnd) {
+        (entry as { lastEvidence?: ISODate }).lastEvidence = asISODate(empEnd);
+      }
     }
   }
 

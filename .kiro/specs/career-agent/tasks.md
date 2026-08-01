@@ -1140,3 +1140,71 @@ These tasks were added after the original plan. Section 30 records work already 
 
 - [x] 44. Checkpoint — Session review bug fixes complete
   - Ensure all tests pass (`npm run typecheck && npm test`), ask the user if questions arise.
+
+- [x] 45. Bug fixes — session data review (batch 2)
+  - [x] 45.1 Fix interview questions not persisted to file (Bug 1)
+    - In `src/core/interview/coach-assist.ts` (or the `CoachingScreen` question-generation flow), after AI-generated STAR questions are received from the provider, persist them to the per-role interview file's `## Questions` section BEFORE presenting them to the user; ensure the write happens immediately upon successful response so questions survive session interruption
+    - Update the interview file serializer to write questions under the `## Questions` heading with the competency tag
+    - _Requirements: 22.3_
+  - [x] 45.2 Fix talking point "Polished" text storing raw input verbatim (Bug 2)
+    - In the talking-point save logic (coaching summary → confirm → persist), ensure the `polished` field is populated from the AI coaching summary's SUMMARY response (or the script-produced first-person past-tense summary), NOT from the concatenated raw user messages
+    - Verify the data flow: AI coaching response → parse SUMMARY field → store in `TalkingPoint.polished`; raw user input goes only to `situation`/`task`/`action`/`result` fields
+    - _Requirements: 28.3, 28.6_
+  - [x] 45.3 Fix CV generation missing education and additional_info data (Bug 3, Bug 8)
+    - In the CV generation pipeline (both `buildCvTailoringPrompt` and `buildCvModel`), include ALL confirmed data categories in the payload: education entries, contact details (name, email, phone), certifications, awards, nationality, and other `additional_info` items from the extraction
+    - Ensure `renderMarkdown` and the AI tailoring prompt include these fields so the generated CV never shows placeholder text like `[Full Name]` or `[Email]` when the data is available
+    - Update `buildCvModel` to populate the contact/header section from confirmed `additional_info` items
+    - _Requirements: 30.16, 71.24_
+  - [x] 45.4 Fix compound skill split producing nonsense for known compound names (Bug 4, Bug 11)
+    - In `src/core/skills/career-extraction.ts` `splitCompoundSkills`, extend the known-compound-names allowlist with: `OS/2`, `OS/2 Warp`, `L2/L3`, `L2/L3 Networking`
+    - Move the allowlist to an external resource file (`src/core/config/compound_names.yaml`) so it can be extended without code changes
+    - Add a post-split fragment-detection pass: when the deduplication/consolidation encounters entries that are clearly fragments of a known compound name (e.g. "OS" + "2 Warp" fragments of "OS/2 Warp"), merge them back
+    - _Requirements: 15.5, 15.6, 71.11_
+  - [x] 45.5 Fix skill duration showing misleading years for legacy technologies (Bug 5)
+    - In `src/core/skills/skill-map.ts`, change the experience duration computation from `now − since` to `lastEvidenceDate − since` (bounded by actual employment periods)
+    - Add a `lastEvidence` field to `SkillMapEntry` (the latest `evidence[].when` date) and use it in the duration calculation
+    - For skills with only one evidence point (single employment period), use the duration of that employment period as the skill's experience duration
+    - Update `experienceYears()` → `experienceDuration(since, lastEvidence)` everywhere it's called (coaching prompt, role-discovery payload, skill map UI, LinkedIn report)
+    - _Requirements: 70.1, 70.8_
+  - [x] 45.6 Fix LinkedIn headline suggestion using gap skills instead of professional data (Bug 6)
+    - In the LinkedIn report generation (`src/core/output/linkedin.ts` or equivalent), change headline generation to use: professional summary + target role title + top confirmed core competencies as input
+    - Remove the current logic that picks headline text from gap skills
+    - _Requirements: 31.3_
+  - [x] 45.7 Fix LinkedIn recommended skills listing ALL skills including irrelevant legacy ones (Bug 7)
+    - In the LinkedIn report generation, add a relevance and recency filter for recommended skills
+    - Exclude skills whose last evidence date predates a configurable cutoff (default 10 years from current date)
+    - Filter by relevance to the user's target roles (prefer matched skills over unmatched)
+    - Limit the list to a reasonable count (default top 50)
+    - Load the cutoff and limit from a configuration that can be adjusted without code changes
+    - _Requirements: 31.4_
+  - [x] 45.8 Fix skill `since` date not using earliest employment evidence (Bug 9)
+    - In `src/core/skills/skill-map.ts` `generate()`, when computing a skill's `since` date, scan ALL evidence sources: the standalone skill extraction's `since` field AND the start date of any position where the skill appears in `technologies`; use whichever is earliest
+    - Fix the merge logic to preserve the earliest `since` when consolidating extractions from multiple chunks
+    - _Requirements: 70.2, 71.20_
+  - [x] 45.9 Fix interview talking point storing duplicate nested content (Bug 10)
+    - In the talking-point serialization (`src/core/interview/interview-document.ts` or equivalent), ensure each talking point is serialized cleanly: raw user input in `Situation`/`Task`/`Action`/`Result` fields, AI-produced polished summary in `Polished` field, skill list in `Skills` field
+    - Remove any logic that concatenates coaching iterations into fields, causing duplication
+    - Ensure no field nests or repeats content from another field
+    - Add a clean-up migration: on load, if an existing talking point has nested/duplicated content, extract the correct values into their proper fields
+    - _Requirements: 28.6, 34.1_
+  - [x] 45.10 Update locale strings, docs, and CHANGELOG for batch-2 bug fixes
+    - Add any new locale keys to both `locales/en.json` and `locales/pt-BR.json`
+    - Update `docs/prompts.md` if CV tailoring prompt changed
+    - Update `CHANGELOG.md` with Fixed entries for all 11 bugs
+    - Update user-facing docs (both languages) where behaviour changed visibly
+    - _Requirements: 41.8_
+  - [ ]* 45.11 Tests for batch-2 bug fixes
+    - Unit test: AI-generated questions are persisted to the interview file immediately upon receipt
+    - Unit test: talking point `polished` field contains the AI summary, not raw input
+    - Unit test: CV generation payload includes education, contact details, certifications, and additional_info
+    - Unit test: `splitCompoundSkills` does not split "OS/2 Warp", "L2/L3 Networking"
+    - Unit test: experience duration uses `lastEvidence − since`, not `now − since`
+    - Unit test: LinkedIn headline uses professional summary + role + competencies
+    - Unit test: LinkedIn skills are filtered by recency (10-year cutoff) and limited to 50
+    - Unit test: `since` derivation uses earliest across standalone skill AND position technologies
+    - Unit test: talking point serialization produces no nested/duplicate content
+    - Property test: for any compound name in the allowlist, `splitCompoundSkills` returns it unchanged
+    - _Requirements: 22.3, 28.3, 28.6, 30.16, 15.5, 70.1, 70.8, 31.3, 31.4, 71.20, 34.1_
+
+- [x] 46. Checkpoint — Batch-2 bug fixes complete
+  - Ensure all tests pass (`npm run typecheck && npm test`), ask the user if questions arise.

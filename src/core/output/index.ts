@@ -11,7 +11,7 @@
 //
 //   import { buildCvModel, renderMarkdown, type CvModel } from '@core/output';
 
-export { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, stripNonAlphaKey, NEEDS_METRIC_MARKER, NEEDS_METRIC_NOTE } from './cv-model';
+export { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, headerFromAdditionalInfo, stripNonAlphaKey, NEEDS_METRIC_MARKER, NEEDS_METRIC_NOTE } from './cv-model';
 export { renderMarkdown } from './markdown-renderer';
 export type {
   CvModel,
@@ -78,12 +78,14 @@ export { buildDocxDocument, renderDocx, DOCX_EPOCH } from './docx-renderer';
 // Task 14.7 — the advisory LinkedIn improvement report (R31). A pure,
 // deterministic local Markdown generator built solely from confirmed evidence;
 // advisory only — it never posts to, nor applies changes on, LinkedIn (R31.2).
-export { buildLinkedInReport, renderLinkedInReportMarkdown, ADVISORY_NOTICE } from './linkedin-report';
+export { buildLinkedInReport, renderLinkedInReportMarkdown, ADVISORY_NOTICE, DEFAULT_SKILL_FILTER_CONFIG } from './linkedin-report';
 export type {
   LinkedInReport,
   LinkedInPosition,
   LinkedInBullet,
   LinkedInSkillSuggestion,
+  LinkedInSkillFilterConfig,
+  LinkedInReportOptions,
 } from './linkedin-report';
 
 // Task 14.8 — CV versioning and diffing (R33). Each produced CV is stored as an

@@ -192,6 +192,41 @@ describe('buildCvTailoringPrompt (R30.9, R30.14)', () => {
     expect(prompt).toContain('Strategic Planning');
     expect(prompt).not.toContain('Core competencies: (none)');
   });
+
+  it('includes High-confidence additional_info in prompt without explicit confirmation (Bug 3, R30.16)', () => {
+    const nameItem = {
+      id: asItemId('I-name'),
+      type: 'additional_info',
+      fields: { category: 'Full Name', value: 'Alice Smith' },
+      confidence: 'High',
+      provenance: [],
+      userConfirmed: false,
+      private: false,
+      sourceDoc: asDocId('doc.md'),
+    } as unknown as ExtractedItem;
+    const emailItem = {
+      id: asItemId('I-email'),
+      type: 'additional_info',
+      fields: { category: 'Email', value: 'alice@example.com' },
+      confidence: 'High',
+      provenance: [],
+      userConfirmed: false,
+      private: false,
+      sourceDoc: asDocId('doc.md'),
+    } as unknown as ExtractedItem;
+    const evidenceWithInfo: ConfirmedEvidence = {
+      ...EVIDENCE,
+      items: [nameItem, emailItem],
+    };
+    const model = buildCvModel(ROLE, evidenceWithInfo);
+    const prompt = buildCvTailoringPrompt(model, evidenceWithInfo);
+    expect(prompt).toContain('- Name: Alice Smith');
+    expect(prompt).toContain('alice@example.com');
+    // The header name and contact are populated from the extraction, preventing
+    // the AI from needing to use placeholders.
+    expect(model.header.name).toBe('Alice Smith');
+    expect(model.header.contact).toContain('alice@example.com');
+  });
 });
 
 describe('CvTailoringOperation — scriptOnly (R30.7)', () => {

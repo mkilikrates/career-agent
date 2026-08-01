@@ -161,7 +161,11 @@ export function OutputScreen({
     }
 
     const linkedInMd = evidence
-      ? renderLinkedInReportMarkdown(buildLinkedInReport(evidence))
+      ? renderLinkedInReportMarkdown(buildLinkedInReport(
+          evidence,
+          role?.title,
+          role ? { matchedSkillIds: new Set(role.matchedSkills) } : undefined,
+        ))
       : '';
     if (linkedInMd) setLinkedIn(linkedInMd);
     setAiNotes([...notes]);

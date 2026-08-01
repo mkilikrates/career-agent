@@ -439,7 +439,7 @@ interface StarTeachingSummary { // R28.7 teaching artefact, distinct from the po
 
 The content/delivery firewall (R27) is a hard structural boundary: `analyse()` operates only on transcript text classified as *content*; delivery signals (pace, fillers, accent, disfluencies, transcription artefacts) are never computed in Phase 1 and can never enter the skill map or CV path. Follow-ups are drawn from a fixed bank of open prompts; the coach is structurally prevented from proposing facts (R24.3).
 
-**AI STAR question generation (opt-in, supplement-only).** `generateQuestions()` is the deterministic `scriptOnly` path (R22.5 — no provider call) producing at least one behavioural question per matched core skill, one gap-skill question, and one motivation question grounded in the Requirement 20 match (R22.1, R22.2). When the user opts in, `generateQuestionsAi()` requests additional questions through the **Egress Gate** using a prompt that frames the chosen model as a **recruiter for the specific target position** (R22.6); the AI questions **supplement, never replace** the script questions (the returned set is always a superset of the script questions). The candidate profile sent with the prompt includes the user's **previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary** (when available) alongside the existing matched and gap skill lists, so the model can write questions grounded in the candidate's actual experience trajectory (R22.6, R62.5). For a keyed cloud (third-party) destination, every private item is excluded from the request (R22.7, R46.4). If the provider call fails, the coach surfaces a non-blocking error and **preserves pending coaching state** so the script questions remain available (R22.8). AI-generated questions are **practice prompts, not factual claims**, and are therefore *not* gated by the No-Fabrication harness in Requirement 37 (R22.9). Both questions and responses (script and AI) are stored in the per-role interview file keyed to the Role Slug (R22.3).
+**AI STAR question generation (opt-in, supplement-only).** `generateQuestions()` is the deterministic `scriptOnly` path (R22.5 — no provider call) producing at least one behavioural question per matched core skill, one gap-skill question, and one motivation question grounded in the Requirement 20 match (R22.1, R22.2). When the user opts in, `generateQuestionsAi()` requests additional questions through the **Egress Gate** using a prompt that frames the chosen model as a **recruiter for the specific target position** (R22.6); the AI questions **supplement, never replace** the script questions (the returned set is always a superset of the script questions). **Immediately upon receiving AI-generated questions from the provider**, the Interview_Coach persists them to the interview file's `## Questions` section (R22.3) — this write happens BEFORE presenting the questions to the user, so that questions survive an interruption or page refresh. The candidate profile sent with the prompt includes the user's **previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary** (when available) alongside the existing matched and gap skill lists, so the model can write questions grounded in the candidate's actual experience trajectory (R22.6, R62.5). For a keyed cloud (third-party) destination, every private item is excluded from the request (R22.7, R46.4). If the provider call fails, the coach surfaces a non-blocking error and **preserves pending coaching state** so the script questions remain available (R22.8). AI-generated questions are **practice prompts, not factual claims**, and are therefore *not* gated by the No-Fabrication harness in Requirement 37 (R22.9). Both questions and responses (script and AI) are stored in the per-role interview file keyed to the Role Slug (R22.3).
 
 **Multi-competency question format (R62.3).** Each AI-generated question is tagged with a **`competencies` array** (e.g. `["Leadership", "Stakeholder Management"]`) rather than a single `competency` string, so that a single question may assess multiple correlated skills. The prompt requests:
 
@@ -466,7 +466,7 @@ interface OutputEngine {
   renderMarkdown(cv: CvModel): string;        // R32.1 primary
   renderPdf(md: string, tmpl: AtsTemplate): Uint8Array;  // R32.2 Typst-Wasm, R42.4 a11y
   renderDocx(cv: CvModel): Uint8Array;        // R32.3 structured rich-text
-  linkedInReport(src: ConfirmedEvidence): MarkdownDoc;   // R31 advisory only
+  linkedInReport(src: ConfirmedEvidence, role: RolePreference): MarkdownDoc;   // R31 advisory only; headline from summary+role+competencies (R31.3); skills filtered by relevance+recency (R31.4)
   nextVersion(slug: RoleSlug): VersionId;     // R33.1 immutable versions
   diff(a: VersionId, b: VersionId): CvDiff;   // R33.3 added/removed/reordered/emphasised
   applyLocaleFormatting(cv: CvModel, loc: OutputLocale): CvModel; // R41.6, R41.7 privacy defaults
@@ -525,6 +525,8 @@ Produce a complete CV in Markdown with the following sections:
 5. Core Competencies (if applicable)
 
 Confirmed career data:
+- Full name: <name>
+- Contact: <email>, <phone>, <location>
 - Professional summary: <summary>
 - Positions:
   - <title> at <company> (<start> – <end>): <achievements...>, technologies: <...>
@@ -532,7 +534,10 @@ Confirmed career data:
 - Core competencies: <comp1>, <comp2>, ...
 - Education: <degree> at <institution> (<start> – <end>)
   ...
+- Certifications: <cert1> (<year>), <cert2> (<year>), ...
 - Skills: <skill1> (~N years), <skill2> (~N years), ...
+- Languages: <lang1> (<proficiency>), ...
+- Additional info: <nationality>, <awards>, <other confirmed items>
 
 [When Target Opportunity present:]
 Target Opportunity (tailoring target only — NOT a source of facts):
@@ -541,6 +546,8 @@ Target Opportunity (tailoring target only — NOT a source of facts):
 Adapt emphasis and phrasing toward this posting's language and priorities,
 but EXCLUDE any item appearing only in the posting and not in confirmed evidence.
 ```
+
+The prompt includes ALL confirmed data categories — contact details, education, certifications, awards, nationality, and any other `additional_info` items extracted and confirmed by the user. This prevents placeholder text (e.g. `[Full Name]`, `[Email]`) from appearing in the generated CV when the actual data is available in the extraction (R30.16, R71.24).
 
 **AI draft as primary output (R30.11, R30.12, R30.13).** When the AI produces a `CvDraft`, `applyBundle()` checks whether `bundle.suggestions[0]` contains a `CvDraft` object. When present, the draft's `markdown` field IS the **primary CV output** displayed to the user — not an advisory note. The deterministic `renderMarkdown(model)` rendering serves only as a **fallback** (AI call failure, user declined AI, or script-only mode). During the review step the UI provides a **toggle** ("AI Draft" vs "Deterministic") so the user can compare both renderings side-by-side before confirming (R30.12). `genNote` reflects which version is currently displayed (e.g. `"Showing: AI draft"` or `"Showing: deterministic"`).
 
@@ -571,7 +578,7 @@ The Target Opportunity text is passed through the Egress Gate with PII pre-scree
 
 Because both branches (script-only and AI-tailored) emit only confirmed evidence, the No-Fabrication guarantee (Property 1) ranges over Target-Opportunity-tailored CVs as well as script-only CVs.
 
-Implementation notes: Markdown is the primary download; DOCX is produced by the pure-JS `docx` OOXML builder (deterministic output); the ATS-safe PDF is compiled by Typst-to-WebAssembly with the **compiler wasm bundled locally** (Vite `?url`, no CDN — R32.6) and loaded lazily on first compile. PDF compilation **fails gracefully**: a Typst error reports the PDF failure without blocking the Markdown and DOCX outputs (R32.7). The LinkedIn report is advisory only (R31), and CV versioning/diffing stores immutable versions and summarises added/removed/reordered accomplishments and emphasised skills (R33).
+Implementation notes: Markdown is the primary download; DOCX is produced by the pure-JS `docx` OOXML builder (deterministic output); the ATS-safe PDF is compiled by Typst-to-WebAssembly with the **compiler wasm bundled locally** (Vite `?url`, no CDN — R32.6) and loaded lazily on first compile. PDF compilation **fails gracefully**: a Typst error reports the PDF failure without blocking the Markdown and DOCX outputs (R32.7). The LinkedIn report is advisory only (R31); its **headline** is derived from the user's professional summary, target role title, and top core competencies (R31.3) — never from gap skills or niche abbreviations; its **recommended skills** are filtered by relevance to target roles and recency, excluding skills whose last evidence predates a configurable cutoff (default 10 years) and limiting the list to the top 50 (R31.4). CV versioning/diffing stores immutable versions and summarises added/removed/reordered accomplishments and emphasised skills (R33).
 
 ### Storage_Adapter (two tiers)
 
@@ -900,12 +907,15 @@ interface Accomplishment {         // R18.1
 
 interface TalkingPoint {           // R23, R28
   id: StarId;                      // STAR-NN, never reused/renumbered (R23.2)
-  situation?: string; task?: string; action?: string; result?: string;
+  situation?: string; task?: string; action?: string; result?: string;  // raw user input per STAR element
   flags: ('needs_metric'|'needs_action'|'needs_situation'|'needs_task')[]; // R25.1
-  polished: string;                // first-person past-tense (R28.3)
-  skills: SkillId[];
+  polished: string;                // AI-produced (or script-produced) first-person past-tense summary (R28.3); NEVER the raw user input verbatim
+  skills: SkillId[];               // detected skills — one flat list, no nesting
   retired?: boolean;               // marked not deleted (R23.3)
 }
+// Serialization rule (R28.6): each field has exactly one purpose. `situation`/`task`/`action`/`result`
+// hold raw user input. `polished` holds the AI/script summary. `skills` holds the skill list.
+// No field nests or repeats content from another field.
 
 interface RolePreference {         // R20.2, R21
   slug: RoleSlug;                  // URL-safe, deterministic
@@ -1676,7 +1686,30 @@ interface SkillMapEntry {
 
 #### Derivation on generation (R70.2)
 
-When the Skill_Mapper generates the skill map from extracted items, it sets `since` to the **earliest** `evidence[].when` date for that skill. This is conservative: it might undercount (the user's actual start predates their oldest CV), but it's a safe default the user can correct.
+When the Skill_Mapper generates the skill map from extracted items, it sets `since` to the **earliest** date across ALL evidence sources for that skill: the standalone skill extraction's `since` field, the start date of any employment position where the skill appears in `technologies`, and the start date of any education entry where the skill appears — whichever is earliest (R70.2). This is conservative: it might undercount (the user's actual start predates their oldest CV), but it's a safe default the user can correct.
+
+#### Experience duration computation (R70.1, R70.8)
+
+```typescript
+/** Compute approximate years of experience from evidence dates.
+ *  Duration = lastEvidence - since (bounded by employment periods),
+ *  NOT now - since (which would show misleading years for legacy skills). */
+function experienceDuration(since: ISODate | undefined, lastEvidence: ISODate | undefined): number | undefined {
+  if (!since) return undefined;
+  const start = new Date(since as string);
+  const end = lastEvidence ? new Date(lastEvidence as string) : new Date();
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000)));
+}
+
+/** For skills with only one evidence point, use the duration of that employment period. */
+function experienceDurationSingleEvidence(positionStart: ISODate, positionEnd: ISODate | undefined): number {
+  const start = new Date(positionStart as string);
+  const end = positionEnd ? new Date(positionEnd as string) : new Date();
+  return Math.max(1, Math.round((end.getTime() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000)));
+}
+```
+
+Duration is computed as `lastEvidenceDate − since` (bounded by actual employment), not `now − since`. This prevents legacy technologies (e.g. COBOL last used in 1995) from showing misleading "~31 years" when the user hasn't used them since the 1990s. For skills with evidence from only a single employment position, the skill's duration equals the duration of that position.
 
 #### User editability (R70.3)
 
@@ -1691,22 +1724,13 @@ When `getLocalConfig()` / the skill-map parser encounters an entry with `recency
 
 This is transparent: the user doesn't see a migration step; the old data just works with the new field.
 
-#### Experience duration computation
-
-```typescript
-/** Compute approximate years of experience from a `since` date. */
-function experienceYears(since: ISODate | undefined): number | undefined {
-  if (!since) return undefined;
-  const start = new Date(since as string);
-  const now = new Date();
-  return Math.max(0, Math.round((now.getTime() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000)));
-}
-```
+#### Experience duration usage
 
 Used in:
 - **Coaching prompt** (`buildCandidateProfile`): "JavaScript, ~8 years experience, 5 evidence points, Strong evidence"
-- **Role-discovery payload** (`buildDiscoveryPayload`): `approxDurationMonths` is now `(currentDate - since)` in months rather than `(recency - earliestEvidence)` which was inaccurate
-- **Skill map UI review**: shows "Experience: ~8 years (since 2016)" next to each skill
+- **Role-discovery payload** (`buildDiscoveryPayload`): `approxDurationMonths` uses `experienceDuration(since, lastEvidence)` (evidence-bounded, not now − since)
+- **Skill map UI review**: shows "Experience: ~8 years (since 2016)" next to each skill; for legacy skills whose last evidence predates recent employment, shows the bounded duration accurately
+- **LinkedIn recommended skills**: filters out skills whose last evidence predates 10 years (configurable cutoff)
 
 #### Files touched
 
@@ -1883,7 +1907,7 @@ A `splitCompoundSkills(technologies: string[]): string[]` utility expands parent
 | `"CDK (TypeScript)"` | `["CDK", "TypeScript"]` |
 | `"Node.js"` | `["Node.js"]` (not a parenthetical) |
 
-A small allowlist of known compound names (`CI/CD`, `TCP/IP`, `IDS/IPS`, `Node.js`, `C#`, `C++`, `.NET`, `GitLab CI/CD`) prevents false splits. Applied to each position's `technologies` array before `careerExtractionToItems()` creates skill entries.
+A small allowlist of known compound names (`CI/CD`, `TCP/IP`, `IDS/IPS`, `OS/2`, `OS/2 Warp`, `L2/L3`, `Node.js`, `C#`, `C++`, `.NET`, `GitLab CI/CD`) prevents false splits. The allowlist is loaded from an external resource file (`src/core/config/compound_names.yaml`) so it can be extended without code changes (R15.5). Applied to each position's `technologies` array before `careerExtractionToItems()` creates skill entries. Additionally, the deduplication consolidation pass detects and merges entries that are clearly fragments of a known compound name on the allowlist (R15.6).
 
 #### 3a. Atomic skill naming instruction in the extraction prompt (R71.13)
 

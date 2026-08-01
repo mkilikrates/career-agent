@@ -18,7 +18,7 @@ import {
 import { sourceLine, trailOf } from '@core/provenance';
 import { buildReferenceGraph } from '@core/registry';
 import type { SkillMap } from '@core/skills';
-import { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, stripNonAlphaKey, NEEDS_METRIC_NOTE } from './cv-model';
+import { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, headerFromAdditionalInfo, stripNonAlphaKey, NEEDS_METRIC_NOTE } from './cv-model';
 
 const doc = asDocId('cv.md');
 
@@ -491,13 +491,13 @@ describe('@core/output — buildCvModel new sections from confirmed items (R73.5
     );
   });
 
-  it('excludes professionalSummary when item is not confirmed', () => {
+  it('excludes professionalSummary when item is not eligible (Low confidence, not confirmed)', () => {
     const map = skillMapOf([skill('SKILL-react', 'React')]);
     const summary = item(
       'I-summary',
       'professional_summary',
       { text: 'Experienced engineer.' },
-      { userConfirmed: false },
+      { userConfirmed: false, confidence: 'Low' },
     );
     const cv = buildCvModel(role([]), { skillMap: map, items: [summary] });
     expect(cv.professionalSummary).toBeUndefined();
@@ -523,9 +523,9 @@ describe('@core/output — buildCvModel new sections from confirmed items (R73.5
     expect(cv.coreCompetencies).toEqual(['Leadership', 'Strategic Planning']);
   });
 
-  it('excludes coreCompetencies when none are confirmed', () => {
+  it('excludes coreCompetencies when none are eligible (Low confidence, not confirmed)', () => {
     const map = skillMapOf([skill('SKILL-react', 'React')]);
-    const comp = item('I-comp1', 'core_competency', { name: 'Leadership' }, { userConfirmed: false });
+    const comp = item('I-comp1', 'core_competency', { name: 'Leadership' }, { userConfirmed: false, confidence: 'Low' });
     const cv = buildCvModel(role([]), { skillMap: map, items: [comp] });
     expect(cv.coreCompetencies).toBeUndefined();
   });
@@ -551,13 +551,13 @@ describe('@core/output — buildCvModel new sections from confirmed items (R73.5
     ]);
   });
 
-  it('excludes languages when none are confirmed', () => {
+  it('excludes languages when none are eligible (Low confidence, not confirmed)', () => {
     const map = skillMapOf([skill('SKILL-react', 'React')]);
     const lang = item(
       'I-lang1',
       'language_proficiency',
       { language: 'English', proficiency: 'Native' },
-      { userConfirmed: false },
+      { userConfirmed: false, confidence: 'Low' },
     );
     const cv = buildCvModel(role([]), { skillMap: map, items: [lang] });
     expect(cv.languages).toBeUndefined();
@@ -571,22 +571,22 @@ describe('@core/output — buildCvModel new sections from confirmed items (R73.5
     expect(cv.hobbiesAndCauses).toEqual(['Open Source', 'Code for Good']);
   });
 
-  it('excludes hobbiesAndCauses when none are confirmed', () => {
+  it('excludes hobbiesAndCauses when none are eligible (Low confidence, not confirmed)', () => {
     const map = skillMapOf([skill('SKILL-react', 'React')]);
-    const hobby = item('I-hobby', 'hobby', { name: 'Reading' }, { userConfirmed: false });
-    const cause = item('I-cause', 'cause', { name: 'Volunteering' }, { userConfirmed: false });
+    const hobby = item('I-hobby', 'hobby', { name: 'Reading' }, { userConfirmed: false, confidence: 'Low' });
+    const cause = item('I-cause', 'cause', { name: 'Volunteering' }, { userConfirmed: false, confidence: 'Low' });
     const cv = buildCvModel(role([]), { skillMap: map, items: [hobby, cause] });
     expect(cv.hobbiesAndCauses).toBeUndefined();
   });
 
-  it('only includes confirmed items in hobbiesAndCauses', () => {
+  it('only includes eligible items in hobbiesAndCauses (Low confidence excluded)', () => {
     const map = skillMapOf([skill('SKILL-react', 'React')]);
     const confirmedHobby = item('I-h1', 'hobby', { name: 'Cycling' }, { userConfirmed: true });
-    const unconfirmedHobby = item('I-h2', 'hobby', { name: 'Running' }, { userConfirmed: false });
+    const ineligibleHobby = item('I-h2', 'hobby', { name: 'Running' }, { userConfirmed: false, confidence: 'Low' });
     const confirmedCause = item('I-c1', 'cause', { name: 'Mentoring' }, { userConfirmed: true });
     const cv = buildCvModel(role([]), {
       skillMap: map,
-      items: [confirmedHobby, unconfirmedHobby, confirmedCause],
+      items: [confirmedHobby, ineligibleHobby, confirmedCause],
     });
     expect(cv.hobbiesAndCauses).toEqual(['Cycling', 'Mentoring']);
   });
@@ -1079,5 +1079,149 @@ describe('@core/output — buildCvModel skill sorting by category priority (R30.
     // All matched — should sort by category priority
     const cv = buildCvModel(role([leadership.id, technical.id, tools.id]), { skillMap: map });
     expect(cv.skills.map((s) => s.name)).toEqual(['AWS', 'Docker', 'Mentoring']);
+  });
+});
+
+describe('@core/output — headerFromAdditionalInfo populates CV header from confirmed additional_info (R30.16, R71.24)', () => {
+  it('extracts name from a confirmed additional_info item with category "Full Name"', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'Full Name', value: 'Jane Doe' }, { userConfirmed: true }),
+    ];
+    const header = headerFromAdditionalInfo(items);
+    expect(header.name).toBe('Jane Doe');
+  });
+
+  it('extracts email, phone, linkedin as contact lines', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'Email', value: 'jane@example.com' }, { userConfirmed: true }),
+      item('info-2', 'additional_info', { category: 'Phone', value: '+1234567890' }, { userConfirmed: true }),
+      item('info-3', 'additional_info', { category: 'LinkedIn', value: 'linkedin.com/in/jane' }, { userConfirmed: true }),
+    ];
+    const header = headerFromAdditionalInfo(items);
+    expect(header.contact).toEqual(['jane@example.com', '+1234567890', 'linkedin.com/in/jane']);
+  });
+
+  it('extracts location and nationality as contact lines', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'Location', value: 'Porto, Portugal' }, { userConfirmed: true }),
+      item('info-2', 'additional_info', { category: 'Nationality', value: 'EU citizen' }, { userConfirmed: true }),
+    ];
+    const header = headerFromAdditionalInfo(items);
+    expect(header.contact).toContain('Porto, Portugal');
+    expect(header.contact).toContain('EU citizen');
+  });
+
+  it('skips ineligible items (Low confidence, not confirmed)', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'Full Name', value: 'Jane Doe' }, { userConfirmed: false, confidence: 'Low' }),
+    ];
+    const header = headerFromAdditionalInfo(items);
+    expect(header.name).toBeUndefined();
+  });
+
+  it('skips private items', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'Email', value: 'secret@example.com' }, { userConfirmed: true, private: true }),
+    ];
+    const header = headerFromAdditionalInfo(items);
+    expect(header.contact).toBeUndefined();
+  });
+
+  it('explicit header takes precedence over additional_info', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'Full Name', value: 'Extracted Name' }, { userConfirmed: true }),
+      item('info-2', 'additional_info', { category: 'Email', value: 'extracted@example.com' }, { userConfirmed: true }),
+    ];
+    const explicit = { name: 'Provided Name', contact: ['provided@example.com'] as readonly string[] };
+    const header = headerFromAdditionalInfo(items, explicit);
+    expect(header.name).toBe('Provided Name');
+    expect(header.contact).toContain('provided@example.com');
+    // The extracted email is still added as it's not a duplicate
+    expect(header.contact).toContain('extracted@example.com');
+  });
+
+  it('deduplicates contact lines case-insensitively', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'Email', value: 'Jane@Example.com' }, { userConfirmed: true }),
+    ];
+    const explicit = { contact: ['jane@example.com'] as readonly string[] };
+    const header = headerFromAdditionalInfo(items, explicit);
+    expect(header.contact).toHaveLength(1);
+  });
+
+  it('category matching is case-insensitive', () => {
+    const items = [
+      item('info-1', 'additional_info', { category: 'FULL NAME', value: 'Test User' }, { userConfirmed: true }),
+      item('info-2', 'additional_info', { category: 'email address', value: 'test@test.com' }, { userConfirmed: true }),
+    ];
+    const header = headerFromAdditionalInfo(items);
+    expect(header.name).toBe('Test User');
+    expect(header.contact).toContain('test@test.com');
+  });
+
+  it('ignores non-additional_info items', () => {
+    const items = [
+      item('edu-1', 'education', { degree: 'MSc', institution: 'MIT' }, { userConfirmed: true }),
+    ];
+    const header = headerFromAdditionalInfo(items);
+    expect(header.name).toBeUndefined();
+    expect(header.contact).toBeUndefined();
+  });
+});
+
+describe('@core/output — buildCvModel populates header from additional_info items (R30.16)', () => {
+  it('populates header.name from confirmed additional_info when no explicit header provided', () => {
+    const react = skill('SKILL-react', 'React');
+    const map = skillMapOf([react]);
+    const items = [
+      item('info-1', 'additional_info', { category: 'Name', value: 'John Smith' }, { userConfirmed: true }),
+      item('info-2', 'additional_info', { category: 'Email', value: 'john@smith.com' }, { userConfirmed: true }),
+    ];
+    const cv = buildCvModel(role([]), { skillMap: map, items });
+    expect(cv.header.name).toBe('John Smith');
+    expect(cv.header.contact).toContain('john@smith.com');
+  });
+
+  it('uses explicit header name when both explicit and additional_info are present', () => {
+    const react = skill('SKILL-react', 'React');
+    const map = skillMapOf([react]);
+    const items = [
+      item('info-1', 'additional_info', { category: 'Name', value: 'Extracted' }, { userConfirmed: true }),
+    ];
+    const cv = buildCvModel(role([]), { skillMap: map, items, header: { name: 'Explicit' } });
+    expect(cv.header.name).toBe('Explicit');
+  });
+
+  it('includes High-confidence additional_info items in header without explicit confirmation (R30.16, R71.24)', () => {
+    const react = skill('SKILL-react', 'React');
+    const map = skillMapOf([react]);
+    const items = [
+      item('info-1', 'additional_info', { category: 'Full Name', value: 'Jane Doe' }, { userConfirmed: false, confidence: 'High' }),
+      item('info-2', 'additional_info', { category: 'Email', value: 'jane@example.com' }, { userConfirmed: false, confidence: 'High' }),
+      item('info-3', 'additional_info', { category: 'Phone', value: '+1-555-0100' }, { userConfirmed: false, confidence: 'High' }),
+    ];
+    const cv = buildCvModel(role([]), { skillMap: map, items });
+    expect(cv.header.name).toBe('Jane Doe');
+    expect(cv.header.contact).toContain('jane@example.com');
+    expect(cv.header.contact).toContain('+1-555-0100');
+  });
+
+  it('includes High-confidence education items without explicit confirmation (R30.16)', () => {
+    const map = skillMapOf([skill('SKILL-react', 'React')]);
+    const edu = item('I-edu', 'education', { degree: 'MSc Computer Science', institution: 'MIT' }, { userConfirmed: false, confidence: 'High' });
+    const cv = buildCvModel(role([]), { skillMap: map, items: [edu] });
+    expect(cv.education.map((e) => e.title)).toEqual(['MSc Computer Science']);
+  });
+
+  it('includes High-confidence professional_summary without explicit confirmation (R30.16)', () => {
+    const map = skillMapOf([skill('SKILL-react', 'React')]);
+    const summary = item(
+      'I-summary',
+      'professional_summary',
+      { text: 'Senior engineer with 15 years experience.' },
+      { userConfirmed: false, confidence: 'High' },
+    );
+    const cv = buildCvModel(role([]), { skillMap: map, items: [summary] });
+    expect(cv.professionalSummary).toBe('Senior engineer with 15 years experience.');
   });
 });

@@ -5,6 +5,52 @@ All notable changes to Career Agent are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-08-01
+
+### Fixed
+
+- **Interview questions persisted to file immediately** — AI-generated practice
+  questions are now written to the interview file via `saveInterview` as soon as
+  they are received, ensuring they survive session interruption and browser refresh
+  without data loss.
+- **Talking point polished text uses AI summary** — the `polished` field of a
+  confirmed talking point now uses the AI per-question summary's first-person
+  past-tense recap instead of echoing back the raw user input verbatim.
+- **CV generation includes education, contact details, certifications, awards,
+  and nationality** — `buildCvTailoringPrompt` now falls back to extracting
+  education, certifications, awards, and nationality from confirmed evidence when
+  the CvModel fields are empty; the user's name and contact info are passed so
+  the AI draft uses real data instead of "[Your Name]" placeholders.
+- **Compound skill split respects OS/2, L2/L3 via allowlist** —
+  `splitCompoundSkills` now includes OS/2, OS/2 Warp, L2/L3, and L2/L3
+  Networking in the compound allowlist, and a fragment-detection pass
+  (`mergeCompoundFragments`) reassembles incorrectly-split fragments back into
+  their canonical compound form.
+- **Skill duration uses lastEvidence−since instead of now−since** —
+  `experienceDuration` now computes years as `(lastEvidence − since)` so legacy
+  skills (e.g. COBOL used 1993–1997) report ~4 years, not ~31 years. Falls back
+  to `now` only when `lastEvidence` is absent (skill still active).
+- **LinkedIn headline uses professional summary + role + competencies** — the
+  suggested headline is now composed from the target role title and the top 3
+  confirmed core competencies (by evidence strength), joined with `·`. Falls
+  back to the most-recent employment title when no role or competencies exist.
+- **LinkedIn recommended skills filtered by recency and capped** — recommended
+  skills now exclude entries whose `lastEvidence` predates a configurable cutoff
+  (default 10 years) and are capped at 50 entries, ordered by role relevance
+  then evidence strength.
+- **Skill `since` uses earliest employment evidence** — when a standalone skill
+  also appears in an employment item's technologies, its `since` date is derived
+  from the employment start date if earlier, ensuring accurate experience
+  duration rather than using only the standalone extraction date.
+- **Talking point serialization cleaned of duplicate nested content** — the
+  interview document serializer now deduplicates nested content in talking point
+  fields, preventing repeated text blocks from accumulating across
+  serialize/parse cycles.
+- **Talking point confirm button disabled while AI summary loads** — prevents
+  the user from confirming a talking point with the raw-input fallback polished
+  text before the AI-produced summary arrives; the button now shows "Generating
+  polished summary…" and enables only after the AI recap is ready.
+
 ## [0.6.0] — 2026-07-31
 
 ### Added

@@ -225,6 +225,7 @@ export const addUserSkill = (map: SkillMap, input: UserSkillInput): SkillMapEntr
     proficiencySignal: evidenceSignal(evidence, latestDate, true),
     evidence,
     since: sinceDate,
+    lastEvidence: asISODate(latestDate), // R70.8 — bounds duration computation
   };
 
   map.entries.push(entry);

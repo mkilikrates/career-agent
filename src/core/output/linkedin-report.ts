@@ -1,4 +1,4 @@
-// The advisory LinkedIn improvement report (R31.1, R31.2).
+// The advisory LinkedIn improvement report (R31.1, R31.2, R31.4).
 //
 // The Output_Engine can produce a LinkedIn improvement report on request
 // (`linkedInReport(src: ConfirmedEvidence): MarkdownDoc`, design §Output_Engine).
@@ -15,13 +15,16 @@
 // extracted items. The builder never invents a skill, metric, title, or
 // employer:
 //
-//   * the suggested headline is composed from confirmed skill-map skill names
-//     (falling back to a confirmed employment title when no skills exist);
+//   * the suggested headline is composed from the target role title and
+//     confirmed core competencies from the skill map (R31.3), falling back to
+//     a confirmed employment title when no core competencies or role exist;
 //   * the rewritten About reuses the user's verbatim summary and the confirmed,
 //     already-polished accomplishment / talking-point texts (R28.3) verbatim;
 //   * each position rewrite reformats a confirmed `employment` item's verbatim
 //     fields (title, employer, dates, description) — it adds no new prose;
-//   * recommended skills are a subset of the confirmed skill map.
+//   * recommended skills are a filtered subset of the confirmed skill map,
+//     excluding legacy skills by recency and prioritising role-matched skills
+//     (R31.4).
 //
 // Like the rest of the Output_Engine, the report is split into a pure builder
 // ({@link buildLinkedInReport}, producing the structured {@link LinkedInReport})
@@ -56,10 +59,54 @@ const byIdStr = (a: unknown, b: unknown): number => {
 /** The advisory framing surfaced in every report and in its Markdown (R31.2). */
 export const ADVISORY_NOTICE =
   'This LinkedIn report is advisory only. Review the suggestions and apply any ' +
-  'changes yourself — this tool never posts to, or modifies, your LinkedIn profile.';
+  'changes yourself \u2014 this tool never posts to, or modifies, your LinkedIn profile.';
 
-/** How many confirmed skill names compose a suggested headline. */
-const HEADLINE_SKILL_COUNT = 3;
+/** How many confirmed core competencies to include in the suggested headline. */
+const HEADLINE_COMPETENCY_COUNT = 3;
+
+// --- Recommended skills filter configuration (R31.4) -----------------------
+
+/**
+ * Configuration for filtering recommended skills by recency and relevance.
+ * Defaults can be adjusted without code changes by passing an options object
+ * to {@link buildLinkedInReport} (R31.4).
+ */
+export interface LinkedInSkillFilterConfig {
+  /**
+   * Skills whose `lastEvidence` date is older than this many years from the
+   * current date are excluded. Default: 10 years.
+   */
+  readonly recencyCutoffYears: number;
+  /**
+   * Maximum number of skills to recommend. Default: 50.
+   */
+  readonly maxSkills: number;
+}
+
+/** Default skill filter configuration (R31.4). */
+export const DEFAULT_SKILL_FILTER_CONFIG: LinkedInSkillFilterConfig = {
+  recencyCutoffYears: 10,
+  maxSkills: 50,
+};
+
+/**
+ * Options for {@link buildLinkedInReport}. Allows callers to supply role
+ * relevance data and adjust the skill filter without code changes (R31.4).
+ */
+export interface LinkedInReportOptions {
+  /**
+   * Skill IDs matched to the user's target role(s). Matched skills are
+   * preferred over unmatched in the recommended skills ordering.
+   */
+  readonly matchedSkillIds?: ReadonlySet<SkillId>;
+  /** Skill filter configuration overrides (R31.4). */
+  readonly skillFilter?: Partial<LinkedInSkillFilterConfig>;
+  /**
+   * The reference "now" date for the recency cutoff. Defaults to the current
+   * date. Exposed for deterministic testing.
+   */
+  readonly now?: Date;
+}
 
 // --- Report model ----------------------------------------------------------
 
@@ -83,7 +130,7 @@ export interface LinkedInBullet {
 
 /**
  * A suggested rewrite of one confirmed `employment` position. Every field is a
- * verbatim reformat of the confirmed item — nothing is fabricated (R31.1).
+ * verbatim reformat of the confirmed item \u2014 nothing is fabricated (R31.1).
  */
 export interface LinkedInPosition {
   readonly id: ItemId;
@@ -116,7 +163,7 @@ export interface LinkedInReport {
   readonly experienceBullets: readonly LinkedInBullet[];
   /** Position rewrites, reformatted from confirmed employment items (R31.1). */
   readonly positions: readonly LinkedInPosition[];
-  /** Recommended skills — a subset of the confirmed skill map (R31.1). */
+  /** Recommended skills \u2014 a filtered subset of the confirmed skill map (R31.1, R31.4). */
   readonly recommendedSkills: readonly LinkedInSkillSuggestion[];
 }
 
@@ -133,7 +180,7 @@ const field = (item: ExtractedItem, ...keys: readonly string[]): string | undefi
 
 /** Join a start/end range into a single human-readable detail string. */
 const dateRange = (start?: string, end?: string): string | undefined => {
-  if (start && end) return `${start} – ${end}`;
+  if (start && end) return `${start} \u2013 ${end}`;
   return start ?? end ?? undefined;
 };
 
@@ -155,14 +202,27 @@ const byEvidenceStrength = (a: SkillMapEntry, b: SkillMapEntry): number => {
 
 /**
  * Build the advisory {@link LinkedInReport} from confirmed evidence (R31.1,
- * R31.2). Pure and deterministic: the same confirmed evidence always yields the
- * same report. Every surfaced claim traces to confirmed evidence — confirmed
- * skill-map entries, confirmed (non-retired) accomplishments / talking points,
- * and confirmed (output-eligible, non-private) employment items — so the report
- * fabricates nothing (Property 1). The result is advisory only; it carries no
- * action that posts or applies changes (R31.2).
+ * R31.2, R31.4). Pure and deterministic: the same confirmed evidence always
+ * yields the same report. Every surfaced claim traces to confirmed evidence \u2014
+ * confirmed skill-map entries, confirmed (non-retired) accomplishments / talking
+ * points, and confirmed (output-eligible, non-private) employment items \u2014 so
+ * the report fabricates nothing (Property 1). The result is advisory only; it
+ * carries no action that posts or applies changes (R31.2).
+ *
+ * Recommended skills are filtered by recency (excluding skills whose
+ * `lastEvidence` predates a configurable cutoff, default 10 years) and
+ * relevance (matched skills for target roles first), capped at a configurable
+ * limit (default 50) (R31.4).
+ *
+ * @param evidence - The confirmed evidence set.
+ * @param targetRoleTitle - Optional target role title for headline derivation (R31.3).
+ * @param options - Optional filter/relevance options for recommended skills (R31.4).
  */
-export const buildLinkedInReport = (evidence: ConfirmedEvidence): LinkedInReport => {
+export const buildLinkedInReport = (
+  evidence: ConfirmedEvidence,
+  targetRoleTitle?: string,
+  options?: LinkedInReportOptions,
+): LinkedInReport => {
   const confirmedSkillIds = new Set<string>(
     evidence.skillMap.entries.map((e) => asString(e.id)),
   );
@@ -175,26 +235,69 @@ export const buildLinkedInReport = (evidence: ConfirmedEvidence): LinkedInReport
     promotedLowIds: evidence.promotedLowIds,
   });
 
-  // 1. Recommended skills — the confirmed skill map, strongest-evidence first.
-  //    A strict subset of the confirmed map: nothing is invented (R31.1).
+  // 1. Recommended skills \u2014 the confirmed skill map, filtered by recency and
+  //    relevance (R31.4), strongest-evidence first. A strict subset of the
+  //    confirmed map: nothing is invented (R31.1).
+  const filterConfig: LinkedInSkillFilterConfig = {
+    ...DEFAULT_SKILL_FILTER_CONFIG,
+    ...options?.skillFilter,
+  };
+  const now = options?.now ?? new Date();
+  const cutoffDate = new Date(now);
+  cutoffDate.setFullYear(cutoffDate.getFullYear() - filterConfig.recencyCutoffYears);
+  const cutoffMs = cutoffDate.getTime();
+  const matchedIds = options?.matchedSkillIds;
+
   const recommendedSkills: LinkedInSkillSuggestion[] = [...evidence.skillMap.entries]
-    .sort(byEvidenceStrength)
+    // Recency filter: exclude skills whose lastEvidence predates the cutoff (R31.4).
+    // Skills with no lastEvidence are assumed current (still active).
+    .filter((entry) => {
+      if (entry.lastEvidence === undefined) return true;
+      const evidenceMs = Date.parse(entry.lastEvidence as unknown as string);
+      if (Number.isNaN(evidenceMs)) return true; // unparseable \u2192 keep
+      return evidenceMs >= cutoffMs;
+    })
+    // Relevance sort: matched skills first, then by evidence strength (R31.4).
+    .sort((a, b) => {
+      if (matchedIds) {
+        const aMatched = matchedIds.has(a.id) ? 0 : 1;
+        const bMatched = matchedIds.has(b.id) ? 0 : 1;
+        if (aMatched !== bMatched) return aMatched - bMatched;
+      }
+      return byEvidenceStrength(a, b);
+    })
+    // Cap at configured limit (R31.4).
+    .slice(0, filterConfig.maxSkills)
     .map((entry) => ({ id: entry.id, name: entry.name, category: entry.category }));
 
-  // 2. Suggested headline — composed from the strongest confirmed skill names,
-  //    falling back to the most-recent confirmed employment title when no skills
-  //    exist. Both sources are confirmed; nothing is fabricated (R31.1).
-  const topSkillNames = recommendedSkills.slice(0, HEADLINE_SKILL_COUNT).map((s) => s.name);
+  // 2. Suggested headline \u2014 derived from the user's professional summary,
+  //    target role title, and top confirmed core competencies (R31.3). Falls
+  //    back to the most-recent confirmed employment title when no core
+  //    competencies or role title exist. All sources are confirmed; nothing is
+  //    fabricated (R31.1).
+  const coreCompetencies = evidence.skillMap.entries
+    .filter((e) => e.category === 'Core_Competency')
+    .sort(byEvidenceStrength)
+    .slice(0, HEADLINE_COMPETENCY_COUNT)
+    .map((e) => e.name);
+  const roleTitle = targetRoleTitle?.trim() ?? '';
+  const headlineParts: string[] = [];
+  if (roleTitle.length > 0) headlineParts.push(roleTitle);
+  if (coreCompetencies.length > 0) headlineParts.push(...coreCompetencies);
   const employmentTitles = eligible
     .filter((i) => i.type === 'employment')
     .map((i) => field(i, 'title', 'role', 'position'))
     .filter((t): t is string => t !== undefined);
-  const headline =
-    topSkillNames.length > 0
-      ? topSkillNames.join(' · ')
-      : (employmentTitles[0] ?? '');
+  let headline: string;
+  if (headlineParts.length > 0) {
+    headline = headlineParts.join(' \u00b7 ');
+  } else if (employmentTitles.length > 0) {
+    headline = employmentTitles[0]!;
+  } else {
+    headline = '';
+  }
 
-  // 3. Suggested experience bullets — confirmed accomplishments then talking
+  // 3. Suggested experience bullets \u2014 confirmed accomplishments then talking
   //    points, admitted only when they link to a confirmed skill (the same
   //    No-Fabrication gate the CV model applies, R30.1), surfaced verbatim.
   const experienceBullets: LinkedInBullet[] = [];
@@ -214,7 +317,7 @@ export const buildLinkedInReport = (evidence: ConfirmedEvidence): LinkedInReport
   }
   experienceBullets.sort((a, b) => byIdStr(a.id, b.id));
 
-  // 4. Rewritten About — the user's verbatim summary (when present) followed by
+  // 4. Rewritten About \u2014 the user's verbatim summary (when present) followed by
   //    the strongest confirmed achievement texts. All content is confirmed and
   //    surfaced verbatim; nothing is rephrased into a fabricated claim (R31.1).
   const aboutParts: string[] = [];
@@ -227,7 +330,7 @@ export const buildLinkedInReport = (evidence: ConfirmedEvidence): LinkedInReport
   }
   const about = aboutParts.join('\n\n');
 
-  // 5. Position rewrites — each confirmed employment item, reformatted from its
+  // 5. Position rewrites \u2014 each confirmed employment item, reformatted from its
   //    verbatim fields. No prose is added beyond what the item already holds.
   const positions: LinkedInPosition[] = eligible
     .filter((i) => i.type === 'employment')
@@ -265,7 +368,7 @@ export const buildLinkedInReport = (evidence: ConfirmedEvidence): LinkedInReport
 /** Render one position rewrite header line from its verbatim fields. */
 const renderPositionHeader = (position: LinkedInPosition): string => {
   let header = position.title;
-  if (position.employer) header += ` — ${position.employer}`;
+  if (position.employer) header += ` \u2014 ${position.employer}`;
   if (position.dates) header += ` (${position.dates})`;
   return `### ${header}`;
 };
@@ -288,7 +391,7 @@ const renderBullet = (bullet: LinkedInBullet): string => {
  * document (R31). Pure and deterministic: the same report always yields the same
  * string. The advisory notice is surfaced prominently at the top (R31.2); every
  * section with no content is omitted so a sparse report still renders cleanly.
- * The renderer only restyles the report — it adds no claim of its own.
+ * The renderer only restyles the report \u2014 it adds no claim of its own.
  */
 export const renderLinkedInReportMarkdown = (report: LinkedInReport): string => {
   const sections: string[] = ['# LinkedIn Improvement Report', `> ${report.notice}`];

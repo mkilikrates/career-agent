@@ -76,11 +76,14 @@ const parseIso = (iso: unknown): number | null => {
 
 /**
  * Approximate the experience duration for a single skill, in whole months
- * (R20.6, R70.7). When the entry carries a `since` date (the date the user
- * first used this skill), duration is simply `now - since`. When `since` is
- * absent, the function falls back to `now - earliestEvidence`. A skill with no
- * usable dates yields a minimum of one month so the model still sees it as
- * carrying some experience rather than zero.
+ * (R20.6, R70.7, R70.8). When the entry carries a `since` date (the date the
+ * user first used this skill), duration is bounded by `lastEvidence` (the latest
+ * evidence date) rather than `now`, preventing legacy skills from showing
+ * misleading years. When `lastEvidence` is absent, falls back to `now` (skill
+ * is still active). When `since` is absent, the function falls back to
+ * `lastEvidence - earliestEvidence`. A skill with no usable dates yields a
+ * minimum of one month so the model still sees it as carrying some experience
+ * rather than zero.
  *
  * Accepts an optional `now` parameter for deterministic testing.
  * Pure and never negative.
@@ -88,10 +91,15 @@ const parseIso = (iso: unknown): number | null => {
 export const approxDurationMonths = (entry: SkillMapEntry, now?: Date): number => {
   const nowMs = (now ?? new Date()).getTime();
 
-  // R70.7: If `since` is available, duration is simply (now - since).
+  // R70.8: Determine the end boundary — use lastEvidence when available,
+  // falling back to now (skill is still actively used).
+  const lastEvidenceMs = parseIso(entry.lastEvidence);
+  const endMs = lastEvidenceMs !== null ? lastEvidenceMs : nowMs;
+
+  // R70.7: If `since` is available, duration is (lastEvidence - since).
   const sinceMs = parseIso(entry.since);
   if (sinceMs !== null) {
-    const months = Math.round((nowMs - sinceMs) / MS_PER_DAY / DAYS_PER_MONTH);
+    const months = Math.round((endMs - sinceMs) / MS_PER_DAY / DAYS_PER_MONTH);
     return Math.max(1, months);
   }
 
@@ -104,7 +112,7 @@ export const approxDurationMonths = (entry: SkillMapEntry, now?: Date): number =
   if (dates.length === 0) return 1;
 
   const earliest = Math.min(...dates);
-  const months = Math.round((nowMs - earliest) / MS_PER_DAY / DAYS_PER_MONTH);
+  const months = Math.round((endMs - earliest) / MS_PER_DAY / DAYS_PER_MONTH);
   return Math.max(1, months);
 };
 

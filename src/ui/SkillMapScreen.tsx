@@ -16,7 +16,7 @@ import {
   asDocId,
   asISODate,
   asItemId,
-  experienceYears,
+  experienceDuration,
   SKILL_CATEGORIES,
   type ExtractedItem,
   type RolePreference,
@@ -811,7 +811,7 @@ export function SkillMapScreen({
         <>
           <ul>
             {skillMap.entries.map((entry) => {
-              const years = experienceYears(entry.since);
+              const years = experienceDuration(entry.since, entry.lastEvidence);
               const yearsLabel =
                 years === undefined
                   ? ''

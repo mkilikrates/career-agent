@@ -58,6 +58,7 @@ import {
   interviewFilePath,
   withResponse,
   withTalkingPoint,
+  withQuestions,
   resumeState,
   newAnswer,
   collectText,
@@ -506,7 +507,24 @@ export function CoachingScreen({
         { mode: assistMode, capability: 'star_questions' },
         dest ?? undefined,
       );
-      setAiQuestions(outcome.suggestions.map((s) => s.value));
+      const suggestions = outcome.suggestions.map((s) => s.value);
+      setAiQuestions(suggestions);
+
+      // Persist AI questions to the interview file IMMEDIATELY so they survive
+      // session interruption (R22.3). Convert suggestions to Question[] with
+      // sequential ids starting after the existing question set.
+      if (file && suggestions.length > 0) {
+        const startIndex = file.questions.length + 1;
+        const aiQs: Question[] = suggestions.map((s, i) => ({
+          id: asQuestionId(`Q-${String(startIndex + i).padStart(2, '0')}`),
+          category: 'behavioural' as const,
+          starFramed: true,
+          prompt: s.question,
+          competencies: s.competencies,
+        }));
+        persist(withQuestions(file, aiQs));
+      }
+
       if (error) setAiError(t('assist.fallback', { reason: error.message }));
     } catch (error) {
       setAiError(error instanceof Error ? error.message : String(error));
@@ -1068,8 +1086,8 @@ export function CoachingScreen({
                       placeholder="e.g. Incident Response, Mentoring"
                     />
                     <p>
-                      <Button onClick={handleConfirmLoopPoint} disabled={loopDraft.polished.length === 0}>
-                        {t('coaching.confirm')}
+                      <Button onClick={handleConfirmLoopPoint} disabled={loopDraft.polished.length === 0 || summaryBusy}>
+                        {summaryBusy ? t('coaching.loop.summarising') : t('coaching.confirm')}
                       </Button>
                     </p>
                   </Card>

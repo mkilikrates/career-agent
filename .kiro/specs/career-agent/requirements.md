@@ -236,6 +236,8 @@ The product's defining promise is trust: user files never leave the device, and 
 2. WHEN the Skill_Mapper merges two non-identical surface terms, THE Skill_Mapper SHALL log the merge with its rationale and SHALL make the merge reversible by the user in one step.
 3. THE Skill_Mapper SHALL exclude sub-skills implied by a parent skill from the skill map unless the sub-skill appears in source material.
 4. IF the Skill_Mapper is uncertain whether two terms are the same skill, THEN THE Skill_Mapper SHALL keep the terms separate and raise a single optional merge suggestion to the user.
+5. THE Skill_Mapper SHALL maintain an extensible known-compound-names allowlist (loaded from a resource file without code changes) of technology names that contain delimiter characters (such as `/`) as integral parts of the name (for example "OS/2", "OS/2 Warp", "IDS/IPS", "TCP/IP", "L2/L3", "CI/CD", "GitLab CI/CD"), and the compound-skill splitter SHALL NOT split any entry that matches the allowlist.
+6. WHEN the deduplication or consolidation pass encounters entries that are clearly fragments of a known compound name on the allowlist (for example "OS" and "2 Warp" as fragments of "OS/2 Warp"), THE Skill_Mapper SHALL merge those fragments back into the compound name rather than leaving them as separate skills.
 
 ### Requirement 16: Never-Merge Confusable Pairs
 
@@ -312,7 +314,7 @@ The product's defining promise is trust: user files never leave the device, and 
 
 1. WHEN the user selects a role for coaching, THE Interview_Coach SHALL generate a minimum of three STAR-framework questions grounded in the Requirement 20 skill-match result between the user's profile and the target role.
 2. WHEN the questions are generated, THE Interview_Coach SHALL include at least one behavioural question per core skill among the Role_Matcher's matched core requirements per Requirement 20, one question on a gap skill identified by the Role_Matcher per Requirement 20, and one professional motivation question.
-3. THE Interview_Coach SHALL store the script-based questions, any AI-generated questions, and the user's responses in a per-role interview file keyed to the Role Slug in the Memory Store.
+3. THE Interview_Coach SHALL store the script-based questions, any AI-generated questions, and the user's responses in a per-role interview file keyed to the Role Slug in the Memory Store; WHEN AI-generated STAR questions are received from the provider, THE Interview_Coach SHALL persist them to the interview file's Questions section before presenting them to the user, so that questions are never lost even if the session is interrupted.
 4. WHEN the user selects a role for coaching, THE Interview_Coach SHALL offer the user the option to request AI-generated and AI-reviewed STAR questions for the selected role.
 5. WHERE the user declines the AI option, THE Interview_Coach SHALL generate STAR questions using script-based generation alone and SHALL make no provider call.
 6. WHERE the user opts in to AI-generated STAR questions, THE Interview_Coach SHALL request the questions through the Egress Gate using a prompt that frames the chosen model as a recruiter for the specific target position, SHALL include in the candidate profile the user's previous job titles (without employer names), confirmed core competencies, education degrees and fields, and professional summary (when available) alongside the existing matched and gap skill lists, and the AI-generated questions SHALL supplement rather than replace the script-based questions.
@@ -389,10 +391,10 @@ The product's defining promise is trust: user files never leave the device, and 
 
 1. WHEN a STAR answer is captured or Soft-Closed, THE Interview_Coach SHALL present a structured summary that identifies each of the four STAR elements and marks each element as complete or flagged.
 2. THE Interview_Coach SHALL present outstanding weaknesses as coaching suggestions, and these coaching suggestions SHALL NOT block confirmation, generation, or progression.
-3. THE Interview_Coach SHALL generate a first-person, past-tense talking point in complete sentences derived only from confirmed answer content.
+3. THE Interview_Coach SHALL generate a first-person, past-tense talking point in complete sentences derived only from confirmed answer content; WHEN using AI assist, THE Interview_Coach SHALL use the AI-produced summary as the polished talking-point text, not the raw user input verbatim.
 4. WHEN the user confirms the talking point, THE Interview_Coach SHALL assign the talking point a STAR ID.
 5. WHERE the user declines AI assist, THE Interview_Coach SHALL produce the talking point via the script-only path and SHALL make no provider call.
-6. THE Interview_Coach SHALL store confirmed talking points with their STAR IDs in the interview file.
+6. THE Interview_Coach SHALL store confirmed talking points with their STAR IDs in the interview file, structured so that each talking point has exactly one `Situation` field (the raw user input), one `Polished` field (the AI-produced or script-produced first-person summary), and one `Skills` field (the detected skill list) — with no nesting, duplication, or repetition of content across fields.
 7. WHERE the user has opted in to AI assist AND a STAR answer is captured or Soft-Closed, THE Interview_Coach SHALL produce a written educational summary of the user's STAR answer that identifies the Situation, Task, Action, and Result components and explains what a good STAR-format answer looks like, the educational summary being a teaching artefact distinct from the polished talking point.
 8. WHEN producing the educational summary, THE Interview_Coach SHALL base the summary only on the content of the user's own answer and SHALL exclude any invented fact, consistent with the No-Fabrication Rule in Requirement 37.
 
@@ -427,7 +429,7 @@ The product's defining promise is trust: user files never leave the device, and 
 13. THE AI CV draft SHALL become the saved and exported CV only after the user explicitly confirms it; UNTIL confirmation, THE Output_Engine SHALL NOT persist the AI draft as the authoritative CV version.
 14. WHEN the user supplies a Target Opportunity, THE Output_Engine SHALL pass the Target Opportunity text through the Egress Gate with PII pre-screening as defined in Requirement 6, and SHALL treat the Target Opportunity text only as a tailoring target and never as a claim source.
 15. WHERE the destination is a keyed cloud (third-party) provider, THE Output_Engine SHALL exclude every item marked private from the payload, consistent with Requirement 46.4.
-16. WHEN AI-assisted or AI-only tailoring is performed, THE Output_Engine SHALL include in the prompt the full confirmed ATS career data (employment positions with titles and achievements, core competencies, education, professional summary, and skills with durations) so the model has sufficient context to produce a complete, grounded CV draft.
+16. WHEN AI-assisted or AI-only tailoring is performed, THE Output_Engine SHALL include in the prompt the full confirmed ATS career data (employment positions with titles and achievements, core competencies, education, professional summary, skills with durations, and all additional confirmed categories including contact details, certifications, awards, nationality, and other `additional_info` items) so the model has sufficient context to produce a complete, grounded CV draft; THE Output_Engine SHALL NOT use placeholder text for any field that has confirmed data available in the extraction.
 
 ### Requirement 31: LinkedIn Improvement Report
 
@@ -437,6 +439,8 @@ The product's defining promise is trust: user files never leave the device, and 
 
 1. WHEN the user requests LinkedIn recommendations, THE Output_Engine SHALL generate a report containing headline suggestions, a rewritten about section, position rewrites, and recommended skills, all drawn only from confirmed information.
 2. THE Output_Engine SHALL present the LinkedIn report as advisory and SHALL exclude any action that posts or applies changes on the user's behalf.
+3. WHEN generating LinkedIn headline suggestions, THE Output_Engine SHALL derive the headline from the user's professional summary, target role title, and top confirmed core competencies — not from gap skills, niche technical abbreviations, or unrecognised acronyms.
+4. WHEN generating LinkedIn recommended skills, THE Output_Engine SHALL filter skills by relevance to the user's target roles and by recency, SHALL exclude skills whose last evidence date predates a configurable cutoff (default 10 years), and SHALL limit the recommended list to a reasonable count (default top 50 most relevant skills).
 
 ### Requirement 32: Output Engine and ATS Compatibility
 
@@ -924,13 +928,14 @@ The product's defining promise is trust: user files never leave the device, and 
 
 #### Acceptance Criteria
 
-1. THE Skill_Mapper SHALL record each skill's experience duration as a `since` date (the year/month the user first used the skill) rather than a `recency` date (the most recent evidence date), and SHALL compute approximate years of experience from the `since` date.
-2. WHEN generating the skill map from documents, THE Skill_Mapper SHALL derive the initial `since` value from the earliest evidence date for that skill in the ingested documents.
+1. THE Skill_Mapper SHALL record each skill's experience duration as a `since` date (the year/month the user first used the skill) rather than a `recency` date (the most recent evidence date), and SHALL compute approximate years of experience as the span between the `since` date and the last evidence date (bounded by actual employment periods), not as the span from `since` to the current date.
+2. WHEN generating the skill map from documents, THE Skill_Mapper SHALL derive the initial `since` value from the earliest evidence date for that skill across ALL evidence sources: the standalone skill extraction's `since` field, AND the start date of any employment position where the skill appears in the `technologies` array, AND the start date of any education entry where the skill appears — using whichever is earliest.
 3. THE Skill_Mapper SHALL allow the user to edit the `since` date for any skill during skill-map review, so the user can correct it when their actual experience predates their oldest uploaded document.
 4. THE Skill_Mapper SHALL remove the `recency` field from the skill-map data model and all persisted Markdown, replacing all uses of `recency` with the `since` field and computed experience duration.
 5. WHERE the skill map is loaded from a previously-saved Memory Store that contains a `recency` field but no `since` field, THE Skill_Mapper SHALL migrate the entry by using the earliest evidence date (or the `recency` value if no evidence exists) as the initial `since` value, so that existing user data is preserved without loss.
 6. THE Interview_Coach SHALL use the experience duration (years computed from `since`) in the candidate profile sent with the STAR question prompt, so that the model calibrates question depth to actual experience rather than document recency.
 7. THE Role_Matcher SHALL use the experience duration (computed from `since`) when building the role-discovery payload, so that approximate years of experience are correctly conveyed to the model for level inference.
+8. WHEN a skill has evidence from only a single employment position, THE Skill_Mapper SHALL use the duration of that employment period as the skill's experience duration rather than computing a span from a single date to now.
 
 
 ### Requirement 71: Structured AI Career Extraction (ATS-Compatible Foundation Map)
@@ -960,7 +965,7 @@ The product's defining promise is trust: user files never leave the device, and 
 
 **Skill splitting and normalization:**
 
-11. WHEN the AI returns a technology entry that contains multiple skills in a single string (for example "AWS SAM (Python, Lambda, Step Functions)" or "Terraform/Terragrunt"), THE Career_Agent SHALL split the entry into individual skill items — one per distinct technology — before storing them in the skill map.
+11. WHEN the AI returns a technology entry that contains multiple skills in a single string (for example "AWS SAM (Python, Lambda, Step Functions)" or "Terraform/Terragrunt"), THE Career_Agent SHALL split the entry into individual skill items — one per distinct technology — before storing them in the skill map, EXCEPT that an entry matching the known-compound-names allowlist defined in Requirement 15.5 SHALL NOT be split.
 12. THE Career_Agent SHALL NOT store a parenthetical qualifier as part of a skill name unless the qualifier is an intrinsic part of the technology name (for example "Node.js" or "C#" are not parenthetical qualifiers, but "(Python, Lambda)" appended to "AWS SAM" is a list of additional skills).
 13. THE extraction prompt SHALL instruct the model to list each technology as a separate, standalone, atomic item in the `technologies` field — for example "S3", "Lambda", "DynamoDB" rather than "AWS (S3, Lambda, DynamoDB)" — so that the extraction produces consistent, deduplicate-friendly skill names without embedded sub-skills or vendor-qualified groupings.
 14. THE extraction prompt SHALL instruct the model to map each skill (technical and core competency) to the specific positions where it was demonstrated, so the skill map carries per-position provenance.
@@ -975,7 +980,7 @@ The product's defining promise is trust: user files never leave the device, and 
 **Skill map integration:**
 
 19. THE Skill_Mapper SHALL link each skill in the skill map to the positions and education entries where it was used, so the user can see for any skill which jobs and courses evidenced it.
-20. THE Skill_Mapper SHALL derive the `since` date for each skill from the earliest position or education start date in which that skill appears, using normalized ISO dates.
+20. THE Skill_Mapper SHALL derive the `since` date for each skill from the earliest date across ALL evidence sources in which that skill appears: the standalone skill extraction's `since` field, the start date of any position where the skill appears in `technologies`, and the start date of any education entry where the skill appears — using whichever is earliest among normalized ISO dates.
 
 **User review and confirmation:**
 
@@ -985,7 +990,7 @@ The product's defining promise is trust: user files never leave the device, and 
 **CV generation integration:**
 
 23. THE CV generation SHALL use the extracted employment structure (positions with company, title, dates, location, achievements) as the CV skeleton, placing confirmed talking points and accomplishments under the appropriate position, rather than generating a flat list of bullets.
-24. THE Output_Engine SHALL use the additional extracted categories (professional summary, core competencies, languages, hobbies, causes) when generating a CV, placing them in appropriate ATS-standard sections, but SHALL include each category only when the user has confirmed its items.
+24. THE Output_Engine SHALL use the additional extracted categories (professional summary, core competencies, education, languages, hobbies, causes, and all `additional_info` items including contact details, certifications, awards, and nationality) when generating a CV, placing them in appropriate ATS-standard sections, but SHALL include each category only when the user has confirmed its items; THE Output_Engine SHALL pass ALL confirmed categories to the CV generation prompt so that no confirmed data is omitted from the generated output.
 
 **Role discovery integration:**
 

@@ -44,7 +44,7 @@ import type {
   StarAnswer,
   StarElement,
 } from '@core/types';
-import { experienceYears } from '@core/types';
+import { experienceDuration } from '@core/types';
 import {
   BaseAssistableOperation,
   isThirdPartyDestination as isThirdParty,
@@ -53,7 +53,7 @@ import {
 } from '@core/assist';
 import type { SkillMap } from '@core/skills';
 import { generateQuestions } from './questions';
-import { refine, ensurePolishedQuality, type TalkingPointDraft } from './refine';
+import { refine, ensureAiSummaryQuality, type TalkingPointDraft } from './refine';
 import { contentContribution } from './firewall';
 import type { DeliveryLexicon } from './firewall';
 import { STAR_ORDER } from './coach';
@@ -353,7 +353,7 @@ export function buildCandidateProfile(
     const parts = [entry.name];
     if (evidenceCount > 0) parts.push(`${evidenceCount} evidence`);
     if (entry.since) {
-      const years = experienceYears(entry.since);
+      const years = experienceDuration(entry.since, entry.lastEvidence);
       if (years !== undefined) {
         parts.push(years === 0 ? '< 1 year experience' : `~${years} years experience`);
       }
@@ -392,7 +392,7 @@ export function buildCandidateProfile(
       .map((entry) => {
         const parts = [entry.name];
         if (entry.since) {
-          const years = experienceYears(entry.since);
+          const years = experienceDuration(entry.since, entry.lastEvidence);
           if (years !== undefined) {
             parts.push(years === 0 ? '< 1 yr' : `~${years} yr`);
           }
@@ -1100,10 +1100,12 @@ export async function perQuestionSummary(
 ): Promise<PerQuestionSummary> {
   const reply = await transport(buildPerQuestionSummaryPrompt(input), dest);
   const parsed = parsePerQuestionSummaryReply(reply);
-  // Validate the AI-produced summary meets the quality bar for a concise,
-  // first-person, past-tense talking point (R28.3, task 39.5). If the AI
-  // output is just the raw input with filler or otherwise fails validation,
-  // fall back to a deterministic sentence-trimming of the user's answer.
-  const validatedSummary = ensurePolishedQuality(parsed.summary, input.fullAnswer);
+  // Validate the AI-produced SUMMARY meets the quality bar for a concise,
+  // first-person, past-tense talking point (R28.3, R28.6, task 45.2). Uses the
+  // AI-summary-specific validation that permits high token overlap with the raw
+  // input (the model is instructed to use ONLY the candidate's own words, so
+  // overlap is expected and does NOT indicate a verbatim copy). Falls back to a
+  // deterministic sentence-trimming only when the output truly fails quality.
+  const validatedSummary = ensureAiSummaryQuality(parsed.summary, input.fullAnswer);
   return { ...parsed, summary: validatedSummary };
 }

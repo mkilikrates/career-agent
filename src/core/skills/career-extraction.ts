@@ -233,19 +233,52 @@ function locateJson(reply: string): unknown | null {
 // ---------------------------------------------------------------------------
 
 /**
+ * Default compound names YAML content (R15.5).
  * Known compound names that contain `/` or other split-triggering characters
  * but must NOT be split. Case-insensitive matching is used.
+ * Shipped inline following the same pattern as DEFAULT_COMPETENCY_SYNONYMS_YAML.
  */
-const COMPOUND_ALLOWLIST: readonly string[] = [
-  'CI/CD',
-  'TCP/IP',
-  'IDS/IPS',
-  'Node.js',
-  'C#',
-  'C++',
-  '.NET',
-  'GitLab CI/CD',
-];
+export const DEFAULT_COMPOUND_NAMES_YAML = `# config/compound_names.yaml — known compound technology names (R15.5)
+# Entries that contain delimiter characters (like '/') but must NOT be split
+# by the compound-skill splitter. Case-insensitive matching is used.
+# This file can be extended without code changes.
+compound_names:
+  - "CI/CD"
+  - "TCP/IP"
+  - "IDS/IPS"
+  - "OS/2"
+  - "OS/2 Warp"
+  - "L2/L3"
+  - "L2/L3 Networking"
+  - "Node.js"
+  - "C#"
+  - "C++"
+  - ".NET"
+  - "GitLab CI/CD"
+`;
+
+/**
+ * Load compound names from YAML text and return an array of names (R15.5).
+ * Uses gray-matter for parsing (same pattern as loadCompetencySynonyms).
+ */
+export function loadCompoundNames(yamlText: string): string[] {
+  let data: Record<string, unknown> = {};
+  try {
+    const wrapped = yamlText.trimStart().startsWith('---')
+      ? yamlText
+      : `---\n${yamlText}\n---`;
+    const parsed = matter(wrapped);
+    data = (parsed.data ?? {}) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+  const names = data['compound_names'];
+  if (!Array.isArray(names)) return [];
+  return names.filter((n): n is string => typeof n === 'string');
+}
+
+/** The active compound allowlist (loaded from YAML). */
+const COMPOUND_ALLOWLIST: readonly string[] = loadCompoundNames(DEFAULT_COMPOUND_NAMES_YAML);
 
 /** Pre-computed lowercase allowlist for matching. */
 const COMPOUND_ALLOWLIST_LOWER = COMPOUND_ALLOWLIST.map((s) => s.toLowerCase());
@@ -275,7 +308,65 @@ export function splitCompoundSkills(technologies: string[]): string[] {
     }
   }
 
-  return result;
+  // Post-split fragment-detection pass (R15.6): when fragments of a known
+  // compound name appear as separate entries, merge them back into the compound.
+  return mergeCompoundFragments(result);
+}
+
+/**
+ * Fragment-detection pass (R15.6): detects entries that are clearly fragments
+ * of a known compound name on the allowlist and merges them back.
+ *
+ * For each compound name containing `/`, splits into left/right fragments and
+ * checks if both fragments (or sub-fragments) appear as separate entries.
+ * When found, removes the fragments and inserts the compound name.
+ *
+ * Example: ["OS", "2 Warp"] → fragments of "OS/2 Warp" → merged back.
+ */
+export function mergeCompoundFragments(entries: string[]): string[] {
+  // Build a lookup from lowercase entry → index in results
+  let items = [...entries];
+
+  // Only consider allowlist entries that contain `/` (those are the ones
+  // that could have been incorrectly split on `/`).
+  const slashCompounds = COMPOUND_ALLOWLIST.filter((c) => c.includes('/'));
+
+  // Sort longest first so we prefer merging "OS/2 Warp" over "OS/2"
+  const sorted = [...slashCompounds].sort((a, b) => b.length - a.length);
+
+  for (const compound of sorted) {
+    const parts = compound.split('/');
+    // For a compound like "OS/2 Warp", parts = ["OS", "2 Warp"]
+    // For "L2/L3 Networking", parts = ["L2", "L3 Networking"]
+    // Check if all parts exist as separate entries (case-insensitive)
+    const lowerItems = items.map((i) => i.toLowerCase());
+    const partIndices: number[] = [];
+    let allFound = true;
+    for (const part of parts) {
+      const idx = lowerItems.indexOf(part.toLowerCase());
+      if (idx === -1) {
+        allFound = false;
+        break;
+      }
+      partIndices.push(idx);
+    }
+
+    if (allFound && partIndices.length > 0) {
+      // Check that the compound itself is not already present
+      if (lowerItems.includes(compound.toLowerCase())) continue;
+
+      // Remove fragment entries (in reverse order to maintain indices)
+      const uniqueIndices = [...new Set(partIndices)].sort((a, b) => b - a);
+      for (const idx of uniqueIndices) {
+        items.splice(idx, 1);
+      }
+      // Insert the compound name at the position of the first fragment
+      const insertAt = Math.min(...partIndices);
+      items.splice(insertAt, 0, compound);
+    }
+  }
+
+  return items;
 }
 
 /**

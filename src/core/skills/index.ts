@@ -61,9 +61,12 @@ export {
   applyAiConsolidation,
   careerExtractionToItems,
   loadCompetencySynonyms,
+  loadCompoundNames,
   DEFAULT_COMPETENCY_SYNONYMS_YAML,
+  DEFAULT_COMPOUND_NAMES_YAML,
   CAREER_EXTRACTION_INSTRUCTION,
   stripNonAlpha,
+  mergeCompoundFragments,
 } from './career-extraction';
 export type {
   CareerExtraction,

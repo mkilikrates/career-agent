@@ -48,6 +48,7 @@ export interface SkillMapEntry {
   selfAssessment?: string; // separate from evidence signal (R19.4)
   evidence: SkillEvidence[]; // R14.1, R18.2
   since?: ISODate; // R70.1 — earliest date the skill was used
+  lastEvidence?: ISODate; // R70.8 — latest evidence[].when date (bounds duration)
   mergeRecord?: MergeRecord; // reversible (R15.2, R19.3)
   brokenReference?: boolean; // R36.2
   /**
@@ -63,12 +64,38 @@ export interface SkillMapEntry {
 /**
  * Compute approximate years of experience from a `since` date (R70.4).
  * Returns `undefined` when `since` is absent or unparseable.
+ *
+ * @deprecated Use {@link experienceDuration} instead, which bounds duration
+ * by the latest evidence date rather than using the current date (R70.8).
  */
 export const experienceYears = (since?: ISODate): number | undefined => {
   if (since === undefined) return undefined;
   const ms = Date.parse(since as unknown as string);
   if (Number.isNaN(ms)) return undefined;
   const years = Math.round((Date.now() - ms) / (365.25 * 24 * 60 * 60 * 1000));
+  return Math.max(0, years);
+};
+
+/**
+ * Compute approximate years of experience bounded by actual evidence (R70.1, R70.8).
+ * Duration = lastEvidence − since (not now − since), preventing legacy technologies
+ * from showing misleading years (e.g. COBOL showing "~31 years" when last used in 1995).
+ *
+ * When `lastEvidence` is absent, falls back to the current date (skill is still active).
+ * Returns `undefined` when `since` is absent or unparseable.
+ */
+export const experienceDuration = (since?: ISODate, lastEvidence?: ISODate): number | undefined => {
+  if (since === undefined) return undefined;
+  const startMs = Date.parse(since as unknown as string);
+  if (Number.isNaN(startMs)) return undefined;
+  let endMs: number;
+  if (lastEvidence !== undefined) {
+    endMs = Date.parse(lastEvidence as unknown as string);
+    if (Number.isNaN(endMs)) endMs = Date.now();
+  } else {
+    endMs = Date.now();
+  }
+  const years = Math.round((endMs - startMs) / (365.25 * 24 * 60 * 60 * 1000));
   return Math.max(0, years);
 };
 

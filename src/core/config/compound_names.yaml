@@ -1,0 +1,17 @@
+# config/compound_names.yaml — known compound technology names (R15.5)
+# Entries that contain delimiter characters (like `/`) but must NOT be split
+# by the compound-skill splitter. Case-insensitive matching is used.
+# This file can be extended without code changes.
+compound_names:
+  - "CI/CD"
+  - "TCP/IP"
+  - "IDS/IPS"
+  - "OS/2"
+  - "OS/2 Warp"
+  - "L2/L3"
+  - "L2/L3 Networking"
+  - "Node.js"
+  - "C#"
+  - "C++"
+  - ".NET"
+  - "GitLab CI/CD"

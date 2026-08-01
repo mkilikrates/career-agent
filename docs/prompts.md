@@ -623,9 +623,16 @@ Produce a complete CV in Markdown with the following sections:
 2. Experience (employment entries with adjusted bullet emphasis for the role)
 3. Skills (ordered by relevance to this role)
 4. Education
-5. Core Competencies (if applicable)
+5. Certifications (if applicable)
+6. Core Competencies (if applicable)
+7. Awards (if applicable)
+
+Use the provided Name and Contact info for the header — do NOT use placeholders
+like [Full Name] or [Email].
 
 Confirmed career data:
+- Name: <user's name or omitted>
+- Contact: <contact lines joined, or omitted>
 - Professional summary: <summary text or "(none)">
 - Positions:
   - <title> at <company> (<dates>); technologies: <comma-separated>; achievements: <semicolon-separated>
@@ -634,10 +641,29 @@ Confirmed career data:
 - Education:
   - <degree> at <institution> (<dates>)
   - ...
+- Certifications:
+  - <name> (<issuer>)
+  - ...
+- Awards:
+  - <award value>
+  - ...
+- Nationality: <nationality values, or omitted>
 - Skills:
   - <skill name> (~<N> years)
   - ...
 ```
+
+The prompt now includes:
+- **Name and contact** (derived from the CvModel header or evidence header) so
+  the AI draft uses real data instead of "[Your Name]" placeholders.
+- **Education** with a fallback to eligible `education`-type items when the CvModel
+  field is empty.
+- **Certifications** from the CvModel or eligible `certification`-type items.
+- **Awards** from eligible `additional_info` items whose category matches "award".
+- **Nationality** from eligible `additional_info` items whose category matches
+  "nationalit…".
+- **Skill duration** computed as `lastEvidence − since` (not `now − since`), so
+  legacy skills report their actual usage window, not time since first use.
 
 - **Reply format**: a complete Markdown CV draft.
 - **Parser**: `parseCvDraft` — extracts the Markdown body and derives a short
@@ -671,13 +697,20 @@ Produce a complete CV in Markdown with the following sections:
    opportunity)
 3. Skills (ordered by relevance to this opportunity)
 4. Education
-5. Core Competencies (if applicable)
+5. Certifications (if applicable)
+6. Core Competencies (if applicable)
+7. Awards (if applicable)
+
+Use the provided Name and Contact info for the header — do NOT use placeholders
+like [Full Name] or [Email].
 
 Adapt emphasis and phrasing toward the Target Opportunity's language and
 priorities, but EXCLUDE any skill, metric, date, title, or employer appearing
 only in the Target Opportunity and not in confirmed evidence.
 
 Confirmed career data:
+- Name: <user's name or omitted>
+- Contact: <contact lines joined, or omitted>
 - Professional summary: <summary text or "(none)">
 - Positions:
   - <title> at <company> (<dates>); technologies: <comma-separated>; achievements: <semicolon-separated>
@@ -686,6 +719,13 @@ Confirmed career data:
 - Education:
   - <degree> at <institution> (<dates>)
   - ...
+- Certifications:
+  - <name> (<issuer>)
+  - ...
+- Awards:
+  - <award value>
+  - ...
+- Nationality: <nationality values, or omitted>
 - Skills:
   - <skill name> (~<N> years)
   - ...

@@ -224,7 +224,7 @@ describe('retire — mark rather than delete (R23.3, R23.2)', () => {
 
 // --- Talking-point polishing validation & fallback (R28.3, task 39.5) -------
 
-import { isPolishedQuality, deterministicSentenceTrim, ensurePolishedQuality } from './index';
+import { isPolishedQuality, deterministicSentenceTrim, ensurePolishedQuality, isAiSummaryQuality, ensureAiSummaryQuality } from './index';
 
 describe('isPolishedQuality — validates AI-produced polished text (R28.3)', () => {
   const rawInput =
@@ -345,5 +345,103 @@ describe('ensurePolishedQuality — validation with fallback (R28.3, task 39.5)'
     const bad = 'The service was fixed and error rates dropped.';
     const result = ensurePolishedQuality(bad, rawInput);
     expect(result).toMatch(/\bI\b/);
+  });
+});
+
+// --- AI summary quality validation (R28.3, R28.6, task 45.2) ----------------
+
+describe('isAiSummaryQuality — validates AI SUMMARY for polished talking point (R28.6, task 45.2)', () => {
+  // A multi-turn raw answer (the user's free-form messages concatenated).
+  const rawInput =
+    'At Finoa I was responsible for building the CI/CD pipeline from scratch. ' +
+    'We had manual deployments that took hours and were error-prone. ' +
+    'I designed and implemented a fully automated pipeline using GitHub Actions, Docker, and Kubernetes. ' +
+    'The result was that deployments went from 4 hours manual to 15 minutes automated with zero downtime.';
+
+  it('accepts a genuine AI summary even with high token overlap (task 45.2)', () => {
+    // This summary shares many tokens with the raw input because the AI is
+    // instructed to use ONLY the candidate's own words — this is expected.
+    const summary = 'I built a fully automated CI/CD pipeline at Finoa using GitHub Actions, Docker, and Kubernetes, reducing deployment time from 4 hours to 15 minutes with zero downtime.';
+    expect(isAiSummaryQuality(summary, rawInput)).toBe(true);
+  });
+
+  it('accepts a concise AI summary that is shorter than the raw input', () => {
+    const summary = 'I designed and implemented an automated CI/CD pipeline that cut deployment time from hours to minutes.';
+    expect(isAiSummaryQuality(summary, rawInput)).toBe(true);
+  });
+
+  it('rejects empty AI summary', () => {
+    expect(isAiSummaryQuality('', rawInput)).toBe(false);
+    expect(isAiSummaryQuality('   ', rawInput)).toBe(false);
+  });
+
+  it('rejects AI summary with filler prefix', () => {
+    expect(isAiSummaryQuality("Here's a polished version: I built a pipeline.", rawInput)).toBe(false);
+  });
+
+  it('rejects AI summary without first-person marker', () => {
+    expect(isAiSummaryQuality('The CI/CD pipeline was built at Finoa.', rawInput)).toBe(false);
+  });
+
+  it('rejects overly long AI summary (> 500 chars)', () => {
+    const long = 'I ' + 'automated the pipeline step by step. '.repeat(20);
+    expect(isAiSummaryQuality(long, rawInput)).toBe(false);
+  });
+
+  it('rejects AI summary with more than 4 sentences', () => {
+    const fiveSentences = 'I built a pipeline. I used Docker. I used Kubernetes. I automated deployments. I reduced downtime to zero.';
+    expect(isAiSummaryQuality(fiveSentences, rawInput)).toBe(false);
+  });
+
+  it('rejects a near-exact copy of the raw input (literal echo guard)', () => {
+    // Same length and ≥95% token overlap = literal echo.
+    expect(isAiSummaryQuality(rawInput, rawInput)).toBe(false);
+  });
+
+  it('accepts summary when raw input is very long (summary is much shorter)', () => {
+    const longRaw = rawInput + ' ' + rawInput + ' ' + rawInput;
+    const summary = 'I built a fully automated CI/CD pipeline at Finoa, cutting deployment from 4 hours to 15 minutes.';
+    expect(isAiSummaryQuality(summary, longRaw)).toBe(true);
+  });
+});
+
+describe('ensureAiSummaryQuality — AI summary validation with fallback (R28.6, task 45.2)', () => {
+  const rawInput =
+    'At Finoa I was responsible for building the CI/CD pipeline from scratch. ' +
+    'We had manual deployments that took hours and were error-prone. ' +
+    'I designed and implemented a fully automated pipeline using GitHub Actions, Docker, and Kubernetes. ' +
+    'The result was that deployments went from 4 hours manual to 15 minutes automated with zero downtime.';
+
+  it('returns valid AI summary unchanged — does NOT fall back to raw input (task 45.2 fix)', () => {
+    const aiSummary = 'I built a fully automated CI/CD pipeline at Finoa using GitHub Actions, Docker, and Kubernetes, reducing deployment time from 4 hours to 15 minutes with zero downtime.';
+    expect(ensureAiSummaryQuality(aiSummary, rawInput)).toBe(aiSummary);
+  });
+
+  it('falls back only when AI summary is truly empty', () => {
+    const result = ensureAiSummaryQuality('', rawInput);
+    expect(result.length).toBeGreaterThan(0);
+    expect(result).toMatch(/^I /);
+  });
+
+  it('falls back when AI summary has filler prefix', () => {
+    const bad = "Here's a polished version: I built the pipeline.";
+    const result = ensureAiSummaryQuality(bad, rawInput);
+    expect(result).not.toContain("Here's a polished version");
+  });
+
+  it('falls back when AI summary lacks first-person voice', () => {
+    const bad = 'The pipeline was automated at Finoa.';
+    const result = ensureAiSummaryQuality(bad, rawInput);
+    expect(result).toMatch(/\bI\b/);
+  });
+
+  it('does NOT reject a valid AI summary just because of high token overlap', () => {
+    // This is the core bug fix (task 45.2): the old ensurePolishedQuality would
+    // reject this summary due to high token overlap and fall back to raw input.
+    const summary = 'I was responsible for building the CI/CD pipeline from scratch at Finoa, designing and implementing automation with GitHub Actions and Kubernetes, reducing deployment time from 4 hours to 15 minutes.';
+    const result = ensureAiSummaryQuality(summary, rawInput);
+    // Must return the AI summary, NOT the raw input.
+    expect(result).toBe(summary);
+    expect(result).not.toEqual(rawInput);
   });
 });

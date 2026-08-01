@@ -68,7 +68,8 @@ describe('skill-map generate', () => {
     const docker = byName(map.entries, 'Docker')!;
     expect(docker.category).toBe('Tools');
     expect(docker.evidence[0].when).toBe(asISODate('2023-06'));
-    expect(docker.since).toBe(asISODate('2023-06'));
+    // since uses the employment START date (earliest evidence, R70.2) not end date.
+    expect(docker.since).toBe(asISODate('2021-01'));
 
     const spanish = byName(map.entries, 'Spanish')!;
     expect(spanish.category).toBe('Communication');
@@ -257,5 +258,56 @@ describe('skill-map generate', () => {
     // Regular technical skill still uses the keyword-based categoriser.
     const py = byName(map.entries, 'Python')!;
     expect(py.category).toBe('Technical');
+  });
+
+  it('R70.2/R71.20: since uses earliest employment start even when standalone extraction already set a later since', () => {
+    // Bug 9 scenario: "Terraform" has a standalone skill extraction with since=2024-05,
+    // but employment items show it was used from 2022-04. The since should be 2022-04.
+    const map = generate(
+      [
+        item('skill', { name: 'Terraform', since: '2024-05' }),
+        item('employment', {
+          employer: 'Fidelity',
+          title: 'Cloud Engineer',
+          technologies: ['Terraform'],
+          start: '2022-04',
+          end: '2024-03',
+        }),
+        item('employment', {
+          employer: 'Tripadvisor',
+          title: 'Platform Engineer',
+          technologies: ['Terraform'],
+          start: '2024-05',
+          end: '2024-11',
+        }),
+      ],
+      { asOf: AS_OF },
+    );
+
+    const tf = byName(map.entries, 'Terraform')!;
+    expect(tf).toBeDefined();
+    // since must reflect the earliest evidence: Fidelity start = 2022-04
+    expect(tf.since).toBe(asISODate('2022-04'));
+  });
+
+  it('R70.2: since from employment start overrides evidence-derived since when earlier', () => {
+    // A skill appears in employment starting 2019-03 but evidence only has end date 2021-12.
+    const map = generate(
+      [
+        item('employment', {
+          employer: 'Corp',
+          title: 'Dev',
+          technologies: ['Kubernetes'],
+          start: '2019-03',
+          end: '2021-12',
+        }),
+      ],
+      { asOf: AS_OF },
+    );
+
+    const k8s = byName(map.entries, 'Kubernetes')!;
+    expect(k8s).toBeDefined();
+    // since should be employment start (2019-03), not end date (2021-12)
+    expect(k8s.since).toBe(asISODate('2019-03'));
   });
 });

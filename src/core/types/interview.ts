@@ -35,6 +35,12 @@ export interface Question {
   skill?: SkillId;
   /** The identified gap term a `gap` question targets (R22.2). */
   gap?: SkillTerm;
+  /**
+   * The competencies/qualities an AI-generated question probes (R22.3, R62.3).
+   * Present only on AI-generated supplemental questions; deterministic script
+   * questions use the `skill` or `gap` field instead.
+   */
+  competencies?: string[];
 }
 
 /** Missing STAR-element flags raised during coaching (R25.1). */

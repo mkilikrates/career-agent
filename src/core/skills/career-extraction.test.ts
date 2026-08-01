@@ -13,9 +13,12 @@ import {
   splitCompoundSkills,
   normalizeDate,
   loadCompetencySynonyms,
+  loadCompoundNames,
   DEFAULT_COMPETENCY_SYNONYMS_YAML,
+  DEFAULT_COMPOUND_NAMES_YAML,
   CAREER_EXTRACTION_INSTRUCTION,
   stripNonAlpha,
+  mergeCompoundFragments,
 } from './career-extraction';
 import type {
   CareerExtraction,
@@ -887,6 +890,70 @@ describe('splitCompoundSkills', () => {
       const result = splitCompoundSkills(['ci/cd', 'tcp/ip']);
       expect(result).toEqual(['ci/cd', 'tcp/ip']);
     });
+
+    it('does not split OS/2', () => {
+      const result = splitCompoundSkills(['OS/2']);
+      expect(result).toEqual(['OS/2']);
+    });
+
+    it('does not split OS/2 Warp', () => {
+      const result = splitCompoundSkills(['OS/2 Warp']);
+      expect(result).toEqual(['OS/2 Warp']);
+    });
+
+    it('does not split L2/L3', () => {
+      const result = splitCompoundSkills(['L2/L3']);
+      expect(result).toEqual(['L2/L3']);
+    });
+
+    it('does not split L2/L3 Networking', () => {
+      const result = splitCompoundSkills(['L2/L3 Networking']);
+      expect(result).toEqual(['L2/L3 Networking']);
+    });
+  });
+
+  describe('fragment detection and merge-back (R15.6)', () => {
+    it('merges "OS" + "2 Warp" fragments back into "OS/2 Warp"', () => {
+      const result = mergeCompoundFragments(['OS', '2 Warp']);
+      expect(result).toEqual(['OS/2 Warp']);
+    });
+
+    it('merges "OS" + "2" fragments back into "OS/2"', () => {
+      const result = mergeCompoundFragments(['OS', '2']);
+      expect(result).toEqual(['OS/2']);
+    });
+
+    it('merges "L2" + "L3 Networking" fragments back into "L2/L3 Networking"', () => {
+      const result = mergeCompoundFragments(['L2', 'L3 Networking']);
+      expect(result).toEqual(['L2/L3 Networking']);
+    });
+
+    it('merges "L2" + "L3" fragments back into "L2/L3"', () => {
+      const result = mergeCompoundFragments(['L2', 'L3']);
+      expect(result).toEqual(['L2/L3']);
+    });
+
+    it('does not merge when compound is already present', () => {
+      const result = mergeCompoundFragments(['OS/2', 'OS', '2']);
+      expect(result).toEqual(['OS/2', 'OS', '2']);
+    });
+
+    it('preserves non-fragment entries alongside merged ones', () => {
+      const result = mergeCompoundFragments(['Docker', 'OS', '2 Warp', 'Kubernetes']);
+      expect(result).toEqual(['Docker', 'OS/2 Warp', 'Kubernetes']);
+    });
+
+    it('prefers longer compound name when both fragments match', () => {
+      // If "OS" and "2 Warp" are present, should merge to "OS/2 Warp" not "OS/2"
+      const result = mergeCompoundFragments(['OS', '2 Warp']);
+      expect(result).toEqual(['OS/2 Warp']);
+    });
+
+    it('splitCompoundSkills integrates fragment detection end-to-end', () => {
+      // Simulate: something upstream already split "OS/2 Warp" into "OS" + "2 Warp"
+      const result = splitCompoundSkills(['OS', '2 Warp', 'Docker']);
+      expect(result).toEqual(['OS/2 Warp', 'Docker']);
+    });
   });
 
   describe('deduplication and trimming', () => {
@@ -1699,6 +1766,38 @@ describe('loadCompetencySynonyms', () => {
     const yaml = 'synonym_groups:\n  - ["Solo"]';
     const map = loadCompetencySynonyms(yaml);
     expect(map.size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadCompoundNames (R15.5)
+// ---------------------------------------------------------------------------
+
+describe('loadCompoundNames', () => {
+  it('parses the default YAML and returns the full list', () => {
+    const names = loadCompoundNames(DEFAULT_COMPOUND_NAMES_YAML);
+    expect(names.length).toBeGreaterThan(0);
+    expect(names).toContain('CI/CD');
+    expect(names).toContain('TCP/IP');
+    expect(names).toContain('OS/2');
+    expect(names).toContain('OS/2 Warp');
+    expect(names).toContain('L2/L3');
+    expect(names).toContain('L2/L3 Networking');
+  });
+
+  it('returns an empty array for invalid YAML', () => {
+    const names = loadCompoundNames('not: valid: yaml: {{{}}}');
+    expect(names).toEqual([]);
+  });
+
+  it('returns an empty array for YAML without compound_names key', () => {
+    const names = loadCompoundNames('other_key:\n  - "foo"');
+    expect(names).toEqual([]);
+  });
+
+  it('filters out non-string entries', () => {
+    const names = loadCompoundNames('compound_names:\n  - "valid"\n  - 123\n  - "also valid"');
+    expect(names).toEqual(['valid', 'also valid']);
   });
 });
 

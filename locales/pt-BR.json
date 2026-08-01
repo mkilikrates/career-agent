@@ -342,6 +342,7 @@
       "capReached": "Você atingiu o limite de {{max}} acompanhamentos. Você pode se aprofundar com mais um acompanhamento ou parar aqui.",
       "digDeeper": "Aprofundar",
       "failed": "A assistência de IA ficou indisponível: {{reason}}. Sua resposta foi mantida — tente enviar novamente.",
+      "summarising": "Gerando resumo polido…",
       "summaryFailed": "Não foi possível gerar o resumo: {{reason}}. Você ainda pode confirmar um ponto de fala abaixo.",
       "summaryHeading": "Resumo da resposta",
       "competency": "Competência",
