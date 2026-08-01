@@ -84,7 +84,8 @@ Ingest → Skill Map → Role Discovery → Interview Coaching → Output Genera
 Four components offer optional AI help — Skill Mapper (skill discovery), Role Matcher (role recommendations), Interview Coach (STAR questions, educational summaries, the adaptive coaching loop), and Output Engine (CV tailoring). They share **one** opt-in-first contract:
 
 - **`script-only`** → a complete deterministic result with **zero** provider calls. This is always available and is the default trust-preserving path.
-- **`ai-assisted` / `ai-only`** → the deterministic baseline plus provider-derived supplements routed through the Egress Gate; AI output is presented as *suggestions* the user must confirm. On provider failure the orchestrator falls back to the baseline with a non-blocking error.
+- **`ai-only`** → the result is built purely from the AI output (R60.5). The deterministic pipeline is excluded from the result and serves only as an invisible fallback on actual provider failure. Specifically: the skill map generator skips normalisation/merge (the AI's consolidation is authoritative), `consolidateExtractionReduced` is not applied after a successful AI consolidation, and AI-extracted items are marked `userConfirmed` when accepted so they pass output eligibility.
+- **`ai-assisted` (both)** → the deterministic baseline plus provider-derived supplements routed through the Egress Gate; AI output is presented as *suggestions* the user must confirm. On provider failure the orchestrator falls back to the baseline with a non-blocking error.
 
 The chosen mode is a single pipeline-wide preference, surfaced up front on Ingest and persisted to the Memory Store (`config/assist_preference.md`).
 
