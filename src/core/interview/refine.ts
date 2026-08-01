@@ -80,7 +80,7 @@ const AI_FILLER_PREFIXES: readonly RegExp[] = [
 const MAX_POLISHED_SENTENCES = 4;
 
 /** Maximum character length for a polished talking point. */
-const MAX_POLISHED_LENGTH = 500;
+const MAX_POLISHED_LENGTH = 800;
 
 /**
  * Similarity ratio between two strings (0 = identical, 1 = completely different).

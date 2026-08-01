@@ -1105,7 +1105,8 @@ export async function perQuestionSummary(
   // AI-summary-specific validation that permits high token overlap with the raw
   // input (the model is instructed to use ONLY the candidate's own words, so
   // overlap is expected and does NOT indicate a verbatim copy). Falls back to a
-  // deterministic sentence-trimming only when the output truly fails quality.
+  // deterministic sentence-trimming only when the AI output truly fails quality
+  // (empty, filler-prefixed, or missing first-person voice).
   const validatedSummary = ensureAiSummaryQuality(parsed.summary, input.fullAnswer);
   return { ...parsed, summary: validatedSummary };
 }

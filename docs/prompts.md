@@ -251,8 +251,9 @@ Followed by `DOCUMENT CONTENT:` and the corpus chunk.
   schema (deduplicated), parsed by `parseCareerExtraction`. On failure, falls
   back to the reduced deterministic pass.
 - **Deterministic Safety Net** (`consolidateExtractionReduced`, applied after AI
-  consolidation or alone in script-only mode): performs ONLY exact
-  case-insensitive duplicate collapsing for skills, positions (by
+  consolidation in `ai-assisted` mode, or alone in `script-only` mode; **skipped
+  in `ai-only` mode after a successful AI consolidation**, R60.5): performs ONLY
+  exact case-insensitive duplicate collapsing for skills, positions (by
   company+title+start), per-position technologies, and competencies. Does NOT
   apply fuzzy matching, vendor-prefix stripping, or synonym resolution.
 - **Full Deterministic Consolidation** (`consolidateExtraction`, legacy):
@@ -313,9 +314,11 @@ Followed by `INPUT:` and the extraction data as JSON.
 - **Failure handling**: on error or unparseable response, the system falls back to
   `consolidateExtractionReduced` (exact case-insensitive dedup only) and logs a
   non-blocking warning.
-- **After AI consolidation**: `consolidateExtractionReduced` runs as a lightweight
-  safety net (exact case-insensitive dedup only — no fuzzy matching, no
-  vendor-prefix stripping, no synonym resolution).
+- **After AI consolidation**: in `ai-assisted` mode,
+  `consolidateExtractionReduced` runs as a lightweight safety net (exact
+  case-insensitive dedup only — no fuzzy matching, no vendor-prefix stripping, no
+  synonym resolution). In `ai-only` mode (R60.5), the AI result is used directly
+  without the deterministic pass — it only runs as a fallback on AI failure.
 
 ---
 

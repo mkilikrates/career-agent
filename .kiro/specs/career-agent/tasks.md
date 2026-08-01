@@ -1208,3 +1208,20 @@ These tasks were added after the original plan. Section 30 records work already 
 
 - [x] 46. Checkpoint — Batch-2 bug fixes complete
   - Ensure all tests pass (`npm run typecheck && npm test`), ask the user if questions arise.
+
+- [x] 47. AI-only mode: remove deterministic post-filtering (R60.5 enforcement)
+  - [x] 47.1 Mark AI extraction items as `userConfirmed` on acceptance
+    - In `SkillMapScreen.handleConfirmExtraction()`, set `userConfirmed: true` and add user-confirmation provenance on all items the user selects. This ensures employment, education, and other items pass `computeEligibility` for CV output (R11.3, R12.4).
+    - _Requirements: 11.3, 12.4, 60.5_
+  - [x] 47.2 Skip deterministic normalisation in skill map generation for AI-only
+    - Add `skipNormalisation` option to `generate()` in `@core/skills/skill-map.ts`. When `true`, bypass the conservative synonym/abbreviation/casing merge pipeline — each unique skill term (case-insensitive) maps directly to itself. Passed by `SkillMapScreen.handleGenerate()` when `assistMode === 'ai-only'`.
+    - _Requirements: 60.5_
+  - [x] 47.3 Skip deterministic consolidation after successful AI consolidation
+    - In `SkillMapScreen.handleAiSuggest()`, when `assistMode === 'ai-only'` and AI consolidation succeeds, use the AI result directly without running `consolidateExtractionReduced()` on top. The deterministic pass remains as a fallback only on AI failure.
+    - _Requirements: 60.5, 71.15, 71.18_
+  - [x] 47.4 Increase STAR polishing length limit
+    - Raise `MAX_POLISHED_LENGTH` from 500 to 800 in `refine.ts` so that valid AI-produced per-question summaries for substantial STAR answers are not incorrectly rejected by the deterministic quality gate and replaced with a raw-text fallback.
+    - _Requirements: 28.3, 28.6, 60.5_
+  - [x] 47.5 Auto-generate skill map on confirm/manual-add in AI-only mode
+    - In `SkillMapScreen`, when `assistMode === 'ai-only'`: (a) `handleConfirmExtraction` auto-generates the skill map immediately after the user confirms the AI extraction — no separate "Generate" button needed; (b) `handleAddManual` auto-regenerates to include new manual skills; (c) the "Generate Skill Map" button is hidden in AI-only mode since the map builds automatically on user actions. The user retains full ownership: they review/deselect items, add manual skills, and every action immediately reflects in the map.
+    - _Requirements: 60.5, 60.11_

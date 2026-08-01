@@ -83,6 +83,14 @@ export interface SkillMapOptions {
   readonly asOf?: ISODate;
   /** Injectable clock for the last-resort `asOf` fallback (testability). */
   readonly now?: () => Date;
+  /**
+   * Skip the conservative normalisation/merge pipeline (R60.5). When `true`,
+   * each skill term becomes its own entry without synonym/abbreviation/casing
+   * merges. Used in AI-only mode where the AI has already consolidated the
+   * skill list and the deterministic normaliser would incorrectly drop or merge
+   * distinct skills the AI deliberately kept separate.
+   */
+  readonly skipNormalisation?: boolean;
 }
 
 // --- Verification gate (R14.2) ---------------------------------------------
@@ -346,20 +354,37 @@ export const generate = (
 
   // 2. Conservative normalisation decides which surface terms fold together
   //    (R15/R16). Nothing absent from source is invented (R15.3).
-  const plan = normalise(
-    sourceTerms.map((s) => s.term),
-    confusables,
-  );
-
-  // Map every surface term to its surviving representative.
+  //    In AI-only mode (skipNormalisation), the AI has already consolidated the
+  //    skill list — applying the deterministic normaliser would incorrectly drop
+  //    or merge distinct skills the AI deliberately kept separate (R60.5).
   const repBySurface = new Map<string, SkillTerm>();
   const mergeByRep = new Map<string, MergeGroup>();
-  for (const merge of plan.merges) {
-    mergeByRep.set(asString(merge.into), merge);
-    for (const from of merge.from) repBySurface.set(asString(from), merge.into);
-  }
-  for (const skill of plan.skills) {
-    if (!repBySurface.has(asString(skill))) repBySurface.set(asString(skill), skill);
+
+  if (options.skipNormalisation) {
+    // AI-only path: each unique surface term (case-insensitive) maps to itself.
+    // No synonym/abbreviation/casing merges are applied — the AI's consolidation
+    // is the authoritative dedup (R60.5).
+    const seen = new Map<string, SkillTerm>();
+    for (const src of sourceTerms) {
+      const key = asString(src.term).toLowerCase().trim();
+      if (key.length === 0) continue;
+      if (!seen.has(key)) seen.set(key, src.term);
+      repBySurface.set(asString(src.term), seen.get(key)!);
+    }
+  } else {
+    const plan = normalise(
+      sourceTerms.map((s) => s.term),
+      confusables,
+    );
+
+    // Map every surface term to its surviving representative.
+    for (const merge of plan.merges) {
+      mergeByRep.set(asString(merge.into), merge);
+      for (const from of merge.from) repBySurface.set(asString(from), merge.into);
+    }
+    for (const skill of plan.skills) {
+      if (!repBySurface.has(asString(skill))) repBySurface.set(asString(skill), skill);
+    }
   }
 
   // 3. Group evidence per representative skill.

@@ -179,7 +179,13 @@ export function SkillMapScreen({
     const structuralExtras = structuralItems.filter(
       (it) => !baseIds.has(it.id as unknown as string),
     );
-    const map = generate([...base, ...userItems, ...structuralExtras]);
+    // In AI-only mode, skip the deterministic normalisation pipeline (R60.5):
+    // the AI has already consolidated the skill list via the AI consolidation
+    // prompt; applying the deterministic normaliser would incorrectly drop or
+    // merge distinct skills the AI deliberately kept separate.
+    const map = generate([...base, ...userItems, ...structuralExtras], {
+      skipNormalisation: assistMode === 'ai-only',
+    });
     onSkillMap(map);
     setStatus(t('skillMap.generated', { count: map.entries.length }));
   };
@@ -242,10 +248,18 @@ export function SkillMapScreen({
           const consolidationPrompt = buildConsolidationPrompt(merged);
           const consolidationReply = await aiAssist(consolidationPrompt);
           const aiConsolidated = applyAiConsolidation(merged, consolidationReply);
-          // Run reduced deterministic pass as safety net (exact case-insensitive only).
-          consolidated = consolidateExtractionReduced(aiConsolidated);
+          // In AI-only mode (R60.5), the AI's consolidation IS the result — do
+          // NOT run the deterministic pass on top of a successful AI call. The
+          // deterministic reduced pass only runs as a fallback on AI failure.
+          if (assistMode === 'ai-only') {
+            consolidated = aiConsolidated;
+          } else {
+            // In ai-assisted/both mode, run reduced deterministic pass as safety net
+            // (exact case-insensitive only).
+            consolidated = consolidateExtractionReduced(aiConsolidated);
+          }
         } catch {
-          // AI consolidation failed — fall back to full deterministic pass.
+          // AI consolidation failed — fall back to deterministic pass.
           console.warn('[SkillMap] AI consolidation failed, falling back to deterministic pass');
           consolidated = consolidateExtractionReduced(merged);
         }
@@ -314,14 +328,49 @@ export function SkillMapScreen({
       return true;
     });
 
-    onAddExtractions(finalItems);
+    // Mark all confirmed extraction items as userConfirmed (R60.5, R12.4):
+    // the user reviewing and accepting them IS the confirmation signal.
+    // This is critical for output eligibility — Medium confidence items without
+    // userConfirmed are excluded from CV generation by computeEligibility (R11.3).
+    const at = asISODate(new Date().toISOString());
+    const confirmedItems: ExtractedItem[] = finalItems.map((it) => ({
+      ...it,
+      userConfirmed: true,
+      provenance: [...it.provenance, userConfirmation(at, 'User confirmed during AI extraction review.')],
+    }));
+
+    onAddExtractions(confirmedItems);
     setExtractionReviewed(true);
-    setStatus(t('skillMap.ai.added', { count: finalItems.length }));
+    setStatus(t('skillMap.ai.added', { count: confirmedItems.length }));
     // Clear extraction UI to show the flat suggestions flow if needed.
     setCareerExtraction(null);
     setExtractionItems([]);
     setDedupSuggestions([]);
     setPostProcessing([]);
+
+    // In AI-only mode, auto-generate the skill map immediately after confirm
+    // (R60.5): the user's confirmation IS the final decision — no separate
+    // "Generate" step is needed. The map is rebuilt using the newly confirmed
+    // items (merged with any existing extractions + user-added skills).
+    if (assistMode === 'ai-only') {
+      // Build the item set as handleGenerate would, but using the updated list
+      // (current extractions + the just-confirmed items).
+      const allItems = [
+        ...extractions.filter(
+          (it) => (it.sourceDoc as unknown as string) !== (AI_DOC as unknown as string),
+        ),
+        ...confirmedItems,
+      ];
+      const isUser = (it: ExtractedItem): boolean =>
+        (it.sourceDoc as unknown as string) === (USER_DOC as unknown as string);
+      const isAi = (it: ExtractedItem): boolean =>
+        (it.sourceDoc as unknown as string) === (AI_DOC as unknown as string);
+      const aiItems = allItems.filter(isAi);
+      const userItems = allItems.filter(isUser);
+      const map = generate([...aiItems, ...userItems], { skipNormalisation: true });
+      onSkillMap(map);
+      setStatus(t('skillMap.generated', { count: map.entries.length }));
+    }
   };
 
   const toggleSuggestion = (name: string) =>
@@ -387,6 +436,22 @@ export function SkillMapScreen({
     onAddExtractions(added);
     setStatus(t('skillMap.manual.added', { count: added.length }));
     setManualText('');
+
+    // In AI-only mode, auto-regenerate the skill map to include the new manual
+    // skills immediately — the user owns the list, every addition takes effect
+    // without a separate "Generate" step.
+    if (assistMode === 'ai-only') {
+      const isAi = (it: ExtractedItem): boolean =>
+        (it.sourceDoc as unknown as string) === (AI_DOC as unknown as string);
+      const isUser = (it: ExtractedItem): boolean =>
+        (it.sourceDoc as unknown as string) === (USER_DOC as unknown as string);
+      const allItems = [...extractions, ...added];
+      const aiItems = allItems.filter(isAi);
+      const userItems = allItems.filter(isUser);
+      const map = generate([...aiItems, ...userItems], { skipNormalisation: true });
+      onSkillMap(map);
+      setStatus(t('skillMap.generated', { count: map.entries.length }));
+    }
   };
 
   return (
@@ -788,16 +853,18 @@ export function SkillMapScreen({
           </div>
 
           {/* Step 2 — FINALISE. Build the reviewed list into the skill map used
-              by the next stages. Placed AFTER discovery so the user finalises
-              once the candidate list is reviewed. */}
+              by the next stages. In AI-only mode, the map auto-generates on
+              confirm/manual-add so no separate button is needed. In script-only
+              or both mode, the user explicitly generates after reviewing. */}
           {assistMode === 'ai-only' ? (
             <Banner role="status" data-ai-only-label>
               <small>{t('skillMap.aiOnlyLabel')}</small>
             </Banner>
-          ) : null}
-          <p style={{ marginTop: tokens.spacing.md }}>
-            <Button onClick={handleGenerate}>{t('skillMap.generate')}</Button>
-          </p>
+          ) : (
+            <p style={{ marginTop: tokens.spacing.md }}>
+              <Button onClick={handleGenerate}>{t('skillMap.generate')}</Button>
+            </p>
+          )}
         </>
       )}
 

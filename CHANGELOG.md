@@ -5,6 +5,27 @@ All notable changes to Career Agent are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] — 2026-08-01
+
+### Fixed
+
+- **AI-only mode no longer applies deterministic post-filtering (R60.5)** — in
+  AI-only mode, the skill map generation now bypasses the conservative
+  synonym/abbreviation merge pipeline (`skipNormalisation`), `consolidateExtractionReduced`
+  is no longer applied on top of a successful AI consolidation, and AI extraction
+  items are marked `userConfirmed: true` when the user accepts them so they pass
+  eligibility for CV output. This resolves the issue where 192 AI-extracted skills
+  dropped to 131, and where the generated CV was empty because employment/education
+  items never reached output eligibility.
+- **AI-only skill map auto-generates on confirm** — in AI-only mode, clicking
+  "Confirm extraction" or adding manual skills now immediately builds the skill map
+  without a separate "Generate" button, removing confusion about what "Generate"
+  does when the AI already produced the result.
+- **STAR talking point polishing no longer silently discards AI summaries** —
+  raised `MAX_POLISHED_LENGTH` from 500 to 800 so that valid AI-produced per-question
+  summaries for substantial STAR answers are not incorrectly rejected by the
+  deterministic quality gate.
+
 ## [0.7.0] — 2026-08-01
 
 ### Fixed

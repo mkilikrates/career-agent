@@ -84,7 +84,8 @@ Ingest → Skill Map → Role Discovery → Interview Coaching → Output Genera
 Quatro componentes oferecem ajuda opcional de IA — Skill Mapper (descoberta de competências), Role Matcher (recomendações de funções), Interview Coach (perguntas STAR, resumos educativos, o laço adaptativo de treino) e Output Engine (personalização do currículo). Eles compartilham **um** contrato de adesão opcional primeiro:
 
 - **`script-only`** → um resultado determinístico completo com **zero** chamadas a provedor. Sempre disponível e é o caminho padrão que preserva a confiança.
-- **`ai-assisted` / `ai-only`** → a linha de base determinística mais complementos derivados do provedor, roteados pelo Portão de Saída; a saída de IA é apresentada como *sugestões* que o usuário deve confirmar. Em caso de falha do provedor, o orquestrador recua para a linha de base com um erro não bloqueante.
+- **`ai-only`** → o resultado é construído puramente a partir da saída de IA (R60.5). O pipeline determinístico é excluído do resultado e serve apenas como fallback invisível em caso de falha real do provedor. Especificamente: o gerador do mapa de competências pula normalização/merge (a consolidação da IA é autoritativa), `consolidateExtractionReduced` não é aplicado após uma consolidação de IA bem-sucedida, e itens extraídos pela IA são marcados como `userConfirmed` quando aceitos para que passem na elegibilidade de saída.
+- **`ai-assisted` (ambos)** → a linha de base determinística mais complementos derivados do provedor, roteados pelo Portão de Saída; a saída de IA é apresentada como *sugestões* que o usuário deve confirmar. Em caso de falha do provedor, o orquestrador recua para a linha de base com um erro não bloqueante.
 
 O modo escolhido é uma única preferência válida para todo o pipeline, apresentada logo no início, na Ingestão, e persistida no Repositório de Memória (`config/assist_preference.md`).
 

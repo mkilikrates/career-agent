@@ -1418,7 +1418,7 @@ A `.docx` is an Office Open XML ZIP. The `Ingestion_Engine` adds a `docx` format
 
 Mode semantics per phase:
 - **script-only** — deterministic detection only; zero provider calls.
-- **ai-only** — the result is built purely from the AI output; the deterministic detection is excluded from the result.
+- **ai-only** — the result is built purely from the AI output; the deterministic detection is excluded from the result. Specifically: (a) the Skill_Mapper's `generate()` receives `skipNormalisation: true` so the conservative synonym/abbreviation merge pipeline is bypassed — the AI's consolidation is the authoritative dedup; (b) after a successful AI consolidation call, `consolidateExtractionReduced()` is NOT applied on top (it runs only as a fallback on AI failure); (c) when the user confirms the AI extraction, items are marked `userConfirmed: true` so they pass `computeEligibility` for CV output; (d) the STAR talking-point quality validator trusts AI summaries up to 800 characters (sufficient for a proper 2–3 sentence STAR recap) without falling back to deterministic sentence-trimming.
 - **both** — the deterministic detection is passed to the AI, which **reviews/refines** it (keep/correct/drop/add). New review prompts: `buildReviewPrompt` (skills) and `buildRoleReviewPrompt` (roles) carry the parser's detections plus the evidence.
 
 **AI input is the full decoded text.** Because the chat LLM cannot parse PDF/DOCX binary, documents are decoded to text on-device first; AI skill discovery sends that full decoded text for both local and cloud destinations (falling back to structured items only when no decoded text is available, e.g. a LinkedIn ZIP or a resumed session). Privacy is enforced at the single Egress Gate by destination kind:
