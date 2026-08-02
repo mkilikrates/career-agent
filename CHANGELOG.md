@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.7.1] — 2026-08-01
 
+### Added
+
+- **P1 property tests for core domain invariants** — implemented 7 fast-check
+  property tests (minimum 200 iterations each) covering stable identifier
+  integrity & bi-directionality (Property 2), conservative skill-merge
+  guardrails & reversible merges (Property 4), Memory Store round-trip across
+  storage tiers (Property 5), ontological match resolution (Property 6),
+  employment gap detection (Property 8), conflict completeness & user authority
+  (Property 12), and user override supremacy (Property 18).
+- **P2 property tests for output, security, and session integrity** — implemented
+  9 fast-check property tests covering Markdown identifier round-trip &
+  non-printing (Property 11), state-healing detection completeness (Property 14),
+  content/delivery firewall metamorphic invariance (Property 15), coaching-loop
+  termination & outstanding-set correctness (Property 16), locale formatting &
+  verbatim-term preservation (Property 17), CV version immutability & diff
+  correctness (Property 13), send-control gating & payload composition
+  (Property 20), send-control decision persistence round-trip (Property 21),
+  and role-discovery payload minimisation (Property 22).
+- **P3 integration and example tests verified** — confirmed that the 8 P3
+  supplemental test tasks (4.5, 5.3, 8.12, 10.6, 11.5, 12.8, 16.3, 18.5) are
+  already fully covered by existing test files (storage tiers, BYOK flows,
+  ingestion, skill-map review, role discovery, coaching, localisation, privacy)
+  and marked complete.
+- **Remaining test tasks verified and closed** — audited and confirmed that all
+  remaining 16 optional test tasks across sections 14, 24, 27–33, 35–41 are
+  fully covered by existing test suites (1576 tests across 113 files). Wrote a
+  new enriched role-discovery payload test (task 41.10) and a send-control panel
+  rendering test (task 24.6). Zero optional test tasks remain.
+
 ### Fixed
 
 - **AI-only mode no longer applies deterministic post-filtering (R60.5)** — in

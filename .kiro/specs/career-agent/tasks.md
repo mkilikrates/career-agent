@@ -34,20 +34,20 @@ Every task references the requirements it implements. Each of the 18 Correctness
     - Use `remark`/`mdast` + `gray-matter` to read/write human-readable Markdown with embedded stable IDs as HTML anchor comments mirrored in frontmatter
     - Guarantee anchors do not render in printable output
     - _Requirements: 34.1, 34.2_
-  - [ ]* 3.2 Write property test for Markdown identifier round trip and non-printing
+  - [x] 3.2 Write property test for Markdown identifier round trip and non-printing
     - **Property 11: For any Markdown document containing embedded stable identifiers (anchor comments and/or frontmatter), parsing then re-serialising preserves every identifier and all content, and rendering the document to printable output contains none of the identifier anchors.**
     - **Validates: Requirements 34.2**
   - [x] 3.3 Implement the ID Registry and stable-ID assignment
     - Assign `BULLET-NN` and `STAR-NN` identifiers that are unique and never reused or renumbered; build the bi-directional skill↔accomplishment reference graph from frontmatter + anchors
     - Mark retired items rather than deleting them
     - _Requirements: 18.1, 18.3, 18.4, 23.1, 23.2, 23.3_
-  - [ ]* 3.4 Write property test for stable identifier integrity and bi-directionality
+  - [x] 3.4 Write property test for stable identifier integrity and bi-directionality
     - **Property 2: For any sequence of create / edit / retire operations on accomplishments and talking points, every assigned BULLET-NN and STAR-NN identifier is unique, is never reused or renumbered, and retired items remain present and marked rather than deleted; and for every skill→accomplishment link the reverse accomplishment→skill link resolves consistently.**
     - **Validates: Requirements 18.1, 18.3, 18.4, 23.1, 23.2, 23.3, 28.3**
   - [x] 3.5 Implement the state-healing pass in `@core/healing`
     - On a registry, verify all skill evidence references; flag broken references and prompt repair; detect duplicate IDs and prompt re-index; never throw; emit a `HealingReport`
     - _Requirements: 36.1, 36.2, 36.3_
-  - [ ]* 3.6 Write property test for state-healing detection completeness
+  - [x] 3.6 Write property test for state-healing detection completeness
     - **Property 14: For any Memory Store into which dangling identifier references and duplicate identifiers have been injected, the healing pass detects exactly those broken references and duplicates, flags them (prompting repair / re-index) rather than throwing, and a structurally clean store yields an empty healing report.**
     - **Validates: Requirements 36.1, 36.2, 36.3**
 
@@ -61,10 +61,10 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 4.3 Implement the fallback OPFS/IndexedDB tier with zip export/import
     - Persist via OPFS (binary) + `idb` (text/index); show the documented degraded-tier notice; implement one-click `.zip` export and import of the entire store; validate malformed archives and leave the existing store intact on failure
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 34.4_
-  - [ ]* 4.4 Write property test for Memory Store and session-state round trip
+  - [x] 4.4 Write property test for Memory Store and session-state round trip
     - **Property 5: For any Memory Store tree (and for any mid-question coaching session state), exporting/serialising and then importing/deserialising reconstructs an identical store/state, and the result is identical across the File System Access tier and the fallback tier.**
     - **Validates: Requirements 3.3, 3.4, 3.5, 25.4**
-  - [ ]* 4.5 Write integration tests for both storage tiers
+  - [x] 4.5 Write integration tests for both storage tiers
     - Mocked FS Access handle (select/write/lost-access re-prompt); fallback tier selection + degraded notice
     - _Requirements: 2.1, 2.4, 3.1, 3.2_
 
@@ -75,7 +75,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 5.2 Implement the pluggable Provider_Manager
     - Provider registry with README-style setup guidance; key validation via a test call with failure reporting and re-entry; store/remove encrypted keys; transmit a key only to its owning provider; ship no shared/built-in key
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 5.3, 5.4_
-  - [ ]* 5.3 Write integration tests for BYOK setup flows
+  - [x] 5.3 Write integration tests for BYOK setup flows
     - Valid-key and invalid-key paths with a mocked provider; verify no key persists to the Memory Store and removal deletes the encrypted key
     - _Requirements: 4.3, 4.4, 5.2, 5.4_
 
@@ -86,7 +86,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 6.2 Implement the single Egress Gate chokepoint
     - Route every outbound provider request through the gate: attach the third-party network-operation label, run PII pre-screening, notify category and offer redact-and-proceed, build the minimised Redacted Payload, then hand off to Provider_Manager; fail closed when screening cannot complete; transmit only to the user's chosen provider and never Memory Store file contents
     - _Requirements: 6.1, 6.3, 6.4, 7.1, 7.2, 7.3, 7.4_
-  - [ ]* 6.3 Write property test for redaction completeness and egress boundary
+  - [x]* 6.3 Write property test for redaction completeness and egress boundary
     - **Property 3: For any text payload containing seeded high-risk values (SSN, NINO, credit card, API key/token), the payload actually transmitted to a provider is produced only through the Egress Gate, contains none of the detected secret values, is the minimised redacted form, is addressed only to the user's chosen provider, includes no Memory Store file contents, and no detected secret is echoed into any generated output.**
     - **Validates: Requirements 6.1, 6.4, 6.5, 7.1, 7.2, 7.4**
 
@@ -106,28 +106,28 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 8.4 Implement structured extraction with confidence scoring and provenance
     - Extract employment, education, certifications, named skills, language proficiency, and quantified results with surrounding context; assign Confidence (High/Medium/Low); attach a provenance record to every item
     - _Requirements: 10.1, 10.2, 10.3, 11.1, 38.1_
-  - [ ]* 8.5 Write property test for employment gap detection
+  - [x] 8.5 Write property test for employment gap detection
     - **Property 8: For any chronologically ordered list of employment date ranges, every interval greater than three months between consecutive roles is detected and reported, and no interval of three months or less is reported.**
     - **Validates: Requirements 10.4, 13.1**
   - [x] 8.6 Implement multi-document reconciliation and conflict detection
     - Merge the richest description; record all conflicting values with sources; default recommendation to most-recent-for-recent / most-detailed-for-older; treat user-entered values as authoritative; log resolutions so conflicts are not re-presented
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
-  - [ ]* 8.7 Write property test for conflict completeness and user authority
+  - [x] 8.7 Write property test for conflict completeness and user authority
     - **Property 12: For any set of documents describing the same role, every field that differs across documents produces a conflict record listing all candidate values with their source documents (no value is silently chosen), the default recommendation follows the most-recent-for-recent / most-detailed-for-older rule, a user-entered value is always treated as authoritative over document-derived values, and a resolved conflict is not re-presented on a subsequent reload.**
     - **Validates: Requirements 9.1, 9.2, 9.3, 9.4, 9.5**
   - [x] 8.8 Implement output eligibility gating
     - Compute the eligible set as High-confidence + user-confirmed Medium + explicitly promoted Low, excluding private items; route Low items to a needs-review bucket; raise user-confirmed/edited items to highest reliability with user-confirmation provenance
     - _Requirements: 11.2, 11.3, 11.4, 12.3, 12.4_
-  - [ ]* 8.9 Write property test for output eligibility gating
+  - [x]* 8.9 Write property test for output eligibility gating
     - **Property 7: For any set of extracted items with mixed confidence, confirmation, and privacy flags, the set of items eligible to appear in outputs is exactly the High-confidence items plus user-confirmed Medium items plus explicitly promoted Low items, excluding every item marked private; and any user-confirmed or user-edited item carries highest reliability with a user-confirmation provenance.**
     - **Validates: Requirements 11.2, 11.3, 11.4, 12.3, 12.4**
   - [x] 8.10 Implement review/correction, gap handling, and user-override supremacy
     - Present a summary grouped by document; allow confirm/edit/delete/add and mark-private; present detected gaps with neutral framing and private/eligible annotation; exclude invented gap explanations and misleading date formatting; accept the user's version on any override and flag a concern at most once without refusing to proceed
     - _Requirements: 12.1, 12.2, 12.4, 13.1, 13.2, 13.3, 13.4, 39.1, 39.2_
-  - [ ]* 8.11 Write property test for user override supremacy
+  - [x] 8.11 Write property test for user override supremacy
     - **Property 18: For any field on which the user issues an override, the persisted value equals the user-supplied value, and any agent concern about that override is recorded at most once with no refusal to proceed.**
     - **Validates: Requirements 39.1, 39.2**
-  - [ ]* 8.12 Write example tests for ingestion behaviours
+  - [x] 8.12 Write example tests for ingestion behaviours
     - LinkedIn CSV fixtures, checklist, representative structured-field extraction, and review/correction UI capabilities
     - _Requirements: 8.2, 8.4, 10.1, 10.2, 10.3, 12.1, 12.2, 12.3_
 
@@ -138,7 +138,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 10.1 Implement conservative normalisation and confusables guardrails
     - Load `confusables.yaml` (extensible, no code change); merge only true synonyms/abbreviations/casing-or-spelling variants of the same skill; never merge confusable pairs or distinct named products by string similarity; never introduce sub-skills absent from source; add umbrella terms found in source as separate additional skills; keep uncertain pairs separate with one optional merge suggestion
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 16.1, 16.2, 16.3, 16.4_
-  - [ ]* 10.2 Write property test for conservative-merge guardrails and reversible merge
+  - [x] 10.2 Write property test for conservative-merge guardrails and reversible merge
     - **Property 4: For any set of skill terms, the normaliser merges two terms only when they are unambiguously the same skill, never merges a pair listed in confusables.yaml or two distinct named products on the basis of string similarity, never introduces a sub-skill absent from source, adds an umbrella term (when present in source) as a separate additional skill rather than a replacement, and for any merge that occurs a reversible MergeRecord exists such that a one-step split restores the original distinct terms.**
     - **Validates: Requirements 15.1, 15.2, 15.3, 15.4, 16.1, 16.2, 16.3, 19.3**
   - [x] 10.3 Implement skill-map generation with bi-directional evidence links
@@ -150,7 +150,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 10.5 Persist the confirmed skill map to the Memory Store
     - Save `skill_map.md` before advancing on user confirmation
     - _Requirements: 14.4_
-  - [ ]* 10.6 Write example tests for skill-map review
+  - [x] 10.6 Write example tests for skill-map review
     - Add-skill (role/project + when required), remove, split, and self-assessment separation
     - _Requirements: 19.2, 19.3, 19.4_
 
@@ -158,7 +158,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 11.1 Implement the taxonomy loader and ontological satisfaction
     - Load `taxonomy.yaml` (`implements`/`extends`, extensible); recognise a child skill as satisfying a required parent skill, affecting scoring only and never rewriting user phrasing
     - _Requirements: 17.1, 17.2, 17.3, 20.3_
-  - [ ]* 11.2 Write property test for ontological match resolution
+  - [x] 11.2 Write property test for ontological match resolution
     - **Property 6: For any taxonomy and skill map, when a target role requires a parent skill and the map contains a child skill defined as implements/extends of that parent, the matcher recognises the requirement as satisfied rather than reporting a gap.**
     - **Validates: Requirements 17.2, 20.3**
   - [x] 11.3 Implement role suggestion and match scoring
@@ -167,7 +167,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 11.4 Implement role preference capture and persistence
     - Accept/reject/add roles; rank and tag (actively_applying / exploring / practice_only); save `role_preferences.md`
     - _Requirements: 21.1, 21.2, 21.3_
-  - [ ]* 11.5 Write example tests for role discovery and preferences
+  - [x] 11.5 Write example tests for role discovery and preferences
     - Role-type categories and accept/reject/rank/tag capture
     - _Requirements: 20.1, 21.1, 21.2_
 
@@ -184,7 +184,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 12.4 Implement the content/delivery firewall
     - Analyse content separately from delivery; feed only content into the skill map and CV path; treat verbal tics, hesitations, accent, dialect, non-standard phrasing, and transcription artefacts as neutral
     - _Requirements: 27.1, 27.2_
-  - [ ]* 12.5 Write property test for the content/delivery firewall (metamorphic)
+  - [x] 12.5 Write property test for the content/delivery firewall (metamorphic)
     - **Property 15: For any answer transcript, augmenting it with delivery-only variations (filler words, hesitations, dialect or accent markers, transcription artefacts) yields an identical content analysis and an identical contribution to the skill map and CV path.**
     - **Validates: Requirements 27.1, 27.2**
   - [x] 12.6 Implement answer refinement, talking points, and retirement
@@ -193,7 +193,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 12.7 Implement skill-map update from interview answers
     - At session end, detect skills/roles/achievements not yet in the map; surface for explicit confirmation; on confirmation update the map with new evidence and STAR/accomplishment links
     - _Requirements: 29.1, 29.2, 29.3_
-  - [ ]* 12.8 Write example tests for coaching
+  - [x] 12.8 Write example tests for coaching
     - Question grounding and STAR summary rendering
     - _Requirements: 22.1, 28.1, 28.2_
 
@@ -219,10 +219,10 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 14.4 Implement the structured DOCX renderer
     - Generate a simplified structured rich-text DOCX (via `docx`) optimised for ATS upload, single-column with no layout tables/meaningful icons/text-in-images
     - _Requirements: 32.3, 32.4_
-  - [ ]* 14.5 Write property test for cross-format output fidelity
+  - [x] 14.5 Write property test for cross-format output fidelity
     - **Property 9: For any confirmed CvModel, the textual content extracted from the Markdown, Typst-Wasm PDF, and DOCX outputs is equal — no content is added, dropped, or altered between formats.**
     - **Validates: Requirements 32.5**
-  - [ ]* 14.6 Write property test for ATS-safe and accessible output structure
+  - [x] 14.6 Write property test for ATS-safe and accessible output structure
     - **Property 10: For any generated CV PDF or DOCX, the document uses a single-column linear reading order, exposes a selectable text layer, and contains no layout tables, no meaning-bearing icons, and no text embedded in images.**
     - **Validates: Requirements 32.4, 42.4**
   - [x] 14.7 Implement the advisory LinkedIn improvement report
@@ -231,13 +231,13 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 14.8 Implement CV versioning and diffing
     - Store each version as an immutable file by role slug + version number; on edit create a new version; produce a diff of accomplishments added/removed/reordered and skills re-emphasised
     - _Requirements: 33.1, 33.2, 33.3_
-  - [ ]* 14.9 Write property test for CV version immutability and diff correctness
+  - [x] 14.9 Write property test for CV version immutability and diff correctness
     - **Property 13: For any sequence of CV edits for a role, every previously stored version remains byte-identical and each edit yields a new version identifier; and for any two versions, the produced diff enumerates exactly the accomplishments added, removed, or reordered and the skills whose emphasis changed.**
     - **Validates: Requirements 33.1, 33.2, 33.3**
   - [x] 14.10 Implement locale-driven output formatting
     - Ask target country/region; apply locale date/number/currency/page-length/section-name conventions with per-convention override; preserve technical terms/tool names/proper nouns verbatim; default photo/age/marital-status to omitted unless explicitly opted in
     - _Requirements: 41.5, 41.6, 41.7_
-  - [ ]* 14.11 Write property test for locale formatting and verbatim-term preservation
+  - [x] 14.11 Write property test for locale formatting and verbatim-term preservation
     - **Property 17: For any output and any selected locale, listed technical terms, tool names, and proper nouns appear verbatim and untranslated; date, number, currency, page-length, and section-name conventions match the selected locale unless individually overridden; and locale-driven personal-data fields (photo, age, marital status) are omitted unless the user has explicitly opted in.**
     - **Validates: Requirements 41.5, 41.6, 41.7**
 
@@ -251,7 +251,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 16.2 Implement source-language-independent extraction
     - Extract content from source documents regardless of the Session Language
     - _Requirements: 41.4_
-  - [ ]* 16.3 Write example tests for localisation
+  - [x] 16.3 Write example tests for localisation
     - Language detect/confirm/store/apply and externalised-string loading
     - _Requirements: 41.1, 41.2, 41.3, 41.8_
 
@@ -265,7 +265,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 17.3 Implement re-entry triggers
     - New job description → parse to required/preferred skills, compare to map, identify gaps, propose tailored CV; new document → merge via Requirement 9 rules; post-interview debrief → update talking points and note gaps
     - _Requirements: 35.3, 35.4, 35.5_
-  - [ ]* 17.4 Write property test for coaching-loop termination and outstanding-set correctness
+  - [x] 17.4 Write property test for coaching-loop termination and outstanding-set correctness
     - **Property 16: For any coaching interaction, the per-question loop terminates exactly when the STAR answer is complete, the user invokes Soft-Close, or the user passes (no other exit), and a Soft-Closed answer always produces a persisted flagged point that reappears in the resume outstanding set; and for any Memory Store state, the resume summary's outstanding list equals exactly the union of unanswered questions, flagged talking points, unreviewed skill entries, and unresolved conflicts present in the store.**
     - **Validates: Requirements 24.4, 25.1, 25.2, 35.1**
 
@@ -273,7 +273,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 18.1 Implement the No_Fabrication_Harness
     - Maintain a fixture library of sample profiles including sparse and adversarial cases; extract every factual claim from a generated output and resolve each against the provenance index; fail any unresolved claim or invented skill/tool; exclude title-implied skills; require user confirmation before an item reaches final output; version the no-fabrication system prompt alongside its evaluation results
     - _Requirements: 37.1, 37.2, 37.3, 37.4, 40.1, 40.2, 40.3, 40.4_
-  - [ ]* 18.2 Write property test for No-Fabrication (every output claim resolves to provenance)
+  - [x]* 18.2 Write property test for No-Fabrication (every output claim resolves to provenance)
     - **Property 1: For any confirmed evidence set and any generated output (CV, LinkedIn report, talking point, or skill-map entry), every factual claim in that output resolves to at least one provenance record (a source document line, an explicit user confirmation, or a confirmed interview answer); no skill, metric, date, title, or employer name appears unless it is sourced or user-confirmed, and no skill is added solely because a job title implies it.**
     - **Validates: Requirements 13.3, 13.4, 14.2, 17.3, 29.2, 29.3, 30.1, 31.1, 37.1, 37.2, 37.3, 37.4, 38.1, 40.2, 40.3**
   - [x] 18.3 Wire the No-Fabrication harness as a dedicated CI suite
@@ -282,7 +282,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 18.4 Implement the privacy statement, consent gating, and network labels
     - Render the privacy statement (files stay on device; not fully offline due to Redacted Payload); label each third-party operation before it runs; exclude user data from training/improvement without explicit informed consent; prompt for clarification on incomplete/ambiguous documents
     - _Requirements: 1.3, 1.4, 7.3, 42.1, 42.2, 42.3_
-  - [ ]* 18.5 Write example tests for privacy and consent
+  - [x] 18.5 Write example tests for privacy and consent
     - Privacy notice render, consent gating, and clarify-on-ambiguity
     - _Requirements: 1.4, 42.1, 42.3_
 
@@ -448,13 +448,13 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 24.3 Wire the IngestScreen per-file send-control panel
     - Render a per-staged-file send-control panel that presents each Sensitive Detection individually with its category and offers whole-file vs per-detection allow/redact choices; show the explicit "no Sensitive Detections were found" notice when a file has no detections while still offering the whole-file option; persist the confirmed decision and reapply it when the same file is re-staged
     - _Requirements: 57.2, 57.8, 57.9_
-  - [ ]* 24.4 Write property test for send-control gating and payload composition
+  - [x] 24.4 Write property test for send-control gating and payload composition
     - **Property 20: For any staged file, any set of Sensitive Detections, and any destination kind: no payload is built or transmitted until a SendControlDecision is confirmed; a whole-file decision yields a payload equal to the full file content; a per-detection decision yields a payload containing exactly the user-allowed detection values and none of the redacted ones; for a keyed cloud destination every detection defaults to redacted and a detection value appears in the payload iff it was explicitly opted in; and for a keyless local destination the whole file (including sensitive values) may be sent.**
     - **Validates: Requirements 6.6, 57.1, 57.3, 57.4, 57.5, 57.6, 57.7, 57.10**
-  - [ ]* 24.5 Write property test for send-control decision persistence round trip
+  - [x] 24.5 Write property test for send-control decision persistence round trip
     - **Property 21: For any SendControlDecision, persisting the decision and then re-staging the same file reproduces an identical decision (same mode and same allowed-detection set), so the user's per-file and per-detection choices are reapplied without change.**
     - **Validates: Requirements 57.9**
-  - [ ]* 24.6 Write example tests for the send-control panel rendering
+  - [x] 24.6 Write example tests for the send-control panel rendering
     - Each detection rendered individually with its category; the no-detections notice with the whole-file option still offered
     - _Requirements: 57.2, 57.8_
 
@@ -466,7 +466,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
     - Route `Skill_Mapper`, `Role_Matcher`, `Interview_Coach`, and `Output_Engine` through the shared `AssistableOperation` so `script-only` calls `scriptOnly(...)` and never constructs an Egress request, while `ai-assisted` computes the baseline first then calls `aiAssisted(...)`; on provider failure fall back to the already-computed baseline with a non-blocking error, preserving phase state
     - Surface the pre-operation `script-only` vs `script + AI assist` choice on each phase screen alongside the network/privacy label for the destination
     - _Requirements: 14.5, 20.4, 22.4, 28.5, 30.7, 47.3, 47.7_
-  - [ ]* 25.3 Write property test for opt-in-first AI orchestration
+  - [x]* 25.3 Write property test for opt-in-first AI orchestration
     - **Property 19: For any AI-assistable operation (skill discovery, role discovery, STAR question generation, educational summary, or CV tailoring) and any input: (a) when the user selects script-only, the operation produces a complete deterministic result and issues zero provider calls; and (b) when the user selects ai-assisted, the result still contains the full deterministic baseline (AI supplements, never replaces it) and every AI suggestion requires explicit user confirmation before it enters the knowledge base.**
     - **Validates: Requirements 14.5, 14.6, 20.4, 20.5, 22.4, 22.5, 22.6, 28.5, 30.7, 47.3, 47.7, 47.8**
 
@@ -474,7 +474,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 26.1 Implement the employer-free role-discovery payload and AI recommendation
     - Implement `RoleDiscoveryPayload` (per-skill: user phrasing, approximate experience duration in months, category) plus `buildDiscoveryPayload(map, dest)` which derives the request from the skill map only, excludes every employer and company name, and includes an approximate per-skill experience duration so the model can infer a level of experience; implement `recommendRolesAi(map, dest)` which sends the payload through the Egress Gate and, for a keyed cloud (third-party) destination, excludes every item marked private; returned roles are suggestions the user must explicitly accept before they enter preferences
     - _Requirements: 20.6, 47.2, 47.4_
-  - [ ]* 26.2 Write property test for role-discovery payload minimisation
+  - [x] 26.2 Write property test for role-discovery payload minimisation
     - **Property 22: For any skill map, the role-discovery AI-assist payload contains no employer or company name and includes an approximate experience duration for every skill it carries; and for a keyed cloud (third-party) destination it excludes every item marked private.**
     - **Validates: Requirements 20.6, 47.2, 47.4**
 
@@ -491,10 +491,10 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 27.4 Implement the opt-in educational STAR summary
     - Implement `educationalSummary(answer, dest)` producing a teaching artefact that identifies the Situation, Task, Action, and Result components of the user's own answer and explains what a good STAR-format answer looks like; bind it strictly to the content of the user's answer so it invents no fact (No-Fabrication Rule), keep it distinct from and never a substitute for the polished talking point, and make the script-only path produce no provider call
     - _Requirements: 28.5, 28.6, 28.7, 28.8_
-  - [ ]* 27.5 Write integration tests for AI questions and in-browser recording
+  - [x] 27.5 Write integration tests for AI questions and in-browser recording
     - AI question generation (recruiter persona for the target position, supplement-not-replace, failure preserves coaching state); recording capture, microphone-denied fallback, no-STT-configured prompt preserving audio, and transcript → coaching loop + chat provider
     - _Requirements: 22.4, 22.6, 22.8, 26.4, 26.6, 26.7, 26.8, 26.10, 26.11_
-  - [ ]* 27.6 Write example tests for AI questions and the educational summary
+  - [x] 27.6 Write example tests for AI questions and the educational summary
     - AI-generated questions are practice prompts not gated by the No-Fabrication harness; educational STAR summary rendering (S/T/A/R identification distinct from the polished talking point)
     - _Requirements: 22.9, 28.7_
 
@@ -502,7 +502,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 28.1 Implement the CvRequest-based tailoring flow with script-only fallback
     - Change `generateCv` to a `CvRequest` signature; first ask whether the user has a Target Opportunity (upload or paste) to tailor toward, reachable from the new-CV re-entry point; implement `buildTailoringPayload(src, opp, dest)` that passes the Target Opportunity text through the Egress Gate with PII pre-screening and, for a keyed cloud (third-party) destination, excludes every item marked private; the AI tailors emphasis and ordering using only confirmed evidence; treat the Target Opportunity as a tailoring target and never a claim source, excluding any skill/metric/date/title/employer that appears only in the posting; when no opportunity is given, AI is declined, or the AI request fails, run the script-only path and indicate that script-only generation was used; wire the new-CV re-entry prompt
     - _Requirements: 30.5, 30.6, 30.7, 30.8, 30.9, 30.10, 35.6_
-  - [ ]* 28.2 Write integration tests for the opportunity-driven tailoring flow
+  - [x] 28.2 Write integration tests for the opportunity-driven tailoring flow
     - Target Opportunity intake (upload/paste); AI-declined and AI-failure fallback to script-only with the script-only indication; private-item exclusion for a keyed cloud destination
     - _Requirements: 30.5, 30.6, 30.7, 30.10_
   - Note: The No-Fabrication guarantee for Target-Opportunity-tailored CVs and educational STAR summaries is already covered by **Property 1** (task 18.2); no new property is added here — it ranges over these outputs.
@@ -523,7 +523,7 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 29.5 Implement the shared empty / loading / error state primitives
     - Implement a shared `ScreenState` used by all phase screens: empty state names at least one next action; loading indicator appears within 1 second of start and is removed on completion; error state describes the failure, names the recovery action, and retains the user's prior input without loss
     - _Requirements: 58.6, 58.7, 58.8_
-  - [ ]* 29.6 Write example/snapshot/integration and automated accessibility tests for the UI/UX
+  - [x] 29.6 Write example/snapshot/integration and automated accessibility tests for the UI/UX
     - Snapshot/example tests that each element type renders identically across screens and that `<PhaseChrome>` shows the phase name + next/previous on all seven screens; responsive rendering at representative widths (e.g. 360px, 768px, 1280px) asserting the layout variant and absence of horizontal overflow; automated accessibility checks (e.g. axe in jsdom) plus focus-order and contrast assertions; empty/loading/error state behaviours including state preservation on error. UI concerns are verified by example/snapshot/a11y tests, not property tests
     - _Requirements: 58.1, 58.2, 58.3, 58.4, 58.5, 58.6, 58.7, 58.8, 58.9, 58.10_
 
@@ -654,7 +654,7 @@ These tasks were added after the original plan. Section 30 records work already 
   - [x] 31.6 AI-mode coaching UI and script-only fallback
     - STAR explainer + question list (competency hidden) + selection + answer (type/record/upload) + follow-up loop with cap/dig-deeper + per-question summary; tidy the suggestion-list layout (heading and Add on their own rows); keep the deterministic guided loop for script-only
     - _Requirements: 63.1, 63.9_
-  - [ ]* 31.7 Tests for the coaching loop
+  - [x] 31.7 Tests for the coaching loop
     - Competency parsing; adequacy-reply parsing and loop termination at `ENOUGH=yes`, at the 3-follow-up cap, on user stop, and on user dig-deeper; summary-reply parsing; end-of-session detected-skills excludes in-map skills and requires confirmation; failure paths preserve coaching state
     - _Requirements: 63.2, 63.3, 63.4, 63.5, 63.6, 63.8_
   - [x] 31.8 Robust JSON-first, tolerant question parsing (R62.5 conformance fix)
@@ -683,10 +683,10 @@ These tasks were added after the original plan. Section 30 records work already 
     - Implement the `previewPayload` callback in the React shell (`App.tsx`/`runtime.ts`) as a modal that shows the exact text, lets the user freely edit/remove wording, and returns the approved text or `null` on cancel — mirroring the existing redact-and-proceed wiring; surface it before the third-party chat/LLM send across the AI-assist paths
     - Add all new user-facing strings to `locales/en.json` and `locales/pt-BR.json`
     - _Requirements: 65.1, 65.2, 65.4, 65.6_
-  - [ ]* 32.4 Write integration tests for the Payload Preview gate behaviour
+  - [x] 32.4 Write integration tests for the Payload Preview gate behaviour
     - Cloud chat send presents the preview; the user-approved edited text is what is transmitted; cancel transmits nothing and preserves state; PII pre-screening still runs on the approved text; keyless local provider skips the preview; ingestion (`requestIngestion`) and STT paths are unaffected
     - _Requirements: 65.1, 65.2, 65.3, 65.4, 65.5, 65.7_
-  - [ ]* 32.5 Write example tests for the Conversion Preview
+  - [x] 32.5 Write example tests for the Conversion Preview
     - Read-only rendering of converted text per document; low-confidence indication; discard + paste path; no-converted-text notice for a LinkedIn ZIP
     - _Requirements: 64.1, 64.2, 64.3, 64.5_
 
@@ -749,7 +749,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Update `docs/en/user-guide.md` and `docs/pt-BR/user-guide.md` to describe the card-based navigation, welcome page, settings page, save status, and resume screen
     - Update `docs/en/developer/project-structure.md` and `docs/pt-BR/developer/project-structure.md` for the new components
     - _Requirements: 66, 67, 68, 69_
-  - [ ]* 33.13 Tests for the UI redesign
+  - [x] 33.13 Tests for the UI redesign
     - View transitions: language → welcome (no session) / resume (session exists); welcome → settings → pipeline; resume → pipeline; sidebar nav switches views; Settings "Back" returns
     - Save-status: temporary-mode detection, notifySaved flash, indicator text
     - Progressive disclosure: coaching card renders only current step's controls; ingest card reveals extraction review only after upload
@@ -828,7 +828,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Add locale strings for the structured extraction review UI (en + pt-BR)
     - Update user-guide docs (both languages) to describe the AI extraction flow
     - _Requirements: 71_
-  - [ ]* 35.10 Tests for structured career extraction
+  - [x] 35.10 Tests for structured career extraction
     - JSON parse tolerance (clean, fenced, embedded in preamble); positions/education/skills mapping to ExtractedItems; education in termsFromItem; CV model employment grouping; role scoring with employment data
     - _Requirements: 71_
 
@@ -846,7 +846,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Add locale strings for zip export/import buttons and error messages (en + pt-BR)
     - Update user-guide docs (both languages)
     - _Requirements: 72_
-  - [ ]* 36.4 Tests for zip export/import
+  - [x] 36.4 Tests for zip export/import
     - Export produces a valid zip with canonical paths + JSON; import from zip restores full state; import from JSON still works; corrupt file shows error without data loss
     - _Requirements: 72_
 
@@ -887,7 +887,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Update user-guide docs (both languages) describing the richer extraction
     - Add CHANGELOG entry for bug fix and enhancement
     - _Requirements: 71_
-  - [ ]* 37.9 Tests for the rich ATS extraction
+  - [x] 37.9 Tests for the rich ATS extraction
     - JSON parse tolerance for new schema; new item types mapping; core competency distinction in skill map; CV model renders new sections only when confirmed; extensible `additional_info` capture
     - _Requirements: 71_
 
@@ -930,7 +930,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Update `docs/prompts.md` with the strengthened core-competency extraction instruction
     - Add CHANGELOG entries
     - _Requirements: 74, 41.8_
-  - [ ]* 39.7 Tests for post-processing quality
+  - [x] 39.7 Tests for post-processing quality
     - `normalizeDate`: month names (en/pt-BR), ranges, "Present", ISO passthrough, year-only
     - `splitCompoundSkills`: parenthetical, slash, allowlist preservation
     - Role scoring: user-added role with description matches skills, computes >0%
@@ -1046,24 +1046,24 @@ These tasks were added after the original plan. Section 30 records work already 
     - The draft is **advisory** — present for user review/confirmation before it replaces the deterministic CV (R30.11)
     - _Requirements: 30.9, 30.10, 30.11, 30.12, 30.13, 30.14_
 
-  - [ ]* 41.9 Tests for skill extraction dedup and consolidation
+  - [x]* 41.9 Tests for skill extraction dedup and consolidation
     - Unit tests for `consolidateExtraction`: vendor-prefix dedup (AWS S3 + S3 → S3 with earliest since), fuzzy position dedup (Senior SRE + Sr. Site Reliability Engineer at same company → richest kept), synonym competency dedup (Team Leadership + Leadership → Leadership)
     - Unit test that the updated `CAREER_EXTRACTION_INSTRUCTION` contains the atomic-naming instruction text
     - Property test: for any `CareerExtraction`, `consolidateExtraction` is idempotent (`consolidateExtraction(consolidateExtraction(x))` equals `consolidateExtraction(x)`)
     - _Requirements: 71.13, 71.15, 71.16, 71.17_
 
-  - [ ]* 41.10 Tests for role discovery enriched payload
+  - [x] 41.10 Tests for role discovery enriched payload
     - Unit tests for `buildDiscoveryPayload` with ATS data: job titles included, competencies included, education included, summary included, private items excluded for keyed-cloud
     - Unit test for `buildDiscoveryPrompt` output: contains "Previous roles:", "Core competencies:", "Education:", "Summary:" sections when data is provided
     - _Requirements: 20.6, 47.2_
 
-  - [ ]* 41.11 Tests for STAR questions multi-competency and full ATS context
+  - [x]* 41.11 Tests for STAR questions multi-competency and full ATS context
     - Unit tests for `parseQuestionPrompts`: parse `competencies` array field; backward compat with singular `competency` string; generic competency default when absent
     - Unit test for `buildCandidateProfile` with ATS data: output contains job titles, competencies, education, summary lines
     - Unit test for `buildStarQuestionsPrompt`: JSON schema instruction shows `"competencies"` array
     - _Requirements: 62.3, 62.5, 22.6_
 
-  - [ ]* 41.12 Tests for CV tailoring full ATS output
+  - [x]* 41.12 Tests for CV tailoring full ATS output
     - Unit test for `buildCvTailoringPrompt`: prompt requests a full Markdown CV draft, includes all career data, contains No-Fabrication instruction
     - Unit test for `buildTailoringPayload` with full career data: includes positions, competencies, education, summary, and Target Opportunity text
     - Unit test for the new `parseCvDraft` (or updated `parseTailoringNotes`): parses a multi-section Markdown CV response
@@ -1193,7 +1193,7 @@ These tasks were added after the original plan. Section 30 records work already 
     - Update `CHANGELOG.md` with Fixed entries for all 11 bugs
     - Update user-facing docs (both languages) where behaviour changed visibly
     - _Requirements: 41.8_
-  - [ ]* 45.11 Tests for batch-2 bug fixes
+  - [x]* 45.11 Tests for batch-2 bug fixes
     - Unit test: AI-generated questions are persisted to the interview file immediately upon receipt
     - Unit test: talking point `polished` field contains the AI summary, not raw input
     - Unit test: CV generation payload includes education, contact details, certifications, and additional_info
