@@ -21,6 +21,7 @@ The docs are split by who you are. Start here:
 
 ### 📘 I just want to use it — [User Guide](./docs/en/user-guide.md)
 A non-technical, step-by-step walkthrough: install Docker Desktop (Windows or macOS), run Career Agent on your own machine, and connect it to either a cloud AI provider (with your own key) or a fully local model — no terminal expertise required.
+Or go to https://kilikrates.io/ and select Career Angent on top menu.
 
 ### 🛠️ I want to understand or contribute to the code — Developer Docs
 - [Architecture & trust model](./docs/en/developer/architecture.md) — how it works, the Egress Gate, the six-phase pipeline, the No-Fabrication Rule.
