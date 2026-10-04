@@ -449,6 +449,7 @@
     "confirmAiDraft": "Confirmar rascunho da IA",
     "aiDraftActive": "Visualizando o rascunho gerado pela IA. Confirme-o para salvar, ou mude para a versão determinística.",
     "deterministicFallback": "Visualizando o currículo determinístico (nenhum rascunho de IA disponível).",
+    "draftFidelityWarning": "Este rascunho da IA menciona detalhes que não constam nas suas evidências confirmadas: {{facts}}. Revise-os antes de confirmar — confirme apenas se estiverem corretos, ou mude para a versão determinística.",
     "aiOnlyLabel": "Estrutura do currículo construída a partir das suas evidências confirmadas; a personalização por IA fornece sugestões orientativas.",
     "matchRationale": {
       "heading": "Detalhes do vínculo bullet–cargo",

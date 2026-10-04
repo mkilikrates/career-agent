@@ -449,6 +449,7 @@
     "confirmAiDraft": "Confirm AI draft",
     "aiDraftActive": "Viewing AI-tailored draft. Confirm it to persist, or switch to the deterministic view.",
     "deterministicFallback": "Viewing the deterministic CV (no AI draft available).",
+    "draftFidelityWarning": "This AI draft mentions details not found in your confirmed evidence: {{facts}}. Review them before confirming — confirm only if they are correct, or switch to the deterministic version.",
     "aiOnlyLabel": "CV structure built from your confirmed evidence; AI tailoring provides advisory suggestions.",
     "matchRationale": {
       "heading": "Bullet-to-position matching details",

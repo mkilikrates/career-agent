@@ -26,6 +26,7 @@
 
 import type { SkillMapEntry, TalkingPoint } from '@core/types';
 import type { ClaimRef } from '@core/provenance';
+import { kindOf } from '@core/registry';
 import type { CvModel, LinkedInReport } from '@core/output';
 
 /** Which supported output a claim was extracted from. */
@@ -81,12 +82,13 @@ export type GeneratedOutput =
 const asString = (v: unknown): string => v as unknown as string;
 
 /**
- * Classify an experience proof id by its stable prefix: `STAR-NN` talking points
+ * Classify an experience proof id by its stable kind: `STAR-NN` talking points
  * vs `BULLET-NN` accomplishments (R18.4, R23.2). A LinkedIn bullet carries only
- * the id, so this recovers the claim kind from it.
+ * the id, so this recovers the claim kind from it via the id registry's
+ * canonical classifier rather than an ad-hoc prefix test.
  */
 const proofKind = (id: ClaimRef): 'accomplishment' | 'talking-point' =>
-  asString(id).toUpperCase().startsWith('STAR') ? 'talking-point' : 'accomplishment';
+  kindOf(asString(id)) === 'STAR' ? 'talking-point' : 'accomplishment';
 
 /** Extract every factual claim asserted by a CV model (R30, R40.2). */
 const cvClaims = (model: CvModel): Claim[] => {
@@ -113,6 +115,18 @@ const cvClaims = (model: CvModel): Claim[] => {
       text: entry.title,
       origin: 'cv',
     });
+  }
+  // Employment positions assert a title + employer, exactly as LinkedIn does
+  // (R37.2, R40.2). Each is keyed on the confirmed item it was built from so the
+  // verifier resolves it against the same provenance the item carries. The
+  // synthetic "General" bucket has no `sourceId` and no employer/title claim, so
+  // it is skipped — its bullets are already covered via `model.experience`.
+  for (const entry of model.employmentEntries ?? []) {
+    if (entry.sourceId === undefined) continue;
+    const label = entry.company
+      ? `${entry.title} — ${entry.company}`
+      : entry.title;
+    claims.push({ ref: entry.sourceId, kind: 'employment', text: label, origin: 'cv' });
   }
 
   return claims;

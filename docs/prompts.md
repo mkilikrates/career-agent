@@ -759,8 +759,11 @@ Target Opportunity (tailoring target only — NOT a source of facts):
 - **File**: `src/core/no-fabrication/prompt-version.ts`
 - **Status**: **NOT sent to the model at runtime.** It is the versioned system
   prompt the offline No-Fabrication harness and CI suite use to regression-test
-  generated outputs against the provenance index. Editing it changes its content
-  hash, which forces a fresh evaluation run.
+  generated outputs. The harness applies a two-stage check per claim: (a) the
+  claim resolves against the provenance index, and (b) its text is *faithful* to
+  the confirmed source — it introduces no metric, date, title, or employer the
+  source does not contain (rephrasing is allowed). Editing this prompt changes
+  its content hash, which forces a fresh evaluation run.
 
 **`NO_FABRICATION_SYSTEM_PROMPT` (v1.0.0):**
 
@@ -781,4 +784,7 @@ You generate professional materials under a strict No-Fabrication Rule.
 > The same no-fabrication intent is enforced at runtime by embedding inline
 > "do not invent" instructions in each live prompt above, plus the deterministic
 > baseline-then-confirm flow (the user confirms every AI suggestion before it
-> enters the knowledge base).
+> enters the knowledge base). The Output Screen additionally audits an AI CV
+> draft against its confirmed deterministic baseline and, before you confirm,
+> surfaces any new metric/date/title/employer the draft added as a non-blocking
+> advisory — so a new fact is confirmed, never silently emitted.

@@ -15,9 +15,10 @@ import {
   type SkillMapEntry,
   type TalkingPoint,
 } from '@core/types';
-import { sourceLine, trailOf } from '@core/provenance';
+import { sourceLine, trailOf, userConfirmation } from '@core/provenance';
 import { buildReferenceGraph } from '@core/registry';
 import type { SkillMap } from '@core/skills';
+import { careerExtractionToItems } from '@core/skills';
 import { buildCvModel, cleanEmploymentTitle, deduplicateEmployment, headerFromAdditionalInfo, stripNonAlphaKey, NEEDS_METRIC_NOTE } from './cv-model';
 
 const doc = asDocId('cv.md');
@@ -1223,5 +1224,84 @@ describe('@core/output — buildCvModel populates header from additional_info it
     );
     const cv = buildCvModel(role([]), { skillMap: map, items: [summary] });
     expect(cv.professionalSummary).toBe('Senior engineer with 15 years experience.');
+  });
+});
+
+// Regression: the full "AI structured extraction → confirm → output" pipeline.
+// `careerExtractionToItems` produces Medium-confidence `userConfirmed:false`
+// items; the Skill Map review step marks the user-selected ones `userConfirmed:
+// true`. A prior UI bug confirmed only skills, so the CV came out with employment,
+// education, core competencies, and languages all empty. This asserts that once
+// the confirmed items reach `buildCvModel` via `evidence.items`, every ATS
+// category is surfaced (R71.21, R71.24).
+describe('@core/output — buildCvModel surfaces confirmed structured-extraction categories (R71.24)', () => {
+  const confirmAll = (items: ExtractedItem[]): ExtractedItem[] => {
+    const at = asISODate('2026-10-04');
+    return items.map((it) => ({
+      ...it,
+      userConfirmed: true,
+      provenance: [...it.provenance, userConfirmation(at, 'User confirmed during review.')],
+    }));
+  };
+
+  it('populates employment, education, core competencies, and languages from confirmed items', () => {
+    const items = confirmAll(
+      careerExtractionToItems({
+        professionalSummary: 'Platform engineer with 20+ years across cloud and networking.',
+        positions: [
+          {
+            title: 'Senior DevOps Engineer',
+            company: 'Finoa',
+            start: '2025-01',
+            end: '2026-04',
+            technologies: ['AWS', 'Kubernetes', 'Terraform'],
+          },
+        ],
+        education: [
+          { institution: 'UCD Smurfit', degree: 'MSc Leadership', start: '2020', end: '2023', skills: ['Leadership'] },
+        ],
+        skills: [{ name: 'AWS', since: '2012' }],
+        technicalSkills: [{ name: 'AWS', since: '2012' }],
+        coreCompetencies: ['Leadership', 'Strategic Planning'],
+        languages: [{ language: 'Portuguese', proficiency: 'Native' }],
+        hobbies: [],
+        causes: [],
+        additionalInfo: [{ category: 'Awards', value: 'Cisco Innovation Award 2010' }],
+      }),
+    );
+
+    // The skill map carries the confirmed skill so AWS is a surfaced skill.
+    const map = skillMapOf([skill('SKILL-aws', 'AWS')]);
+    const cv = buildCvModel(role([]), { skillMap: map, items });
+
+    // Employment is no longer empty.
+    expect(cv.employmentEntries?.length ?? 0).toBeGreaterThan(0);
+    expect(cv.employmentEntries?.[0]?.company).toBe('Finoa');
+    // Education, competencies, languages, professional summary all flow through.
+    expect(cv.education.map((e) => e.title)).toContain('MSc Leadership');
+    expect(cv.coreCompetencies).toEqual(['Leadership', 'Strategic Planning']);
+    expect(cv.languages?.map((l) => l.language)).toEqual(['Portuguese']);
+    expect(cv.professionalSummary).toContain('Platform engineer');
+  });
+
+  it('leaves categories empty when the extraction items are NOT confirmed (eligibility gate holds)', () => {
+    // Unconfirmed Medium items must NOT appear — this is the correct behaviour
+    // the confirm step unlocks; it is not the bug.
+    const items = careerExtractionToItems({
+      professionalSummary: undefined,
+      positions: [{ title: 'Engineer', company: 'Acme', start: '2020', technologies: ['AWS'] }],
+      education: [],
+      skills: [],
+      technicalSkills: [],
+      coreCompetencies: ['Leadership'],
+      languages: [],
+      hobbies: [],
+      causes: [],
+      additionalInfo: [],
+    });
+    const map = skillMapOf([skill('SKILL-aws', 'AWS')]);
+    const cv = buildCvModel(role([]), { skillMap: map, items });
+    expect(cv.employmentEntries ?? []).toHaveLength(0);
+    expect(cv.coreCompetencies ?? []).toHaveLength(0);
   });
 });

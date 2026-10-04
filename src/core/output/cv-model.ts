@@ -162,6 +162,14 @@ export interface CvEntry {
  * still appear with their technologies listed.
  */
 export interface CvEmploymentEntry {
+  /**
+   * The confirmed `employment` item this position was built from (R30.1). It is
+   * the provenance key the No-Fabrication harness resolves the position's
+   * title/employer claim against, symmetric with `LinkedInPosition.id` (R40.2).
+   * Absent only for the synthetic "General" bucket of unmatched bullets, which
+   * carries no employer/title claim of its own.
+   */
+  readonly sourceId?: ItemId;
   readonly title: string;
   readonly company: string;
   readonly dateRange?: string; // "2019-01 – 2022-06" formatted
@@ -520,6 +528,7 @@ const buildEmploymentEntries = (
   // Build the CvEmploymentEntry list. Positions with no matching bullets still
   // appear with their technologies listed (R71.7).
   const entries: CvEmploymentEntry[] = positions.map((pos) => ({
+    sourceId: pos.item.id,
     title: pos.title,
     company: pos.company,
     ...(pos.dateRangeStr !== undefined ? { dateRange: pos.dateRangeStr } : {}),

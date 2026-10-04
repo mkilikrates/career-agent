@@ -190,7 +190,11 @@ const termsFromItem = (item: ExtractedItem): SourceTerm[] => {
         .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
         .map((s) => ({ term: asSkillTerm(s.trim()), item, when: start }));
     }
-    case 'language': {
+    // Both the legacy `language` type and the structured-extraction
+    // `language_proficiency` type (R73.1e) carry a spoken language as a skill,
+    // noting the stated proficiency as source context (not a self-assessment).
+    case 'language':
+    case 'language_proficiency': {
       const language = typeof f.language === 'string' ? f.language.trim() : '';
       const proficiency = typeof f.proficiency === 'string' ? f.proficiency.trim() : undefined;
       return language

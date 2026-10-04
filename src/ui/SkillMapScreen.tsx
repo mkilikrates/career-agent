@@ -35,6 +35,7 @@ import {
   consolidateExtractionReduced,
   applyAiConsolidation,
   careerExtractionToItems,
+  AI_EXTRACTION_DOC,
   suggestAiDedups,
   buildRawDiscoveryCorpus,
   buildDiscoveryCorpus,
@@ -102,9 +103,26 @@ export interface SkillMapScreenProps {
   readonly t: (key: string, options?: Record<string, unknown>) => string;
 }
 
+// AI-sourced items come from two flows, each with its own source doc:
+//   - `AI_DOC` ('ai-suggested.md') — the flat "Suggest skills with AI" chips
+//     added via handleAddSelected;
+//   - `AI_EXTRACTION_DOC` ('ai-extraction.md') — the structured career
+//     extraction built by `careerExtractionToItems` (positions, education,
+//     skills, …).
+// The discovery-mode split must treat BOTH as AI-sourced; using only `AI_DOC`
+// silently dropped every structured-extraction item ("Generated 0 skill(s)").
 const AI_DOC = asDocId('ai-suggested.md');
 /** Source doc for skills the user typed in by hand (always kept, any mode). */
 const USER_DOC = asDocId('user-added.md');
+
+/** Whether an item came from either AI discovery flow (flat suggestion or structured extraction). */
+const isAiSourced = (it: ExtractedItem): boolean => {
+  const doc = it.sourceDoc as unknown as string;
+  return (
+    doc === (AI_DOC as unknown as string) ||
+    doc === (AI_EXTRACTION_DOC as unknown as string)
+  );
+};
 
 export function SkillMapScreen({
   extractions,
@@ -152,8 +170,7 @@ export function SkillMapScreen({
     //                   items if the AI review has not been run/accepted yet.
     // AI-discovered items are tagged with the AI source doc, so the split is a
     // simple, deterministic filter (no core change).
-    const isAi = (it: ExtractedItem): boolean =>
-      (it.sourceDoc as unknown as string) === (AI_DOC as unknown as string);
+    const isAi = isAiSourced;
     const isUser = (it: ExtractedItem): boolean =>
       (it.sourceDoc as unknown as string) === (USER_DOC as unknown as string);
     // Employment-type and education-type items are factual structure — always
@@ -355,17 +372,19 @@ export function SkillMapScreen({
     if (assistMode === 'ai-only') {
       // Build the item set as handleGenerate would, but using the updated list
       // (current extractions + the just-confirmed items).
+      // Replace any prior AI-sourced items with the freshly confirmed set
+      // (deduped by id so a re-confirm never double-counts), keeping everything
+      // non-AI (script + user) intact.
+      const confirmedIds = new Set(confirmedItems.map((it) => it.id as unknown as string));
       const allItems = [
         ...extractions.filter(
-          (it) => (it.sourceDoc as unknown as string) !== (AI_DOC as unknown as string),
+          (it) => !isAiSourced(it) && !confirmedIds.has(it.id as unknown as string),
         ),
         ...confirmedItems,
       ];
       const isUser = (it: ExtractedItem): boolean =>
         (it.sourceDoc as unknown as string) === (USER_DOC as unknown as string);
-      const isAi = (it: ExtractedItem): boolean =>
-        (it.sourceDoc as unknown as string) === (AI_DOC as unknown as string);
-      const aiItems = allItems.filter(isAi);
+      const aiItems = allItems.filter(isAiSourced);
       const userItems = allItems.filter(isUser);
       const map = generate([...aiItems, ...userItems], { skipNormalisation: true });
       onSkillMap(map);
@@ -388,6 +407,18 @@ export function SkillMapScreen({
       else next.add(id);
       return next;
     });
+
+  /**
+   * The real `ExtractedItem` id for the `index`-th review row of a given type.
+   * `careerExtractionToItems` emits items grouped by type in the SAME order the
+   * review UI iterates each `careerExtraction` array, so the i-th row of a type
+   * maps to the i-th item of that type in `extractionItems`. Every checkbox must
+   * bind to this real id — not a synthetic `${type}-${i}` string — otherwise
+   * `handleConfirmExtraction` (which selects by real id) silently drops the row
+   * and the category never reaches the CV/LinkedIn output (R71.21, R71.24).
+   */
+  const realItemId = (type: ExtractedItem['type'], index: number): string | undefined =>
+    extractionItems.filter((it) => it.type === type)[index]?.id as unknown as string | undefined;
 
   const setDedupDecision = (key: string, decision: 'merge' | 'keep') =>
     setDedupDecisions((prev) => {
@@ -441,12 +472,10 @@ export function SkillMapScreen({
     // skills immediately — the user owns the list, every addition takes effect
     // without a separate "Generate" step.
     if (assistMode === 'ai-only') {
-      const isAi = (it: ExtractedItem): boolean =>
-        (it.sourceDoc as unknown as string) === (AI_DOC as unknown as string);
       const isUser = (it: ExtractedItem): boolean =>
         (it.sourceDoc as unknown as string) === (USER_DOC as unknown as string);
       const allItems = [...extractions, ...added];
-      const aiItems = allItems.filter(isAi);
+      const aiItems = allItems.filter(isAiSourced);
       const userItems = allItems.filter(isUser);
       const map = generate([...aiItems, ...userItems], { skipNormalisation: true });
       onSkillMap(map);
@@ -505,9 +534,7 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.positions')}</h5>
                   <ul>
                     {careerExtraction.positions.map((pos, i) => {
-                      const itemId = extractionItems.find(
-                        (it) => it.type === 'employment' && (it.fields as { title?: string }).title === pos.title && (it.fields as { employer?: string }).employer === pos.company,
-                      )?.id as unknown as string | undefined;
+                      const itemId = realItemId('employment', i);
                       return (
                         <li key={`pos-${i}`}>
                           <label>
@@ -545,9 +572,7 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.education')}</h5>
                   <ul>
                     {careerExtraction.education.map((edu, i) => {
-                      const itemId = extractionItems.find(
-                        (it) => it.type === 'education' && (it.fields as { degree?: string }).degree === edu.degree && (it.fields as { institution?: string }).institution === edu.institution,
-                      )?.id as unknown as string | undefined;
+                      const itemId = realItemId('education', i);
                       return (
                         <li key={`edu-${i}`}>
                           <label>
@@ -585,9 +610,7 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.skills')}</h5>
                   <ul>
                     {careerExtraction.skills.map((skill, i) => {
-                      const itemId = extractionItems.find(
-                        (it) => it.type === 'skill' && (it.fields as { name?: string }).name === skill.name,
-                      )?.id as unknown as string | undefined;
+                      const itemId = realItemId('skill', i);
                       return (
                         <li key={`skill-${i}`}>
                           <label>
@@ -616,16 +639,23 @@ export function SkillMapScreen({
                 <>
                   <h5>{t('skillMap.extraction.professionalSummarySection')}</h5>
                   <ul>
-                    <li>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={extractionSelected.has('professional-summary')}
-                          onChange={() => toggleExtractionItem('professional-summary')}
-                        />{' '}
-                        {careerExtraction.professionalSummary}
-                      </label>
-                    </li>
+                    {(() => {
+                      const itemId = realItemId('professional_summary', 0);
+                      return (
+                        <li>
+                          <label>
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
+                            {careerExtraction.professionalSummary}
+                          </label>
+                        </li>
+                      );
+                    })()}
                   </ul>
                 </>
               ) : null}
@@ -635,15 +665,17 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.coreCompetencies')}</h5>
                   <ul>
                     {careerExtraction.coreCompetencies.map((comp, i) => {
-                      const compId = `core-competency-${i}`;
+                      const itemId = realItemId('core_competency', i);
                       return (
-                        <li key={compId}>
+                        <li key={`comp-${i}`}>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={extractionSelected.has(compId)}
-                              onChange={() => toggleExtractionItem(compId)}
-                            />{' '}
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
                             {comp}
                           </label>
                         </li>
@@ -658,15 +690,17 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.languagesSection')}</h5>
                   <ul>
                     {careerExtraction.languages.map((lang, i) => {
-                      const langId = `language-${i}`;
+                      const itemId = realItemId('language_proficiency', i);
                       return (
-                        <li key={langId}>
+                        <li key={`lang-${i}`}>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={extractionSelected.has(langId)}
-                              onChange={() => toggleExtractionItem(langId)}
-                            />{' '}
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
                             {t('skillMap.extraction.languageItem', { language: lang.language, proficiency: lang.proficiency })}
                           </label>
                         </li>
@@ -681,15 +715,17 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.hobbiesSection')}</h5>
                   <ul>
                     {careerExtraction.hobbies.map((hobby, i) => {
-                      const hobbyId = `hobby-${i}`;
+                      const itemId = realItemId('hobby', i);
                       return (
-                        <li key={hobbyId}>
+                        <li key={`hobby-${i}`}>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={extractionSelected.has(hobbyId)}
-                              onChange={() => toggleExtractionItem(hobbyId)}
-                            />{' '}
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
                             {hobby}
                           </label>
                         </li>
@@ -704,15 +740,17 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.causesSection')}</h5>
                   <ul>
                     {careerExtraction.causes.map((cause, i) => {
-                      const causeId = `cause-${i}`;
+                      const itemId = realItemId('cause', i);
                       return (
-                        <li key={causeId}>
+                        <li key={`cause-${i}`}>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={extractionSelected.has(causeId)}
-                              onChange={() => toggleExtractionItem(causeId)}
-                            />{' '}
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
                             {cause}
                           </label>
                         </li>
@@ -727,15 +765,17 @@ export function SkillMapScreen({
                   <h5>{t('skillMap.extraction.additionalInfoSection')}</h5>
                   <ul>
                     {careerExtraction.additionalInfo.map((info, i) => {
-                      const infoId = `additional-info-${i}`;
+                      const itemId = realItemId('additional_info', i);
                       return (
-                        <li key={infoId}>
+                        <li key={`info-${i}`}>
                           <label>
-                            <input
-                              type="checkbox"
-                              checked={extractionSelected.has(infoId)}
-                              onChange={() => toggleExtractionItem(infoId)}
-                            />{' '}
+                            {itemId ? (
+                              <input
+                                type="checkbox"
+                                checked={extractionSelected.has(itemId)}
+                                onChange={() => toggleExtractionItem(itemId)}
+                              />
+                            ) : null}{' '}
                             {t('skillMap.extraction.additionalInfoItem', { category: info.category, value: info.value })}
                           </label>
                         </li>

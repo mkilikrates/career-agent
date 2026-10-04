@@ -1793,8 +1793,14 @@ export function applyAiConsolidation(
 // Conversion: CareerExtraction → ExtractedItem[] (R71.3)
 // ---------------------------------------------------------------------------
 
-/** The canonical doc ID used for AI-extraction provenance. */
-const AI_DOC = asDocId('ai-extraction.md');
+/**
+ * The canonical doc ID used for AI structured-extraction provenance. Exported so
+ * the UI can recognise structured-extraction items by their `sourceDoc` when it
+ * splits the extraction list by discovery mode (keeping one source of truth, so
+ * the UI filter can never drift from the value `careerExtractionToItems` stamps).
+ */
+export const AI_EXTRACTION_DOC = asDocId('ai-extraction.md');
+const AI_DOC = AI_EXTRACTION_DOC;
 
 /**
  * Slugify a string for use in deterministic ItemId generation.

@@ -29,9 +29,23 @@ export type {
   GeneratedOutputKind,
 } from './claims';
 
-// The provenance-resolving verifier (R37, R40.2, R40.3).
+// The provenance-resolving verifier (R37, R40.2, R40.3) + fact fidelity (R37.5).
 export { verifyOutput } from './verify';
-export type { VerificationReport, VerifyOptions, ProvenanceLike } from './verify';
+export type {
+  VerificationReport,
+  VerifyOptions,
+  ProvenanceLike,
+  UnfaithfulClaim,
+} from './verify';
+
+// Fact-fidelity primitives (R37.5, R37.6, R40.2b).
+export {
+  extractFactTokens,
+  checkFidelity,
+  sourceTextOf,
+  auditDraftFidelity,
+} from './fidelity';
+export type { FactToken, FactTokenKind, FidelityResult } from './fidelity';
 
 // The fixture library (R40.1, R40.3).
 export { sampleProfiles, adversarialCases } from './fixtures';

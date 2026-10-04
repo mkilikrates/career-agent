@@ -26,6 +26,7 @@ import {
   type TypstCompiler,
 } from '@core/output';
 import { type AssistTransport, type EgressDestination } from '@core/assist';
+import { auditDraftFidelity, type FactToken } from '@core/no-fabrication';
 import { AssistChoice } from './AssistChoice';
 import { buildEgressDest } from './ui-utils';
 import { useAiOperation } from './useAiOperation';
@@ -88,6 +89,12 @@ export function OutputScreen({
   const [deterministicMarkdown, setDeterministicMarkdown] = useState<string>('');
   const [viewMode, setViewMode] = useState<'ai-draft' | 'deterministic'>('deterministic');
   const [aiDraftConfirmed, setAiDraftConfirmed] = useState(false);
+  // Fact-fidelity advisory for the AI draft (R37.5, R37.6): fact-bearing tokens
+  // (metrics, dates, titles, employers) the AI draft introduced that the
+  // confirmed deterministic baseline does not contain. Surfaced to the user
+  // before they confirm the draft, so a new fact is confirmed — never silently
+  // emitted or silently discarded (R37.6, R39). Empty when the draft is faithful.
+  const [draftNewFacts, setDraftNewFacts] = useState<readonly FactToken[]>([]);
 
   // Opt-in-first AI CV tailoring (R30.7): the pipeline-wide choice surfaced by
   // <AssistChoice>, plus advisory AI tailoring notes that never alter the
@@ -153,11 +160,16 @@ export function OutputScreen({
       setCvMarkdown(aiDraft);
       setViewMode('ai-draft');
       setAiDraftConfirmed(false);
+      // Audit the AI draft against the confirmed deterministic baseline for any
+      // new fact token it introduced (R37.5). Surfaced before confirmation so
+      // the user judges it (R37.6, R39); never blocks, never auto-applies.
+      setDraftNewFacts(auditDraftFidelity(aiDraft, detMd).unfaithfulTokens);
     } else {
       setAiDraftMarkdown('');
       setCvMarkdown(detMd);
       setViewMode('deterministic');
       setAiDraftConfirmed(false);
+      setDraftNewFacts([]);
     }
 
     const linkedInMd = evidence
@@ -358,6 +370,7 @@ export function OutputScreen({
             setDeterministicMarkdown('');
             setViewMode('deterministic');
             setAiDraftConfirmed(false);
+            setDraftNewFacts([]);
           }}
         >
           {rolePrefs.map((r) => (
@@ -518,6 +531,18 @@ export function OutputScreen({
                 </Button>
               ) : null}
             </Row>
+          ) : null}
+          {/* Fact-fidelity advisory (R37.5, R37.6): the AI draft introduced
+              fact-bearing tokens absent from the confirmed baseline. Non-blocking;
+              the user confirms or edits before the draft becomes final (R39). */}
+          {viewMode === 'ai-draft' && !aiDraftConfirmed && draftNewFacts.length > 0 ? (
+            <Banner role="alert" data-draft-fidelity-warning>
+              <small>
+                {t('output.draftFidelityWarning', {
+                  facts: draftNewFacts.map((f) => f.raw).join(', '),
+                })}
+              </small>
+            </Banner>
           ) : null}
           {aiDraftMarkdown.length > 0 ? (
             <Banner role="status" data-testid="view-mode-indicator">

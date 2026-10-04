@@ -132,3 +132,16 @@ describe('OutputScreen — AI draft toggle locale strings (R30.11, R30.12, R30.1
     }
   }
 });
+
+describe('OutputScreen — fact-fidelity advisory locale string (R37.5, R37.6)', () => {
+  for (const lang of SUPPORTED_LANGUAGES) {
+    it(`resolves output.draftFidelityWarning and interpolates {{facts}} in ${lang}`, async () => {
+      const i18n = await createI18n(lang);
+      const val = i18n.t('output.draftFidelityWarning', { facts: '90%, Globex' });
+      expect(val).not.toBe('output.draftFidelityWarning');
+      expect(val.length).toBeGreaterThan(0);
+      // The divergent facts are woven into the advisory for the user to judge.
+      expect(val).toContain('90%, Globex');
+    });
+  }
+});

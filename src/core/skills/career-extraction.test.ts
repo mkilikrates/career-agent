@@ -20,6 +20,7 @@ import {
   stripNonAlpha,
   mergeCompoundFragments,
 } from './career-extraction';
+import { generate } from './skill-map';
 import type {
   CareerExtraction,
   ExtractedPosition,
@@ -807,6 +808,46 @@ describe('careerExtractionToItems', () => {
     it('returns empty array for empty extraction', () => {
       const ext = extraction({});
       expect(careerExtractionToItems(ext)).toEqual([]);
+    });
+  });
+
+  // Regression: the structured-extraction items must feed the skill-map builder
+  // end-to-end. The items `careerExtractionToItems` produces carry
+  // `sourceDoc = 'ai-extraction.md'` and (for languages) `type:
+  // 'language_proficiency'`. A prior bug meant the UI filtered on the wrong
+  // source doc and `generate` ignored `language_proficiency`, so confirming an
+  // AI extraction yielded "Generated 0 skill(s)". These assert the pipeline
+  // actually produces skill entries.
+  describe('careerExtractionToItems → generate pipeline (0-skills regression)', () => {
+    it('produces skill-map entries from a typical extraction', () => {
+      const ext = extraction({
+        positions: [{ title: 'SRE', company: 'Acme', start: '2019', technologies: ['Kubernetes', 'Terraform'] }],
+        skills: [{ name: 'Python', since: '2017' }],
+        coreCompetencies: ['Leadership'],
+        languages: [{ language: 'Portuguese', proficiency: 'Native' }],
+      });
+      const items = careerExtractionToItems(ext);
+      // Items are AI-extracted (userConfirmed:false) but Medium confidence, so
+      // they are "verified" for skill-map purposes (Low is the only exclusion).
+      const map = generate(items, { skipNormalisation: true });
+      const names = map.entries.map((e) => e.name);
+      expect(map.entries.length).toBeGreaterThan(0);
+      expect(names).toContain('Python');
+      expect(names).toContain('Kubernetes');
+      expect(names).toContain('Terraform');
+      expect(names).toContain('Leadership');
+    });
+
+    it('includes a confirmed language_proficiency item as a skill entry', () => {
+      const ext = extraction({
+        languages: [{ language: 'Portuguese', proficiency: 'Native' }],
+      });
+      const items = careerExtractionToItems(ext).map((it) => ({
+        ...it,
+        userConfirmed: true, // simulate the "Add to Map" confirmation
+      }));
+      const map = generate(items, { skipNormalisation: true });
+      expect(map.entries.map((e) => e.name)).toContain('Portuguese');
     });
   });
 });

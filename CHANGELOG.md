@@ -5,6 +5,85 @@ All notable changes to Career Agent are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-10-04
+
+### Fixed
+
+- **CV/LinkedIn output came out with empty Experience, Education, Core
+  Competencies, and Languages sections (R71.21, R71.24)** — in the Skill Map
+  structured-extraction review, several categories' confirmation checkboxes were
+  bound to synthetic ids (`core-competency-0`, `language-0`,
+  `professional-summary`, `hobby-0`, `cause-0`, `additional-info-0`) that never
+  matched the real `ExtractedItem` ids the confirm step selects by. Those
+  categories were silently dropped at confirmation and never reached the output
+  phase, so the generated CV listed only skills while employment, education,
+  competencies, languages, and contact details appeared empty. Every review
+  checkbox now binds to the item's real id via a `realItemId(type, index)`
+  helper. The employment/education checkboxes additionally moved from a
+  field-match lookup (which could collide when two roles shared a title) to the
+  same robust index-based resolution.
+
+## [0.8.1] — 2026-10-04
+
+### Fixed
+
+- **Skill Map "Add to Map" produced "Generated 0 skill(s)" (R14.7, R71.9, R71.19)**
+  — the Skill Map screen split the extraction list by `sourceDoc` using the wrong
+  constant: it recognised only the flat AI-suggestion doc (`ai-suggested.md`) and
+  never the structured career-extraction doc (`ai-extraction.md`) that
+  `careerExtractionToItems` actually stamps. Confirmed structured-extraction items
+  therefore matched neither the AI nor the user filter and were dropped before
+  `generate()` ran, so the skill map came out empty. The AI-source predicate now
+  recognises both docs (via a new exported `AI_EXTRACTION_DOC` shared with the
+  core, so the UI filter can no longer drift from the stamped value), and the
+  AI-only confirm path dedupes replaced AI items by id.
+- **Confirmed language proficiencies never reached the skill map** — the skill-map
+  builder's term extractor matched only the legacy `language` item type, not the
+  `language_proficiency` type the structured extraction emits, so confirmed
+  languages were silently dropped. It now handles both.
+
+## [0.8.0] — 2026-10-03
+
+### Added
+
+- **Fact-fidelity verification in the No-Fabrication harness (R37.5, R40.2b)** —
+  `verifyOutput` now runs a two-stage check per claim: (a) the claim's stable id
+  resolves to provenance, and (b) the fact-bearing tokens in the claim's emitted
+  text (numbers/percentages/currency, dates, and proper-noun/employer/title
+  spans) are a subset of those in its confirmed source. A resolved id whose text
+  introduces a new metric, date, title, or employer now fails verification, while
+  rephrasing that introduces no new fact passes. New `unfaithful` list on
+  `VerificationReport`; new `starText` option threads confirmed STAR answer text
+  so interview-answer-backed claims are covered too. The source text is read
+  directly from the provenance trail — no fingerprint is stored (backward
+  compatible with existing Memory Stores).
+- **CV employment claims are now verified (R37.2)** — the claim extractor
+  enumerates each surfaced CV employment entry (title + employer) as a claim keyed
+  by its source `ItemId`, symmetric with the LinkedIn report path, so a fabricated
+  or altered employer in a CV is caught rather than silently skipped. Added
+  `CvEmploymentEntry.sourceId` to carry that key.
+- **Fact-fidelity advisory in the Output Screen (R37.6)** — before confirming an
+  AI-tailored CV draft, the app audits it against the confirmed deterministic
+  baseline and surfaces any new fact (metric/date/title/employer) the draft added
+  as a non-blocking advisory next to the confirm action, so the user confirms a
+  new fact rather than it being silently emitted. The emitted CV remains the
+  deterministic baseline; nothing auto-applies.
+- **Fact-fidelity tests** — new `fidelity.test.ts` (tokeniser, fidelity
+  comparison, provenance-trail source resolution, CV employment coverage, draft
+  audit, and a harness-level fidelity gate) and a fast-check property test for the
+  fact-fidelity clause of Correctness Property 1 (altered-fact fails,
+  rephrase-only passes; ≥100 iterations).
+
+### Changed
+
+- **No-Fabrication Rule now distinguishes fidelity from provenance** — a resolved
+  identifier is no longer sufficient on its own; its emitted text must also be
+  faithful to the confirmed source. A `user_confirmation` record is treated as an
+  attestation (the user is the owner and judge of their own facts, R39) and is not
+  compared, so user-confirmed items remain inherently faithful.
+- **`proofKind` classification** now uses the id registry's `kindOf` instead of a
+  raw `STAR` prefix check (no behavioural change).
+
 ## [0.7.1] — 2026-08-01
 
 ### Added

@@ -60,6 +60,7 @@ export {
   consolidateExtractionReduced,
   applyAiConsolidation,
   careerExtractionToItems,
+  AI_EXTRACTION_DOC,
   loadCompetencySynonyms,
   loadCompoundNames,
   DEFAULT_COMPETENCY_SYNONYMS_YAML,

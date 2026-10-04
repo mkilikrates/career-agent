@@ -511,6 +511,8 @@ The product's defining promise is trust: user files never leave the device, and 
 2. THE Career_Agent SHALL exclude from all outputs any metric, date, title, or employer name not found in source material or explicitly confirmed by the user.
 3. THE Career_Agent SHALL exclude from all outputs any skill implied solely by a job title without supporting evidence.
 4. THE Career_Agent SHALL present every output item to the user for confirmation before the item appears in a final output.
+5. THE Career_Agent SHALL treat as a fabrication any metric, date, title, or employer name that appears in a surfaced item's text but is absent from that item's confirmed source, even when the item's identifier resolves to a provenance record; rewording, reordering, and rephrasing of confirmed text that introduces no such new fact is permitted. For this comparison the "confirmed source" is the verbatim text behind the item — a source-document line or a confirmed interview answer. An explicit user confirmation is an attestation that the user, as the owner and judge of their own facts (Requirement 39), has already approved the item's text; an item backed solely by user confirmation is therefore inherently faithful and SHALL NOT be flagged by this criterion.
+6. WHEN a generated output introduces a new metric, date, title, or employer name under a resolved item (criterion 5), THE Career_Agent SHALL present that item to the user for confirmation before it appears in a final output, consistent with Requirement 39, rather than silently emitting or silently discarding it.
 
 ### Requirement 38: Auditability
 
@@ -537,9 +539,10 @@ The product's defining promise is trust: user files never leave the device, and 
 #### Acceptance Criteria
 
 1. THE No_Fabrication_Harness SHALL maintain a regression suite of sample profiles including sparse and ambiguous cases.
-2. FOR each generated output in the suite, THE No_Fabrication_Harness SHALL verify that every factual claim resolves to a source citation in the Memory Store and SHALL fail any output containing an unresolved claim.
+2. FOR each generated output in the suite, THE No_Fabrication_Harness SHALL verify that every factual claim both (a) resolves to a source citation in the Memory Store and (b) introduces no metric, date, title, or employer name absent from its confirmed source, and SHALL fail any output containing an unresolved claim or a claim that introduces such a new fact.
 3. THE No_Fabrication_Harness SHALL include adversarial cases that tempt inference and SHALL assert that no skills or tools are invented in those cases.
 4. THE No_Fabrication_Harness SHALL version the no-fabrication system prompt together with its evaluation results so prompt changes can be regression-tested.
+5. THE No_Fabrication_Harness SHALL include fidelity-adversarial fixtures in which a resolved claim's identifier is retained but a new fact-bearing token is introduced (e.g. an inflated metric or an invented employer), and SHALL assert those outputs fail; it SHALL also include rephrasing fixtures that introduce no new fact and SHALL assert those outputs pass.
 
 ### Requirement 41: Tier-1 Multilingual Support and Localised Formatting
 
@@ -979,12 +982,12 @@ The product's defining promise is trust: user files never leave the device, and 
 
 **Skill map integration:**
 
-19. THE Skill_Mapper SHALL link each skill in the skill map to the positions and education entries where it was used, so the user can see for any skill which jobs and courses evidenced it.
+19. THE Skill_Mapper SHALL link each skill in the skill map to the positions and education entries where it was used, so the user can see for any skill which jobs and courses evidenced it. WHEN the user confirms a structured extraction, THE Skill_Mapper SHALL contribute a skill-map entry for every confirmed skill-bearing extracted item — standalone `skill` items, the `technologies` of `employment` items, the `skills` of `education` items, `core_competency` items, and `language_proficiency` items — so a non-empty confirmed extraction never yields an empty skill map; the skill discovery mode (script-only / AI-assisted / AI-only) SHALL determine only which items are the source, never silently drop confirmed items of a supported type.
 20. THE Skill_Mapper SHALL derive the `since` date for each skill from the earliest date across ALL evidence sources in which that skill appears: the standalone skill extraction's `since` field, the start date of any position where the skill appears in `technologies`, and the start date of any education entry where the skill appears — using whichever is earliest among normalized ISO dates.
 
 **User review and confirmation:**
 
-21. THE Career_Agent SHALL present all extracted categories to the user for review and explicit confirmation before any item enters the knowledge base, consistent with the confirm-before-entry pattern in Requirements 12 and 47.3.
+21. THE Career_Agent SHALL present all extracted categories to the user for review and explicit confirmation before any item enters the knowledge base, consistent with the confirm-before-entry pattern in Requirements 12 and 47.3. The confirmation control for every reviewed category — employment, education, standalone skills, core competencies, professional summary, languages, hobbies, causes, and additional-info items — SHALL be keyed to the stable `ExtractedItem` id of the item it represents, so that confirming a category actually carries that category's items into the knowledge base; a reviewed-but-confirmed item of any supported category SHALL NOT be silently dropped before it reaches the output phase.
 22. THE Career_Agent SHALL NOT include any extracted item in any output unless the user has explicitly confirmed it, consistent with the No-Fabrication Rule in Requirement 37.
 
 **CV generation integration:**

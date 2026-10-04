@@ -140,7 +140,10 @@ const buildRichProfile = (): SampleProfile => {
   index
     .attach(asSkillId('SKILL-typescript'), sourceLine(cv, 4, 'TypeScript, 6 years'))
     .attach(asSkillId('SKILL-react'), interviewAnswer(asStarId('STAR-01')))
-    .attach(asBulletId('BULLET-01'), sourceLine(cv, 9, 'Migrated the billing platform'))
+    .attach(
+      asBulletId('BULLET-01'),
+      sourceLine(cv, 9, 'Migrated the billing platform, cutting latency 40%'),
+    )
     .attach(asStarId('STAR-01'), interviewAnswer(asStarId('STAR-01')))
     .attach(asItemId('ITEM-edu-01'), sourceLine(cv, 20, 'BSc Computer Science, 2016'))
     .attach(asItemId('ITEM-cert-01'), sourceLine(cv, 24, 'AWS Solutions Architect, 2022'))

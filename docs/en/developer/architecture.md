@@ -14,7 +14,7 @@ Everything else follows from these. Contributions must preserve all of them.
 
 1. **No backend.** All parsing, skill mapping, typesetting, and persistence run in the browser. No server receives or stores user data.
 2. **Single egress chokepoint.** No domain component calls a provider client directly. Every outbound provider request passes through the one **Egress Gate**, which applies PII pre-screening, operation labelling, and payload minimisation before anything leaves the device.
-3. **No-Fabrication Rule.** Every factual claim in generated output must resolve to a provenance record — a source-document line, an explicit user confirmation, or a confirmed interview answer. Nothing is invented; a job title alone never implies a skill.
+3. **No-Fabrication Rule.** Every factual claim in generated output must resolve to a provenance record — a source-document line, an explicit user confirmation, or a confirmed interview answer — *and* its text must be faithful to that source: a resolved claim whose text adds a new metric, date, title, or employer the source does not contain is a fabrication too. Rephrasing confirmed facts is fine; inventing them is not. Nothing is invented; a job title alone never implies a skill.
 4. **Provenance is mandatory.** Every fact carries a citation from the moment of extraction. Output can only emit facts that carry provenance.
 5. **The Memory Store stays on the device.** It is human-readable Markdown owned by the browser; it is never written or received by a server, container, or host-mounted volume in any Run Mode.
 6. **Markdown is the database.** The Memory Store *is* the canonical state; in-memory objects are a hydrated projection that must round-trip losslessly.
@@ -96,7 +96,7 @@ The chosen mode is a single pipeline-wide preference, surfaced up front on Inges
 
 ## No-Fabrication harness
 
-The executable backbone of the No-Fabrication Rule: a CI suite over a fixture library (including sparse and adversarial profiles) that extracts every factual claim from generated output, resolves each against the provenance index, and fails the build on any unresolved claim or invented skill/tool. New output paths must be covered by it.
+The executable backbone of the No-Fabrication Rule: a CI suite over a fixture library (including sparse and adversarial profiles) that extracts every factual claim from generated output and applies a two-stage check — (a) the claim resolves against the provenance index, and (b) the fact-bearing tokens in its text (numbers, dates, titles, employers) are a subset of those in its confirmed source. It fails the build on any unresolved claim, any claim that introduces a new fact, or any invented skill/tool. The fidelity source is read straight from the provenance trail; a `user_confirmation` is an attestation (the user is judge) and is not compared. New output paths must be covered by it. In the **live app** the same fidelity check is not a hard failure — the Output Screen audits an AI CV draft against its confirmed deterministic baseline and surfaces any new fact as a non-blocking advisory before the user confirms the draft, keeping the human as judge (the emitted CV is always the deterministic baseline).
 
 ## Transparency principles
 

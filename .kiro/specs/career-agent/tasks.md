@@ -285,6 +285,21 @@ Every task references the requirements it implements. Each of the 18 Correctness
   - [x] 18.5 Write example tests for privacy and consent
     - Privacy notice render, consent gating, and clarify-on-ambiguity
     - _Requirements: 1.4, 42.1, 42.3_
+  - [x] 18.6 Implement fact-fidelity verification in `verifyOutput`
+    - Add a deterministic fact-token extractor (numbers/percents/currency, dates, proper-noun/employer/title spans) with normalised comparison; derive each resolved claim's confirmed source text from its provenance trail and fail the claim when its emitted text introduces a fact-bearing token absent from that source; add `unfaithful` to `VerificationReport`; a `user_confirmation` record is an attestation (user is judge, R39) and is not compared; degrade to resolution-only when no comparable source text exists (backward compatible)
+    - _Requirements: 37.5, 40.2_
+  - [x] 18.7 Surface live-app fidelity divergences in confirm-before-output (b2)
+    - The live app never auto-applies AI-generated facts: the emitted `CvModel` is always the deterministic baseline from confirmed evidence, and the AI draft persists only on an explicit user confirmation (`OutputScreen` `handleConfirmAiDraft`). Add a non-blocking fidelity audit (`auditDraftFidelity`) that compares the AI draft against the confirmed deterministic baseline and surfaces any new fact-bearing token in the confirm step, so the user confirms a new fact rather than it being silently emitted or silently discarded; the harness remains the hard-fail gate in CI
+    - _Requirements: 37.6, 39.1_
+  - [x] 18.8 Extract CV employment entries as claims
+    - Add employment-entry extraction to `cvClaims` (title + employer, keyed by the source `ItemId` carried on `CvEmploymentEntry.sourceId`), symmetric with `linkedInClaims`
+    - _Requirements: 37.2, 40.2_
+  - [x]* 18.9 Fidelity property + harness fixtures
+    - Added **Property 23** (`fidelity.property.test.ts`): a resolved bullet that injects a new fact token fails; a rephrase carrying only the source fact tokens passes (both ≥100 runs). Added `fidelity.test.ts` unit coverage for the tokeniser, `checkFidelity`, `sourceTextOf` (document / interview-answer-via-starText / user-confirmation degrade), the `verifyOutput` fidelity stage, CV-employer fabrication, and `auditDraftFidelity`; plus a harness-level fidelity-adversarial gate (retained id + invented employer fails, matching employer passes)
+    - _Requirements: 40.2, 40.5_
+  - [x]* 18.10 Replace `proofKind` string prefix with the registry classifier
+    - Use `@core/registry`'s `kindOf` instead of `startsWith('STAR')` in `claims.ts`; no behavioural change
+    - _Requirements: 18.4, 23.2_
 
 - [x] 19. UI shell wiring and integration
   - [x] 19.1 Wire the phase wizard and review screens to the orchestrator
